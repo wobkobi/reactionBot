@@ -6,14 +6,14 @@ from interactions import (
     listen,
     OptionType,
     Emoji,
-    MessageCreate
+    MessageCreate,
 )
 import json
 
 
-TOKEN = os.getenv('DISCORD_TOKEN')  
-GUILD_ID = int(os.getenv('GUILD_ID'))  
-YOUR_ID = int(os.getenv('YOUR_ID'))
+TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID = int(os.getenv("GUILD_ID"))
+YOUR_ID = int(os.getenv("YOUR_ID"))
 STINKY_PEOPLE = "stinky.json"
 REACTED_MESSAGES_FILE = "reacted_messages.json"
 
@@ -43,7 +43,7 @@ async def on_ready():
     print(f"Connected to {len(bot.guilds)} guilds")
 
 
-@bot.listen('MessageCreate')
+@bot.listen("MessageCreate")
 async def on_message_create(event: MessageCreate):
     message = event.message
     if (
@@ -52,18 +52,20 @@ async def on_message_create(event: MessageCreate):
         and str(message.author.id) in stinky_people
     ):
         emoji_name = stinky_people[str(message.author.id)]
-        
+
         # Get all emojis of the guild using the provided method
-        all_guild_emojis = await Emoji.get_all_of_guild(guild_id=message.guild.id, client=bot._http)
+        all_guild_emojis = await Emoji.get_all_of_guild(
+            guild_id=message.guild.id, client=bot._http
+        )
 
         # Find the emoji in the list of guild emojis by its name
         emoji = next((e for e in all_guild_emojis if e.name == emoji_name), None)
-        
+
         if emoji:
             # Use the `format` property of the Emoji model to get a send-able form of the emoji
             sendable_emoji = emoji.format
             await message.add_reaction(sendable_emoji)
-            
+
             reacted_messages.setdefault(str(message.author.id), []).append(message.id)
             save_data(REACTED_MESSAGES_FILE, reacted_messages)
 
@@ -100,13 +102,13 @@ async def set_emoji(
             "description": "Emoji to associate with the user",
             "type": OptionType.STRING,
             "required": False,
-        }
+        },
     ],
 )
 async def add(
-    ctx: interactions.SlashCommandChoice, 
+    ctx: interactions.SlashCommandChoice,
     user: interactions.Member,
-    emoji: str = ":mad:"
+    emoji: str = ":mad:",
 ):
     if ctx.user.id == YOUR_ID:
         stinky_people[str(user.id)] = emoji
@@ -116,7 +118,6 @@ async def add(
         await ctx.send(
             "You do not have permission to run this command!", ephemeral=True
         )
-
 
 
 @slash_command(
