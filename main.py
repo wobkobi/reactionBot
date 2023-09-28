@@ -369,6 +369,3 @@ async def _help(ctx):
 
 
 bot.run(TOKEN)
-
-
-bot.run(TOKEN)
