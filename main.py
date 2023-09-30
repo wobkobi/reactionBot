@@ -16,7 +16,10 @@ REGEX_NWORD_HARDR = re.compile(r"\b(n*[1i!l]+[g9]{2,}[3e]+[r5]+s*)", re.IGNORECA
 REGEX_NWORD = re.compile(r"\b(n*[1i!l]+[g9]{2,}[a4]+s*)", re.IGNORECASE)
 DRAMA_LLAMA = re.compile(r"(?:l+|d+r+)a+m+a", re.IGNORECASE)
 NWORD = "🇳 🇼 🇴 🇷 🇩"
-GIRLS = re.compile(r"t+h+e+ +g+i+r+l+s+ +a+r+e+", re.IGNORECASE)
+GIRLS = re.compile(
+    r"\b(s+?l+?a+?y+?|g+?i+?v+?i+?n+?g+?|q+?u+?e+?e+?n+?|y+?a+?s+?s*?|the\s+girls\s+are(n't)?\s+.*?|s+?n+?a+?t+?c+?h+?e+?d+?|o+?n+?\s+f+?l+?e+?e+?k+?|l+?i+?t+?|b+?a+?e+?|g+?o+?a+?l+?s+?|s+?q+?u+?a+?d+?|f+?i+?r+?e+?|t+?e+?a+?|g+?o+?\s+o+?f+?f+?|p+?o+?p+?\s+o+?f+?f+?|p+?e+?r+?i+?o+?d+?|g+?i+?r+?l+?\s+.*?|f+?l+?e+?e+?k+?|s+?i+?s+?t+?e+?r+?s+?)\b",
+    re.IGNORECASE,
+)
 
 
 # Load data for a specific server
@@ -210,7 +213,7 @@ async def remove(ctx, user: discord.Member):
     guild_id = ctx.guild_id
     allowed = load_data(guild_id, "allowed.json")
     stinky = load_data(guild_id, "stinky.json")
-    
+
     if str(ctx.user.id) not in allowed:
         await ctx.response.send_message(
             "You do not have permission to run this command!", ephemeral=True
