@@ -26,7 +26,11 @@ bot = commands.Bot(command_prefix="{}", intents=discord.Intents.all())
 
 
 def load_data(guild_id, filename):
-    path = f"data/{guild_id}/{filename}"
+    directory = f"data/{guild_id}"
+    if not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
+    path = os.path.join(directory, filename)
     try:
         with open(path, "r") as file:
             data = json.load(file)
@@ -37,9 +41,8 @@ def load_data(guild_id, filename):
 
 def save_data(guild_id, filename, data):
     directory = f"data/{guild_id}"
-
     if not os.path.exists(directory):
-        os.makedirs(directory)
+        os.makedirs(directory, exist_ok=True)
 
     path = os.path.join(directory, filename)
     with open(path, "w") as file:
@@ -203,6 +206,7 @@ async def remove(ctx, user: discord.Member):
     guild_id = ctx.guild_id
     allowed = load_data(guild_id, "allowed.json")
     stinky = load_data(guild_id, "stinky.json")
+    reacted_messages = load_data(guild_id, "reacted_messages.json")
 
     if str(ctx.user.id) not in allowed:
         await ctx.response.send_message(

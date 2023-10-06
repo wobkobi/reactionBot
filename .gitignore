@@ -198,3 +198,5 @@ pyrightconfig.json
 
 data/
 *.bat
+different package/
+commands/
