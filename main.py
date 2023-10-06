@@ -104,8 +104,9 @@ async def on_message(message):
     if re.search(DRAMA_LLAMA, message.content) or "🦙" in message.content:
         await message.add_reaction("🦙")
 
-    if re.search(GIRLS, message.content):
-        await message.add_reaction("💅")
+    for pattern in GIRLS:
+        if re.search(pattern, message.content):
+            await message.add_reaction("💅")
 
     if re.search(REGEX_NWORD_HARDR, message.content) or re.search(
         REGEX_NWORD, message.content
