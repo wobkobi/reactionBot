@@ -1,8 +1,11 @@
 import discord
 
 from function.file import load_data, save_data
-from main import YOUR_ID
+from dotenv import load_dotenv
+import os
 
+
+load_dotenv()
 
 async def handle_remove_command(bot, ctx, user: discord.Member):
     guild_id = ctx.guild_id
