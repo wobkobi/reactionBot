@@ -20,7 +20,7 @@ async def handle_add_command(bot, ctx, user: discord.Member, emoji: str):
     allowed = load_data(guild_id, "allowed.json")
     stinky = load_data(guild_id, "stinky.json")
 
-    if not ctx.user.guild_permissions.administrator and ctx.user.id not in [ctx.guild.owner_id, YOUR_ID, ] or allowed:
+    if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
         await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
         return
 

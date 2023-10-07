@@ -14,8 +14,8 @@ async def handle_allow(ctx, user: discord.Member):
 
     allowed = load_data(guild_id, "allowed.json")
 
-    if not ctx.user.server_permissions.administrator or ctx.user.id not in [ctx.guild.owner_id, YOUR_ID, ]:
-        await ctx.response.send_message("You do not have permission to use this command!")
+    if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
+        await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
         return
 
     if str(user.id) in allowed:

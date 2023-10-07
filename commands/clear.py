@@ -14,7 +14,7 @@ async def handle_clear(bot, ctx):
     allowed = load_data(guild_id, "allowed.json")
     reacted_messages = load_data(guild_id, "reacted_messages.json")
 
-    if not ctx.user.guild_permissions.administrator and ctx.user.id not in [ctx.guild.owner_id, YOUR_ID, ] or allowed:
+    if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
         await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
         return
 
