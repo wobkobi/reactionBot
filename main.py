@@ -6,37 +6,13 @@ import random
 import re
 import os
 from dotenv import load_dotenv
+from regex import *
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 YOUR_ID = int(os.getenv("YOUR_ID"))
 
-REGEX_NWORD_HARDR = re.compile(
-    r"\b(n*[1i!l]+[g9]{2,}[3e]+[r5]+s*)", re.IGNORECASE)
-REGEX_NWORD = re.compile(r"\b(n*[1i!l]+[g9]{2,}[a4]+s*)", re.IGNORECASE)
-DRAMA_LLAMA = re.compile(r"(?:l+|d+r+)a+m+a", re.IGNORECASE)
-NWORD = "🇳 🇼 🇴 🇷 🇩"
-GIRLS = [
-    re.compile(r"\bs+?l+?a+?y+?\b", re.IGNORECASE),
-    re.compile(r"\bg+?i+?v+?i+?n+?g+?\b", re.IGNORECASE),
-    re.compile(r"\bq+?u+?e+?e+?n+?\b", re.IGNORECASE),
-    re.compile(r"\by+?a+?s+?s*?\b", re.IGNORECASE),
-    re.compile(r"\bthe\s+girls\s+are(n't)?\s+.*?\b", re.IGNORECASE),
-    re.compile(r"\bs+?n+?a+?t+?c+?h+?e+?d+?\b", re.IGNORECASE),
-    re.compile(r"\bl+?i+?t+?\b", re.IGNORECASE),
-    re.compile(r"\bb+?a+?e+?\b", re.IGNORECASE),
-    re.compile(r"\bg+?o+?a+?l+?s+?\b", re.IGNORECASE),
-    re.compile(r"\bs+?q+?u+?a+?d+?\b", re.IGNORECASE),
-    re.compile(r"\bf+?i+?r+?e+?\b", re.IGNORECASE),
-    re.compile(r"\bt+?e+?a+?\b", re.IGNORECASE),
-    re.compile(r"\bg+?o+?\s+o+?f+?f+?\b", re.IGNORECASE),
-    re.compile(r"\bp+?o+?p+?\s+o+?f+?f+?\b", re.IGNORECASE),
-    re.compile(r"\bp+?e+?r+?i+?o+?d+?\b", re.IGNORECASE),
-    re.compile(r"\bg+?i+?r+?l+?\s+.*?\b", re.IGNORECASE),
-    re.compile(r"\bf+?l+?e+?e+?k+?\b", re.IGNORECASE),
-    re.compile(r"\bs+?i+?s+?t+?e+?r+?s+?\b", re.IGNORECASE)
-]
 
 bot = commands.Bot(command_prefix="{}", intents=discord.Intents.all())
 
@@ -107,6 +83,10 @@ async def on_message(message):
     for pattern in GIRLS:
         if re.search(pattern, message.content):
             await message.add_reaction("💅")
+            
+    for pattern in BRITISH:
+        if re.search(pattern, message.content):
+            await message.add_reaction("🇬🇧")
 
     if re.search(REGEX_NWORD_HARDR, message.content) or re.search(
         REGEX_NWORD, message.content
