@@ -1,7 +1,13 @@
 import discord
 
 from function.file import load_data, save_data
-from main import YOUR_ID
+from dotenv import load_dotenv
+import os
+
+
+load_dotenv()
+
+YOUR_ID = int(os.getenv("YOUR_ID"))
 
 
 def is_valid_emoji(emoji_str):
