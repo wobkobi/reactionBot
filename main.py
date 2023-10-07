@@ -35,6 +35,7 @@ def save_data(guild_id, filename, data):
     directory = f"data/{guild_id}"
     if not os.path.exists(directory):
         os.makedirs(directory, exist_ok=True)
+        print(f"Created directory: {directory}")  # Debug print
 
     path = os.path.join(directory, filename)
     with open(path, "w") as file:
@@ -62,13 +63,33 @@ async def on_ready():
 async def on_message(message):
     if message.author == bot.user:
         return
-
     guild_id = message.guild.id
     stinky = load_data(guild_id, "stinky.json")
     reacted_messages = load_data(guild_id, "reacted_messages.json")
+    count = load_data(guild_id, "count.json")
+    if not count or not isinstance(count, dict):
+        count = {
+            "count_since_last_poo": 0,
+            "count_since_last_clown": 0,
+            "last_message_with_poo": None,
+            "last_message_with_clown": None,
+            "total_poo": 0,
+            "total_clown": 0,
+        }
+        save_data(guild_id, "count.json", count)
+    else:
+        count["count_since_last_poo"] += 1
+        count["count_since_last_clown"] += 1
 
     if random.random() < 0.001:
         await message.add_reaction("💩")
+        count["total_poo"] += 1
+        if count["last_message_with_poo"]:
+            last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_poo']}"
+            await message.reply(f"Reacted with 💩 after **{count['count_since_last_poo']}** messages! Total reactions: (({count['total_poo']}**. Last 💩 reaction: {last_reacted_link}", mention_author=False)
+
+        count["count_since_last_poo"] = 0
+        count["last_message_with_poo"] = message.id
 
     if random.random() < 0.00004:
         emoji = discord.utils.get(message.guild.emojis, name="clown")
@@ -76,17 +97,26 @@ async def on_message(message):
             await message.add_reaction(emoji)
         else:
             await message.add_reaction("🤡")
+        count["total_clown"] += 1
+        if count["last_message_with_clown"]:
+            last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_clown']}"
+            await message.channel.send(f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: {count['total_clown']}. Last 🤡 reaction: {last_reacted_link}")
+        count["count_since_last_clown"] = 0
+        count["last_message_with_clown"] = message.id
 
     if re.search(DRAMA_LLAMA, message.content) or "🦙" in message.content:
         await message.add_reaction("🦙")
 
-    for pattern in GIRLS:
-        if re.search(pattern, message.content):
-            await message.add_reaction("💅")
-            
-    for pattern in BRITISH:
-        if re.search(pattern, message.content):
-            await message.add_reaction("🇬🇧")
+    girls_match = any(re.search(pattern, message.content) for pattern in GIRLS)
+    british_match = any(re.search(pattern, message.content) for pattern in BRITISH)
+
+    if girls_match and british_match:
+        reaction = random.choice(["💅", "🇬🇧"])
+        await message.add_reaction(reaction)
+    elif girls_match:
+        await message.add_reaction("💅")
+    elif british_match:
+        await message.add_reaction("🇬🇧")
 
     if re.search(REGEX_NWORD_HARDR, message.content) or re.search(
         REGEX_NWORD, message.content
@@ -95,6 +125,7 @@ async def on_message(message):
             await message.add_reaction(emoji_char)
 
     if random.randint(1, 10) != 1:
+        save_data(guild_id, "count.json", count)
         return
 
     user_id = str(message.author.id)
@@ -103,6 +134,7 @@ async def on_message(message):
 
         emoji_name = stinky_data.get("value", None)
         if not emoji_name:
+            save_data(guild_id, "count.json", count)
             return
 
         if stinky_data["type"] == "emoji":
@@ -117,6 +149,7 @@ async def on_message(message):
 
         reacted_messages[message.id] = True
         save_data(guild_id, "reacted_messages.json", reacted_messages)
+    save_data(guild_id, "count.json", count)
 
 
 def is_valid_emoji(emoji_str):
