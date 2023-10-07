@@ -2,6 +2,7 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import os
 
 from commands.add import handle_add_command
 from commands.allow import handle_allow
