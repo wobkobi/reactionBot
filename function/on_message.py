@@ -58,7 +58,8 @@ async def handle_on_message(bot, message):
         await message.add_reaction("🦙")
 
     girls_match = any(re.search(pattern, message.content) for pattern in GIRLS)
-    british_match = any(re.search(pattern, message.content) for pattern in BRITISH)
+    british_match = any(re.search(pattern, message.content)
+                        for pattern in BRITISH)
 
     if girls_match and british_match:
         reaction = random.choice(["💅", "🇬🇧"])
@@ -74,12 +75,13 @@ async def handle_on_message(bot, message):
         for emoji_char in NWORD.split(" "):
             await message.add_reaction(emoji_char)
 
-    if random.randint(1, 10) != 1:
-        save_data(guild_id, "count.json", count)
-        return
-
     user_id = str(message.author.id)
     if user_id in stinky:
+
+        if random.randint(1, 10) != 1:
+            save_data(guild_id, "count.json", count)
+            return
+
         stinky_data = stinky[user_id]
 
         emoji_name = stinky_data.get("value", None)

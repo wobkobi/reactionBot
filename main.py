@@ -17,7 +17,7 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 YOUR_ID = int(os.getenv("YOUR_ID"))
 
-bot = commands.Bot(command_prefix="{}", intents=discord.Intents.all())
+bot = commands.Bot(command_prefix="{}", intents=discord.Intents.all(), reconnect=True)
 
 
 @bot.event

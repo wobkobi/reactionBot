@@ -14,6 +14,8 @@ def load_data(guild_id, filename):
         return data
     except FileNotFoundError:
         return {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def save_data(guild_id, filename, data):
