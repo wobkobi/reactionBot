@@ -34,7 +34,7 @@ async def handle_on_message(bot, message):
         if count["last_message_with_poo"]:
             last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_poo']}"
             await message.reply(
-                f"Reacted with 💩 after **{count['count_since_last_poo']}** messages! Total reactions: (({count['total_poo']}**. Last 💩 reaction: {last_reacted_link}",
+                f"Reacted with 💩 after **{count['count_since_last_poo']}** messages! Total reactions: **{count['total_poo']}**. Last 💩 reaction: {last_reacted_link}",
                 mention_author=False)
 
         count["count_since_last_poo"] = 0
@@ -50,7 +50,7 @@ async def handle_on_message(bot, message):
         if count["last_message_with_clown"]:
             last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_clown']}"
             await message.channel.send(
-                f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: {count['total_clown']}. Last 🤡 reaction: {last_reacted_link}")
+                f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: **{count['total_clown']}**. Last 🤡 reaction: {last_reacted_link}")
         count["count_since_last_clown"] = 0
         count["last_message_with_clown"] = message.id
 
