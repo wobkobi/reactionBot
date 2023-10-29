@@ -2,7 +2,7 @@ import re
 
 REGEX_NWORD_HARDR = re.compile(r"\W*\b(n*[1i!l]+[g9]{2,}[3e]+[r5]+s*)\b\W*", re.IGNORECASE)
 REGEX_NWORD = re.compile(r"\W*\b(n*[1i!l]+[g9]{2,}[a4]+s*)\b\W*", re.IGNORECASE)
-DRAMA_LLAMA = re.compiler("\W*(?:l+|d+r+)a+m+a\W*", re.IGNORECASE)
+DRAMA_LLAMA = re.compile(r"\W*(?:l+|d+r+)a+m+a\W*", re.IGNORECASE)
 NWORD = "🇳 🇼 🇴 🇷 🇩"
 GIRLS = [
     re.compile(r"\W*\bs+?l+?a+?y+?\b\W*", re.IGNORECASE),
