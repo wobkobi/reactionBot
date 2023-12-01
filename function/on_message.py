@@ -4,7 +4,7 @@ import re
 import discord
 
 from function.file import load_data, save_data
-from regex import DRAMA_LLAMA, GIRLS, BRITISH, REGEX_NWORD_HARDR, REGEX_NWORD, NWORD
+from regex import DRAMA_LLAMA, GIRLS, BRITISH, REGEX_NWORD_HARDR, REGEX_NWORD, NWORD, TWITTER_DOMAIN_REGEX
 
 
 async def handle_on_message(bot, message):
@@ -53,6 +53,12 @@ async def handle_on_message(bot, message):
                 f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: **{count['total_clown']}**. Last 🤡 reaction: {last_reacted_link}")
         count["count_since_last_clown"] = 0
         count["last_message_with_clown"] = message.id
+
+    twitter_links = re.findall(TWITTER_DOMAIN_REGEX, message.content)
+    if twitter_links:
+        for domain, path in twitter_links:
+            new_link = f'https://vxtwitter.com/{path}'
+            await message.reply(f"{new_link}", mention_author=False)
 
     if re.search(DRAMA_LLAMA, message.content) or "🦙" in message.content:
         await message.add_reaction("🦙")
