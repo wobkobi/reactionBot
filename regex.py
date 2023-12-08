@@ -5,8 +5,9 @@ REGEX_NWORD = re.compile(r"\W*\b(n*[1i!l]+[g9]{2,}[a4]+s*)\b\W*", re.IGNORECASE)
 DRAMA_LLAMA = re.compile(r"\W*(?:l+|d+r+)a+m+a\W*", re.IGNORECASE)
 NWORD = "🇳 🇼 🇴 🇷 🇩"
 TWITTER_DOMAIN_REGEX = r'https?://(?:www\.)?(x\.com|twitter\.com)/([^\s]+)'
+SLAY = re.compile(r"\b\w*s+?l+?a+?y+\w*\b", re.IGNORECASE)
 GIRLS = [
-    re.compile(r"\W*\bs+?l+?a+?y+?\b\W*", re.IGNORECASE),
+    re.compile(r"\b\w*s+?l+?a+?y+\w*\b", re.IGNORECASE),
     re.compile(r"\W*\bg+?i+?v+?i+?n+?g+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\bq+?u+?e+?e+?n+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\by+?a+?s+?s*?\b\W*", re.IGNORECASE),

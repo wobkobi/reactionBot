@@ -1,18 +1,20 @@
 import random
 import re
-
 import discord
-
+import datetime
 from function.file import load_data, save_data
-from regex import DRAMA_LLAMA, GIRLS, BRITISH, REGEX_NWORD_HARDR, REGEX_NWORD, NWORD, TWITTER_DOMAIN_REGEX
+from regex import DRAMA_LLAMA, GIRLS, BRITISH, REGEX_NWORD_HARDR, REGEX_NWORD, NWORD, TWITTER_DOMAIN_REGEX, SLAY
 
 
 async def handle_on_message(bot, message):
     if message.author == bot.user:
         return
     guild_id = message.guild.id
+    user_id = str(message.author.id)
+
     stinky = load_data(guild_id, "stinky.json")
     reacted_messages = load_data(guild_id, "reacted_messages.json")
+
     count = load_data(guild_id, "count.json")
     if not count or not isinstance(count, dict):
         count = {
@@ -27,6 +29,75 @@ async def handle_on_message(bot, message):
     else:
         count["count_since_last_poo"] += 1
         count["count_since_last_clown"] += 1
+
+    slay_data = load_data(guild_id, "slay.json")
+    if not slay_data or not isinstance(slay_data, dict):
+        slay_data = {
+            "last_mention": None,
+            "mention_interval": None
+        }
+
+    if re.search(SLAY, message.content):
+        now = datetime.datetime.utcnow()
+
+        # Update the collective 'slay' count for the server
+        slay_data.setdefault("total_count", 0)
+        slay_data["total_count"] += 1
+
+        # Update the 'slay' count for the individual user
+        slay_data.setdefault("user_counts", {})
+        slay_data["user_counts"].setdefault(user_id, 0)
+        slay_data["user_counts"][user_id] += 1
+
+        # Process the last mention and duration
+        last_mention = slay_data.get("last_mention")
+        duration_message = "LESS THAN A MINUTE"  # default message
+        if last_mention:
+            last_mention_date = datetime.datetime.fromisoformat(last_mention)
+            time_delta = now - last_mention_date
+            
+            if time_delta.days >= 7:
+                # Send congratulatory message and turn off the tracker
+                await message.channel.send(
+                    "Congratulations everyone! We've gone 7 days without saying slay!")
+                # Reset the slay data
+                slay_data = {
+                    "last_mention": None,
+                    "mention_interval": None,
+                    "total_count": 0,
+                    "user_counts": {}
+                }
+                save_data(guild_id, "slay.json", slay_data)
+                return  # Exit the function early
+        
+            days = time_delta.days
+            hours, remainder = divmod(time_delta.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            time_parts = []
+            if days > 0:
+                time_parts.append(f"{days} DAY{'S' if days > 1 else ''}")
+            if hours > 0:
+                time_parts.append(f"{hours} HOUR{'S' if hours > 1 else ''}")
+            if minutes > 0:
+                time_parts.append(
+                    f"{minutes} MINUTE{'S' if minutes > 1 else ''}")
+
+            if time_parts:
+                duration_message = ", ".join(time_parts)
+
+        # Reset the timer
+        slay_data["last_mention"] = now.isoformat()
+
+        # Construct and send the response message
+        user_mention_count = slay_data["user_counts"][user_id]
+        total_mentions = slay_data["total_count"]
+        await message.reply(
+            f"OH MY FUCKING GOD YOU JUST SAID SLAY FOR THE **{ordinal(user_mention_count)}** TIME {message.author.mention}! "
+            f"THIS IS THE **{ordinal(total_mentions)}** TIME TOTAL FOR YOU GUYS. YOU COULD ONLY LAST **{duration_message}** THIS TIME! WOW. **DO BETTER!**"
+        )
+
+        save_data(guild_id, "slay.json", slay_data)
 
     if random.random() < 0.001:
         await message.add_reaction("💩")
@@ -81,7 +152,6 @@ async def handle_on_message(bot, message):
         for emoji_char in NWORD.split(" "):
             await message.add_reaction(emoji_char)
 
-    user_id = str(message.author.id)
     if user_id in stinky:
 
         if random.randint(1, 10) != 1:
@@ -108,3 +178,8 @@ async def handle_on_message(bot, message):
         reacted_messages[message.id] = True
         save_data(guild_id, "reacted_messages.json", reacted_messages)
     save_data(guild_id, "count.json", count)
+
+
+def ordinal(n):
+    """Return the ordinal number of a count"""
+    return f"{n}{'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
