@@ -11,6 +11,7 @@ from commands.disallow import handle_disallow
 from commands.help import handle_help
 from commands.remove import handle_remove_command
 from function.on_message import handle_on_message
+# from function.ban import handle_ban
 
 load_dotenv()
 
@@ -22,7 +23,13 @@ bot = commands.Bot(command_prefix="{}", intents=discord.Intents.all(), reconnect
 
 @bot.event
 async def on_ready():
-    await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.playing, name="", ), )
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            type=discord.ActivityType.playing,
+            name="",
+        ),
+    )
     print(f"We have logged in as {bot.user}")
     try:
         synced = await bot.tree.sync()
@@ -46,7 +53,9 @@ async def remove(ctx, user: discord.Member):
     await handle_remove_command(bot, ctx, user)
 
 
-@bot.tree.command(name="clear", description="Remove all reactions from all people on my list")
+@bot.tree.command(
+    name="clear", description="Remove all reactions from all people on my list"
+)
 async def clear(ctx):
     await handle_clear(bot, ctx)
 
@@ -56,14 +65,31 @@ async def allow(ctx, user: discord.Member):
     await handle_allow(ctx, user)
 
 
-@bot.tree.command(name="disallow", description="Remove special privileges from these people")
+@bot.tree.command(
+    name="disallow", description="Remove special privileges from these people"
+)
 async def disallow(ctx, user: discord.Member):
     await handle_disallow(ctx, user)
+
+
+# @bot.tree.command(name="ban", description="Track usage of a specific word")
+# async def ban(ctx, word: str, timeframe: int):
+#     await handle_ban(bot, ctx, word, timeframe)
 
 
 @bot.tree.command(name="help", description="Displays bot commands and descriptions")
 async def _help(ctx):
     await handle_help(bot, ctx)
 
+@bot.event
+async def on_reaction_add(reaction, user):
+    if reaction.message.author == bot.user and str(reaction.emoji) == '🗑️':
+        if reaction.message.content.startswith(f"{user.mention}, here is the new link:") and user == reaction.message.mentions[0]:
+            try:
+                await reaction.message.delete()
+            except discord.Forbidden:
+                pass  # Handle the lack of permissions
+            except discord.NotFound:
+                pass  # The message was already deleted
 
 bot.run(TOKEN)

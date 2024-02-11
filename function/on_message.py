@@ -1,9 +1,21 @@
+from discord import ui, ButtonStyle
 import random
 import re
 import discord
 import datetime
 from function.file import load_data, save_data
-from regex import DRAMA_LLAMA, GIRLS, BRITISH, REGEX_NWORD_HARDR, REGEX_NWORD, NWORD, TWITTER_DOMAIN_REGEX, SLAY
+from regex import (
+    DRAMA_LLAMA,
+    GIRLS,
+    BRITISH,
+    REGEX_NWORD_HARDR,
+    REGEX_NWORD,
+    NWORD,
+    TWITTER_DOMAIN_REGEX,
+    SLAY,
+    INSTAGRAM_DOMAIN_REGEX,
+    TIKTOK_DOMAIN_REGEX,
+)
 
 
 async def handle_on_message(bot, message):
@@ -32,10 +44,7 @@ async def handle_on_message(bot, message):
 
     slay_data = load_data(guild_id, "slay.json")
     if not slay_data or not isinstance(slay_data, dict):
-        slay_data = {
-            "last_mention": None,
-            "mention_interval": None
-        }
+        slay_data = {"last_mention": None, "mention_interval": None}
 
     if re.search(SLAY, message.content):
         now = datetime.datetime.utcnow()
@@ -55,21 +64,22 @@ async def handle_on_message(bot, message):
         if last_mention:
             last_mention_date = datetime.datetime.fromisoformat(last_mention)
             time_delta = now - last_mention_date
-            
+
             if time_delta.days >= 7:
                 # Send congratulatory message and turn off the tracker
                 await message.channel.send(
-                    "Congratulations everyone! We've gone 7 days without saying slay!")
+                    "Congratulations everyone! We've gone 7 days without saying slay!"
+                )
                 # Reset the slay data
                 slay_data = {
                     "last_mention": None,
                     "mention_interval": None,
                     "total_count": 0,
-                    "user_counts": {}
+                    "user_counts": {},
                 }
                 save_data(guild_id, "slay.json", slay_data)
                 return  # Exit the function early
-        
+
             days = time_delta.days
             hours, remainder = divmod(time_delta.seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
@@ -106,7 +116,8 @@ async def handle_on_message(bot, message):
             last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_poo']}"
             await message.reply(
                 f"Reacted with 💩 after **{count['count_since_last_poo']}** messages! Total reactions: **{count['total_poo']}**. Last 💩 reaction: {last_reacted_link}",
-                mention_author=False)
+                mention_author=False,
+            )
 
         count["count_since_last_poo"] = 0
         count["last_message_with_poo"] = message.id
@@ -121,15 +132,22 @@ async def handle_on_message(bot, message):
         if count["last_message_with_clown"]:
             last_reacted_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{count['last_message_with_clown']}"
             await message.channel.send(
-                f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: **{count['total_clown']}**. Last 🤡 reaction: {last_reacted_link}")
+                f"Reacted with 🤡 after **{count['count_since_last_clown']}** messages! Total 🤡 reactions: **{count['total_clown']}**. Last 🤡 reaction: {last_reacted_link}"
+            )
         count["count_since_last_clown"] = 0
         count["last_message_with_clown"] = message.id
 
-    twitter_links = re.findall(TWITTER_DOMAIN_REGEX, message.content)
-    if twitter_links:
-        for domain, path in twitter_links:
-            new_link = f'https://vxtwitter.com/{path}'
-            await message.reply(f"{new_link}", mention_author=False)
+    await transform_and_reply_links(
+        bot, message, TWITTER_DOMAIN_REGEX, "https://vxtwitter.com/{}"
+    )
+
+    await transform_and_reply_links(
+        bot, message, TIKTOK_DOMAIN_REGEX, "https://tiktxk.com/{}"
+    )
+
+    await transform_and_reply_links(
+        bot, message, INSTAGRAM_DOMAIN_REGEX, "https://ddinstagram.com/{}"
+    )
 
     if re.search(DRAMA_LLAMA, message.content) or "🦙" in message.content:
         await message.add_reaction("🦙")
@@ -147,7 +165,7 @@ async def handle_on_message(bot, message):
         await message.add_reaction("🇬🇧")
 
     if re.search(REGEX_NWORD_HARDR, message.content) or re.search(
-            REGEX_NWORD, message.content
+        REGEX_NWORD, message.content
     ):
         for emoji_char in NWORD.split(" "):
             await message.add_reaction(emoji_char)
@@ -183,3 +201,91 @@ async def handle_on_message(bot, message):
 def ordinal(n):
     """Return the ordinal number of a count"""
     return f"{n}{'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+class ConfirmationView(discord.ui.View):
+    def __init__(self, user, *, timeout=30):
+        super().__init__(timeout=timeout)
+        self.user = user
+        self.value = None  # This will be True to proceed, False to cancel, and None for no response
+        self.message = None
+
+    async def on_timeout(self):
+        self.value = True  # Assume consent on timeout
+        for item in self.children:
+            item.disabled = True
+        # Update the message to show the buttons as disabled
+        await self.message.edit(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message("You're not allowed to interact with this button.", ephemeral=True)
+            return
+
+        self.value = True
+        await interaction.response.defer()
+        for item in self.children:
+            item.disabled = True
+        await self.message.edit(view=self)
+        self.stop()
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message("You're not allowed to interact with this button.", ephemeral=True)
+            return
+
+        self.value = False
+        await interaction.response.defer()
+        for item in self.children:
+            item.disabled = True
+        await self.message.edit(view=self)
+        self.stop()
+
+
+TRANSFORMED_BASE_URLS = [
+    "https://vxtwitter.com/",
+    "https://tiktxk.com/",
+    "https://ddinstagram.com/"
+]
+
+
+async def transform_and_reply_links(bot, message, regex, template_url):
+    matches = re.findall(regex, message.content)
+    if matches:
+        view = ConfirmationView(user=message.author)
+        confirmation_message = await message.channel.send(
+            f"{message.author.mention}, do you want to replace the original link with a new one?",
+            view=view,
+        )
+        view.message = confirmation_message
+        await view.wait()
+
+        # Proceed if confirmed or timed out (assumed confirmation)
+        if view.value is True or view.value is None:
+            try:
+                await message.delete()  # Attempt to delete the original message
+            except discord.NotFound:
+                pass  # The message was already deleted
+            except discord.Forbidden:
+                # Bot doesn't have permission to delete the message
+                await confirmation_message.edit(content="I do not have permissions to delete the original message.", view=None)
+                return
+
+            transformed_message_content = message.content
+            for match in matches:
+                path = match if isinstance(match, str) else ''.join(match)
+                new_link = template_url.format(path)
+                transformed_message_content = re.sub(
+                    regex, new_link, transformed_message_content, 1)
+
+            if transformed_message_content != message.content:
+                new_message = await message.channel.send(f"{message.author.mention}, here is the new link: {transformed_message_content}")
+                await new_message.add_reaction('🗑️')
+
+            try:
+                await confirmation_message.delete()  # Attempt to delete the confirmation message
+            except discord.NotFound:
+                pass  # The confirmation message was already deleted
