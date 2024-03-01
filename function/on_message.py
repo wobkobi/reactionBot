@@ -4,6 +4,7 @@ import re
 import discord
 import datetime
 from function.file import load_data, save_data
+from shared_resources import get_message_id_map, update_message_id_map
 from regex import (
     DRAMA_LLAMA,
     GIRLS,
@@ -19,6 +20,7 @@ from regex import (
 
 
 async def handle_on_message(bot, message):
+
     if message.author == bot.user:
         return
     guild_id = message.guild.id
@@ -90,8 +92,7 @@ async def handle_on_message(bot, message):
             if hours > 0:
                 time_parts.append(f"{hours} HOUR{'S' if hours > 1 else ''}")
             if minutes > 0:
-                time_parts.append(
-                    f"{minutes} MINUTE{'S' if minutes > 1 else ''}")
+                time_parts.append(f"{minutes} MINUTE{'S' if minutes > 1 else ''}")
 
             if time_parts:
                 duration_message = ", ".join(time_parts)
@@ -153,8 +154,7 @@ async def handle_on_message(bot, message):
         await message.add_reaction("🦙")
 
     girls_match = any(re.search(pattern, message.content) for pattern in GIRLS)
-    british_match = any(re.search(pattern, message.content)
-                        for pattern in BRITISH)
+    british_match = any(re.search(pattern, message.content) for pattern in BRITISH)
 
     if girls_match and british_match:
         reaction = random.choice(["💅", "🇬🇧"])
@@ -182,19 +182,24 @@ async def handle_on_message(bot, message):
         if not emoji_name:
             save_data(guild_id, "count.json", count)
             return
+        try:
+            if stinky_data["type"] == "emoji":
+                await message.add_reaction(emoji_name)
+            elif stinky_data["type"] == "custom_emoji":
+                emoji = discord.utils.get(message.guild.emojis, name=emoji_name)
+                if emoji:
+                    await message.add_reaction(emoji)
+            elif stinky_data["type"] == "word":
+                for emoji_char in stinky_data["value"].split(" "):
+                    await message.add_reaction(emoji_char)
 
-        if stinky_data["type"] == "emoji":
-            await message.add_reaction(emoji_name)
-        elif stinky_data["type"] == "custom_emoji":
-            emoji = discord.utils.get(message.guild.emojis, name=emoji_name)
-            if emoji:
-                await message.add_reaction(emoji)
-        elif stinky_data["type"] == "word":
-            for emoji_char in stinky_data["value"].split(" "):
-                await message.add_reaction(emoji_char)
-
-        reacted_messages[message.id] = True
-        save_data(guild_id, "reacted_messages.json", reacted_messages)
+            reacted_messages[message.id] = True
+            save_data(guild_id, "reacted_messages.json", reacted_messages)
+        except discord.errors.NotFound:
+            pass
+        except discord.HTTPException as e:
+            print(e)
+            return
     save_data(guild_id, "count.json", count)
 
 
@@ -219,9 +224,13 @@ class ConfirmationView(discord.ui.View):
         self.stop()
 
     @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def confirm_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
         if interaction.user != self.user:
-            await interaction.response.send_message("You're not allowed to interact with this button.", ephemeral=True)
+            await interaction.response.send_message(
+                "You're not allowed to interact with this button.", ephemeral=True
+            )
             return
 
         self.value = True
@@ -232,9 +241,13 @@ class ConfirmationView(discord.ui.View):
         self.stop()
 
     @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cancel_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
         if interaction.user != self.user:
-            await interaction.response.send_message("You're not allowed to interact with this button.", ephemeral=True)
+            await interaction.response.send_message(
+                "You're not allowed to interact with this button.", ephemeral=True
+            )
             return
 
         self.value = False
@@ -243,49 +256,69 @@ class ConfirmationView(discord.ui.View):
             item.disabled = True
         await self.message.edit(view=self)
         self.stop()
+        try:
+            await self.message.delete()
+        except discord.NotFound:
+            pass  # The message was already deleted or not found.
 
 
 TRANSFORMED_BASE_URLS = [
     "https://vxtwitter.com/",
     "https://tiktxk.com/",
-    "https://ddinstagram.com/"
+    "https://ddinstagram.com/",
 ]
 
 
 async def transform_and_reply_links(bot, message, regex, template_url):
     matches = re.findall(regex, message.content)
-    if matches:
-        view = ConfirmationView(user=message.author)
-        confirmation_message = await message.channel.send(
-            f"{message.author.mention}, do you want to replace the original link with a new one?",
-            view=view,
-        )
-        view.message = confirmation_message
-        await view.wait()
+    if not matches:
+        return
 
-        # Proceed if confirmed or timed out (assumed confirmation)
-        if view.value is True or view.value is None:
-            try:
-                await message.delete()  # Attempt to delete the original message
-            except discord.NotFound:
-                pass  # The message was already deleted
-            except discord.Forbidden:
-                # Bot doesn't have permission to delete the message
-                await confirmation_message.edit(content="I do not have permissions to delete the original message.", view=None)
-                return
+    view = ConfirmationView(user=message.author)
+    confirmation_message = await message.channel.send(
+        f"{message.author.mention}, do you want to replace the original link with a new one?",
+        view=view,
+    )
+    view.message = confirmation_message
+    await view.wait()
 
-            transformed_message_content = message.content
-            for match in matches:
-                path = match if isinstance(match, str) else ''.join(match)
-                new_link = template_url.format(path)
-                transformed_message_content = re.sub(
-                    regex, new_link, transformed_message_content, 1)
+    if view.value in [True, None]:
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            await confirmation_message.delete()
+            return
 
-            if transformed_message_content != message.content:
-                new_message = await message.channel.send(f"{message.author.mention}, here is the new link: {transformed_message_content}")
-                await new_message.add_reaction('🗑️')
+        transformed_message_content = message.content
+        for match in matches:
+            path = match if isinstance(match, str) else "".join(match)
+            new_link = template_url.format(path)
+            transformed_message_content = re.sub(
+                regex, new_link, transformed_message_content, 1
+            )
 
-            try:
-                await confirmation_message.delete()  # Attempt to delete the confirmation message
-            except discord.NotFound:
-                pass  # The confirmation message was already deleted
+        guild_id = str(message.guild.id) if message.guild else "DMChannel"
+        target_channel_id = message.channel.id
+        if message.guild and message.guild.id == 1113266261619642398:
+            target_channel_id = 1208544659643699200
+
+        target_channel = bot.get_channel(target_channel_id)
+        new_message = await target_channel.send(transformed_message_content)
+        await new_message.add_reaction("🗑️")
+
+        if target_channel_id != message.channel.id:
+            reference_message = await message.channel.send(
+                f"{message.author.mention}, your message was moved: [Click Here]({new_message.jump_url})"
+            )
+            message_id_map = load_data(guild_id, "message_id_map.json")
+            # Saving the channel ID of where the reference message is posted
+            message_id_map[str(reference_message.id)] = {
+                "new_message_id": str(new_message.id),
+                "reference_channel_id": str(reference_message.channel.id),
+            }
+            save_data(guild_id, "message_id_map.json", message_id_map)
+
+        await confirmation_message.delete()
+
+    elif view.value is False:
+        await confirmation_message.delete()
