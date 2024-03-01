@@ -12,7 +12,6 @@ from commands.help import handle_help
 from commands.remove import handle_remove_command
 from function.on_message import handle_on_message
 from function.file import load_data, save_data
-from shared_resources import get_message_id_map, delete_from_message_id_map
 
 load_dotenv()
 

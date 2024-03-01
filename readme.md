@@ -28,7 +28,7 @@ StinkyBot is a fun and interactive Discord bot that reacts to certain user messa
 
 2. Navigate to the repository.
    ```
-   cd StinkyBot
+   cd reactionBot
    ```
 
 3. Install the required packages.
@@ -44,7 +44,7 @@ StinkyBot is a fun and interactive Discord bot that reacts to certain user messa
 
 5. Run the bot.
    ```
-   python stinkybot.py
+   python main.py
    ```
 
 ## Commands

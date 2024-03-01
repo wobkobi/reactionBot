@@ -4,7 +4,6 @@ import re
 import discord
 import datetime
 from function.file import load_data, save_data
-from shared_resources import get_message_id_map, update_message_id_map
 from regex import (
     DRAMA_LLAMA,
     GIRLS,
