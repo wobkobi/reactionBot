@@ -7,6 +7,7 @@ import os
 
 load_dotenv()
 
+
 async def handle_remove_command(bot, ctx, user: discord.Member):
     guild_id = ctx.guild_id
     allowed = load_data(guild_id, "allowed.json")
@@ -14,7 +15,9 @@ async def handle_remove_command(bot, ctx, user: discord.Member):
     reacted_messages = load_data(guild_id, "reacted_messages.json")
 
     if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
-        await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
+        await ctx.response.send_message(
+            "You do not have permission to run this command!", ephemeral=True
+        )
         return
 
     if user.id == bot.user.id:

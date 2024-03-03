@@ -21,7 +21,9 @@ async def handle_add_command(bot, ctx, user: discord.Member, emoji: str):
     stinky = load_data(guild_id, "stinky.json")
 
     if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
-        await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
+        await ctx.response.send_message(
+            "You do not have permission to run this command!", ephemeral=True
+        )
         return
 
     if user.id == bot.user.id:
@@ -39,11 +41,9 @@ async def handle_add_command(bot, ctx, user: discord.Member, emoji: str):
             seen.add(char)
 
             if "a" <= char <= "z":
-                emoji_string += chr(base_emoji_code +
-                                    ord(char) - ord("a")) + " "
+                emoji_string += chr(base_emoji_code + ord(char) - ord("a")) + " "
             elif "A" <= char <= "Z":
-                emoji_string += chr(base_emoji_code +
-                                    ord(char) - ord("A")) + " "
+                emoji_string += chr(base_emoji_code + ord(char) - ord("A")) + " "
             else:
                 return None
 

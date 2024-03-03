@@ -288,7 +288,10 @@ async def transform_and_reply_links(bot, message, regex, template_url):
             await confirmation_message.delete()
             return
 
-        transformed_message_content = message.content
+        # Prepare text for new message by removing user mentions
+        non_mention_content = re.sub(r"<@!?[0-9]+>", "", message.content).strip()
+
+        transformed_message_content = non_mention_content
         for match in matches:
             path = match if isinstance(match, str) else "".join(match)
             new_link = template_url.format(path)
@@ -302,15 +305,24 @@ async def transform_and_reply_links(bot, message, regex, template_url):
             target_channel_id = 1208544659643699200
 
         target_channel = bot.get_channel(target_channel_id)
-        new_message = await target_channel.send(transformed_message_content)
+        # Send the transformed message without pinging the mentioned users
+        new_message = await target_channel.send(
+            transformed_message_content, allowed_mentions=discord.AllowedMentions.none()
+        )
         await new_message.add_reaction("🗑️")
 
         if target_channel_id != message.channel.id:
+            mentions = [user.mention for user in message.mentions]
+            mention_text = ", ".join(mentions)
+            if mentions:
+                reference_message_text = f"{mention_text}, {message.author.mention} sent slop for you to see. [Click here]({new_message.jump_url})"
+            else:
+                reference_message_text = f"{message.author.mention} sent slop for you to see. [Click here]({new_message.jump_url})"
+
             reference_message = await message.channel.send(
-                f"{message.author.mention}, your message was moved: [Click Here]({new_message.jump_url})"
+                reference_message_text, allowed_mentions=discord.AllowedMentions.none()
             )
             message_id_map = load_data(guild_id, "message_id_map.json")
-            # Saving the channel ID of where the reference message is posted
             message_id_map[str(reference_message.id)] = {
                 "new_message_id": str(new_message.id),
                 "reference_channel_id": str(reference_message.channel.id),

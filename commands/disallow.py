@@ -8,19 +8,27 @@ import os
 load_dotenv()
 
 YOUR_ID = int(os.getenv("YOUR_ID"))
+
+
 async def handle_disallow(ctx, user: discord.Member):
     guild_id = ctx.guild.id
 
     allowed = load_data(guild_id, "allowed.json")
 
     if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
-        await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
+        await ctx.response.send_message(
+            "You do not have permission to run this command!", ephemeral=True
+        )
         return
 
     if str(user.id) not in allowed:
-        await ctx.response.send_message(f"<@{user.id}> is not on allowed list.", ephemeral=True)
+        await ctx.response.send_message(
+            f"<@{user.id}> is not on allowed list.", ephemeral=True
+        )
         return
 
     del allowed[str(user.id)]
     save_data(guild_id, "allowed.json", allowed)
-    await ctx.response.send_message(f"<@{user.id}> has been removed from the special privileges list.")
+    await ctx.response.send_message(
+        f"<@{user.id}> has been removed from the special privileges list."
+    )

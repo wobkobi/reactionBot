@@ -9,13 +9,16 @@ load_dotenv()
 
 YOUR_ID = int(os.getenv("YOUR_ID"))
 
+
 async def handle_clear(bot, ctx):
     guild_id = ctx.guild.id
     allowed = load_data(guild_id, "allowed.json")
     reacted_messages = load_data(guild_id, "reacted_messages.json")
 
     if ctx.user.id not in [ctx.guild.owner_id, YOUR_ID] and ctx.user.id not in allowed:
-        await ctx.response.send_message("You do not have permission to run this command!", ephemeral=True)
+        await ctx.response.send_message(
+            "You do not have permission to run this command!", ephemeral=True
+        )
         return
 
     await ctx.response.send_message("Processing request...")
@@ -29,9 +32,12 @@ async def handle_clear(bot, ctx):
                         await msg.remove_reaction(reaction.emoji, bot.user)
                     except discord.Forbidden:
                         print(
-                            f"Rate limited or insufficient permissions to remove {reaction.emoji} from message {message_id}.")
+                            f"Rate limited or insufficient permissions to remove {reaction.emoji} from message {message_id}."
+                        )
                     except discord.HTTPException:
-                        print(f"Failed to remove {reaction.emoji} from message {message_id}.")
+                        print(
+                            f"Failed to remove {reaction.emoji} from message {message_id}."
+                        )
         except discord.NotFound:
             print(f"Message {message_id} not found.")
             continue

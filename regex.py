@@ -1,12 +1,20 @@
 import re
 
-REGEX_NWORD_HARDR = re.compile(r"\W*\b(n*[1i!l]+[g9]{2,}[3e]+[r5]+s*)\b\W*", re.IGNORECASE)
+REGEX_NWORD_HARDR = re.compile(
+    r"\W*\b(n*[1i!l]+[g9]{2,}[3e]+[r5]+s*)\b\W*", re.IGNORECASE
+)
 REGEX_NWORD = re.compile(r"\W*\b(n*[1i!l]+[g9]{2,}[a4]+s*)\b\W*", re.IGNORECASE)
 DRAMA_LLAMA = re.compile(r"\W*(?:l+|d+r+)a+m+a\W*", re.IGNORECASE)
 NWORD = "🇳 🇼 🇴 🇷 🇩"
-TWITTER_DOMAIN_REGEX = re.compile(r"https?://(?:www\.)?(x\.com|twitter\.com)/([^\s]+)", re.IGNORECASE)
-TIKTOK_DOMAIN_REGEX = re.compile(r"https?://(?:www\.|vt\.)?tiktok\.com/([^\s]+)", re.IGNORECASE)
-INSTAGRAM_DOMAIN_REGEX = re.compile(r"https?://(?:www\.)?instagram\.com/([^\s]+)", re.IGNORECASE)
+TWITTER_DOMAIN_REGEX = re.compile(
+    r"https?://(?:www\.)?(x\.com|twitter\.com)/([^\s]+)", re.IGNORECASE
+)
+TIKTOK_DOMAIN_REGEX = re.compile(
+    r"https?://(?:www\.|vt\.)?tiktok\.com/([^\s]+)", re.IGNORECASE
+)
+INSTAGRAM_DOMAIN_REGEX = re.compile(
+    r"https?://(?:www\.)?instagram\.com/([^\s]+)", re.IGNORECASE
+)
 SLAY = re.compile(r"(?<!:)\b\w*s+?l+?a+?y+\w*\b(?!:)", re.IGNORECASE)
 GIRLS = [
     re.compile(r"\b\w*s+?l+?a+?y+\w*\b", re.IGNORECASE),
@@ -71,9 +79,13 @@ BRITISH = [
     re.compile(r"\W*\bs+?k+?i+?n+?t+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\bs+?l+?a+?g+?\s+o+?f+?f+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\bs+?o+?d+?\b\W*", re.IGNORECASE),
-    re.compile(r"\W*\bt+?a+?k+?i+?n+?g+?\s+t+?h+?e+?\s+p+?i+?s+?s+?\b\W*",re.IGNORECASE),
+    re.compile(
+        r"\W*\bt+?a+?k+?i+?n+?g+?\s+t+?h+?e+?\s+p+?i+?s+?s+?\b\W*", re.IGNORECASE
+    ),
     re.compile(r"\W*\bt+?e+?n+?n+?e+?r+?\b\W*", re.IGNORECASE),
-    re.compile(r"\W*\bt+?h+?r+?o+?w+?i+?n+?g+?\s+a+?\s+w+?o+?b+?b+?l+?y+?\b\W*", re.IGNORECASE),
+    re.compile(
+        r"\W*\bt+?h+?r+?o+?w+?i+?n+?g+?\s+a+?\s+w+?o+?b+?b+?l+?y+?\b\W*", re.IGNORECASE
+    ),
     re.compile(r"\W*\bt+?r+?o+?l+?l+?i+?e+?d+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\bb+?l+?o+?k+?e+?\b\W*", re.IGNORECASE),
     re.compile(r"\W*\be+?l+?l+?o+?\b\W*", re.IGNORECASE),
