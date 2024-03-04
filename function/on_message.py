@@ -288,7 +288,6 @@ async def transform_and_reply_links(bot, message, regex, template_url):
             await confirmation_message.delete()
             return
 
-        # Prepare text for new message by removing user mentions
         non_mention_content = re.sub(r"<@!?[0-9]+>", "", message.content).strip()
 
         transformed_message_content = non_mention_content
@@ -300,12 +299,16 @@ async def transform_and_reply_links(bot, message, regex, template_url):
             )
 
         guild_id = str(message.guild.id) if message.guild else "DMChannel"
+        specified_channel_id = 1208544659643699200
         target_channel_id = message.channel.id
-        if message.guild and message.guild.id == 1113266261619642398:
-            target_channel_id = 1208544659643699200
+        if (
+            message.guild
+            and message.guild.id == 1113266261619642398
+            and message.channel.id != specified_channel_id
+        ):
+            target_channel_id = specified_channel_id
 
         target_channel = bot.get_channel(target_channel_id)
-        # Send the transformed message without pinging the mentioned users
         new_message = await target_channel.send(
             transformed_message_content, allowed_mentions=discord.AllowedMentions.none()
         )
@@ -314,14 +317,11 @@ async def transform_and_reply_links(bot, message, regex, template_url):
         if target_channel_id != message.channel.id:
             mentions = [user.mention for user in message.mentions]
             mention_text = ", ".join(mentions)
-            if mentions:
-                reference_message_text = f"{mention_text}, {message.author.mention} sent slop for you to see. [Click here]({new_message.jump_url})"
-            else:
-                reference_message_text = f"{message.author.mention} sent slop for you to see. [Click here]({new_message.jump_url})"
-
+            reference_message_text = f"{mention_text + ', ' if mentions else ''}{message.author.mention} sent slop for you to see. [Click here]({new_message.jump_url})"
             reference_message = await message.channel.send(
                 reference_message_text, allowed_mentions=discord.AllowedMentions.none()
             )
+
             message_id_map = load_data(guild_id, "message_id_map.json")
             message_id_map[str(reference_message.id)] = {
                 "new_message_id": str(new_message.id),

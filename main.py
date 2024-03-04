@@ -84,55 +84,60 @@ async def _help(ctx):
 
 @bot.event
 async def on_reaction_add(reaction, user):
+    # Ignore reactions from bots, non-bot messages, or other emojis
     if user.bot or reaction.message.author != bot.user or str(reaction.emoji) != "🗑️":
         return
 
+    # Define the guild and specific channel IDs
     guild_id = str(reaction.message.guild.id) if reaction.message.guild else "DMChannel"
+    specified_channel_id = (
+        "1208544659643699200"  # The channel ID where special handling is required
+    )
     message_id_map = load_data(guild_id, "message_id_map.json")
 
-    # Adjusted understanding: the "new message" is the one with the reaction added
-    if guild_id == "1113266261619642398":
-        for ref_message_id, data in message_id_map.items():
-            if data.get("new_message_id") == str(reaction.message.id):
-                original_channel_id = data.get("reference_channel_id")
-                try:
-                    if original_channel_id:
-                        original_channel = bot.get_channel(int(original_channel_id))
-                        # Attempt to delete the original message pointed by the reference message
-                        ref_message = await original_channel.fetch_message(
-                            int(ref_message_id)
-                        )
-                        await ref_message.delete()
-                        print(
-                            f"Deleted reference message in channel {original_channel_id}."
-                        )
+    # Attempt to find a corresponding pointer message for the reacted message
+    pointer_message_info = None
+    for pointer_msg_id, details in message_id_map.items():
+        if "new_message_id" in details and details["new_message_id"] == str(
+            reaction.message.id
+        ):
+            pointer_message_info = details
+            break
 
-                    # Now delete the "new message" where the reaction was added
-                    await reaction.message.delete()
-                    print(f"Deleted new message with reaction: {reaction.message.id}.")
-
-                    # Cleanup after deletion
-                    del message_id_map[ref_message_id]
-                    save_data(guild_id, "message_id_map.json", message_id_map)
-                except discord.NotFound:
-                    print("One of the messages already deleted or not found.")
-                except discord.Forbidden:
-                    print("Lack of permissions to delete messages.")
-                break  # Exit the loop after handling the found message
-        else:
-            # This else clause belongs to the for loop, executed only if the loop completes normally (no break)
-            print(
-                f"No original message found for the reacted message ID {reaction.message.id} in the map."
-            )
-    else:
-        # General behavior for other guilds: just delete the reacted message
+    if pointer_message_info:
+        # Delete the pointer message if its info was found in the map
         try:
-            await reaction.message.delete()
-            print(f"Deleted message {reaction.message.id} in non-specific guild.")
-        except discord.Forbidden:
-            print("Lack of permissions to delete messages.")
+            pointer_channel_id = pointer_message_info["reference_channel_id"]
+            pointer_channel = bot.get_channel(int(pointer_channel_id))
+            pointer_message = await pointer_channel.fetch_message(int(pointer_msg_id))
+            await pointer_message.delete()
+            print(
+                f"Deleted pointer message ID: {pointer_msg_id} in channel ID: {pointer_channel_id}."
+            )
         except discord.NotFound:
-            pass  # Message already deleted
+            print(f"Pointer message ID: {pointer_msg_id} already deleted or not found.")
+        except discord.Forbidden:
+            print("Lack of permissions to delete the pointer message.")
+        except Exception as e:
+            print(f"An error occurred while deleting the pointer message: {e}")
+
+    # Proceed to delete the reacted message regardless of whether it's a "new message" or not
+    try:
+        await reaction.message.delete()
+        print(f"Deleted reacted message ID: {reaction.message.id}.")
+    except discord.NotFound:
+        print(
+            f"Reacted message ID: {reaction.message.id} already deleted or not found."
+        )
+    except discord.Forbidden:
+        print("Lack of permissions to delete the reacted message.")
+    except Exception as e:
+        print(f"An error occurred while deleting the reacted message: {e}")
+
+    # Cleanup the map if a pointer message was successfully identified and processed
+    if pointer_message_info:
+        del message_id_map[pointer_msg_id]
+        save_data(guild_id, "message_id_map.json", message_id_map)
 
 
 bot.run(TOKEN)
