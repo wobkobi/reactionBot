@@ -127,8 +127,11 @@ export async function getConfirmation(
 
 /**
  * Generic link transformer.
- * Scans the message for URLs, applies the transform function, and if a URL changes,
- * asks for confirmation, then deletes the original message and sends the transformed content.
+ * Finds URLs in the message content, applies transformFn,
+ * and if a URL is transformed, asks for confirmation.
+ * Upon confirmation, deletes the original message, sends the transformed content,
+ * reacts with a trash can, and appends a "Delete" button that allows only the original sender
+ * to delete the transformed message.
  */
 export async function transformAndReplyLinks(
   client: Client,
@@ -148,8 +151,11 @@ export async function transformAndReplyLinks(
 
   if (transformedPairs.length === 0) return;
   const { original, transformed } = transformedPairs[0];
+
   if (!canSend(message.channel)) return;
   const textChannel = message.channel as TextChannel;
+
+  // (Assume getConfirmation is defined elsewhere and works as before.)
   const confirmed = await getConfirmation(message.author, textChannel);
   if (confirmed === true || confirmed === null) {
     try {
@@ -171,11 +177,23 @@ export async function transformAndReplyLinks(
     const targetChannel = client.channels.cache.get(targetChannelId);
     if (!targetChannel || !canSend(targetChannel)) return;
     try {
-      const newMessage = await targetChannel.send({
+      // Send the transformed message.
+      const newMessage = await (targetChannel as TextChannel).send({
         content: transformedContent,
         allowedMentions: { parse: [] },
       });
+      // React with a trash can emoji.
       await newMessage.react("🗑️");
+      // Append a "Delete" button that only the original sender can use.
+      const deleteRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId("delete_transformed:" + message.author.id)
+          .setLabel("Delete")
+          .setStyle(ButtonStyle.Danger)
+      );
+      await newMessage.edit({ components: [deleteRow] });
+
+      // Optionally, send a reference message if target differs.
       if (targetChannelId !== textChannel.id) {
         await textChannel.send({
           content: `${message.author} sent a transformed link. [Click here](${newMessage.url})`,

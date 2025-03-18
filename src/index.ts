@@ -7,6 +7,7 @@ import {
   loadCommands,
   registerSlashCommands,
 } from "./handlers/registerCommands.js";
+import { setupButtonHandler } from "./interactions/buttonHandler.js";
 
 dotenv.config();
 
@@ -29,5 +30,7 @@ client.once("ready", async () => {
 client.on("messageCreate", async (message) => {
   await handleMessageCreate(client, message);
 });
+
+setupButtonHandler(client);
 
 client.login(process.env.TOKEN);

@@ -1,22 +1,10 @@
 // src/events/messageCreate.ts
 import { Client, Message, Snowflake } from "discord.js";
 import { loadData, saveData } from "../utils/file.js";
-import {
-  handleOtherReactions,
-  handleRandomReactions,
-  handleSlay,
-} from "./reactions.js";
-import {
-  transformAndReplyLinks,
-  transformInstagramLink,
-  transformTikTokLink,
-  transformTwitterLink,
-} from "./transformations.js";
+import { transformAndReplyLinks, transformInstagramLink, transformTikTokLink, transformTwitterLink } from "./transformations.js";
+import { handleSlay, handleRandomReactions, handleOtherReactions } from "./reactions.js";
 
-export async function handleMessageCreate(
-  client: Client,
-  message: Message
-): Promise<void> {
+export async function handleMessageCreate(client: Client, message: Message): Promise<void> {
   // Process only non-bot messages in guilds.
   if (message.author.bot || !message.guild) return;
   const guildId: Snowflake = message.guild.id;
