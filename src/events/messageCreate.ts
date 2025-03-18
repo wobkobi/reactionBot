@@ -1,470 +1,166 @@
 // src/events/messageCreate.ts
 import {
-  Client,
-  Message,
-  TextChannel,
-  Snowflake,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  Client,
   ComponentType,
-} from 'discord.js';
-import { loadData, saveData } from '../utils/file.js';
+  Message,
+  Snowflake,
+  TextChannel,
+} from "discord.js";
 import {
+  BRITISH,
   DRAMA_LLAMA,
   GIRLS,
-  BRITISH,
-  REGEX_NWORD_HARDR,
-  REGEX_NWORD,
   NWORD,
-  TWITTER_DOMAIN_REGEX,
-  TIKTOK_DOMAIN_REGEX,
-  INSTAGRAM_DOMAIN_REGEX,
+  REGEX_NWORD,
+  REGEX_NWORD_HARDR,
   SLAY,
-} from '../regex';
+} from "../regex.js";
+import { loadData, saveData } from "../utils/file.js";
 
 /**
  * Type guard to check if a channel has a send() method.
  */
 function canSend(
-  channel: any,
+  channel: any
 ): channel is { send: (...args: any[]) => Promise<any> } {
-  return typeof channel.send === 'function';
+  return typeof channel.send === "function";
 }
 
-export async function handleMessageCreate(
-  client: Client,
-  message: Message,
-): Promise<void> {
-  console.debug(
-    `[DEBUG] Received message from ${message.author.tag}: "${message.content}"`,
+/**
+ * Transforms a Twitter URL.
+ * Expects input like: https://x.com/shitpost_2077/status/1901430784483115510
+ * Returns: https://vxtwitter.com/shitpost_2077/status/1901430784483115510
+ */
+function transformTwitterLink(url: string): string {
+  const match = url.match(
+    /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/(.+)/i
   );
-  // Only process non-bot messages in guilds.
-  if (message.author.bot) {
-    console.debug('[DEBUG] Ignoring message from bot.');
-    return;
-  }
-  if (!message.guild) {
-    console.debug('[DEBUG] Message not in a guild.');
-    return;
-  }
-
-  const guildId: Snowflake = message.guild.id;
-  const userId: string = message.author.id;
-  console.debug(`[DEBUG] Guild ID: ${guildId}, User ID: ${userId}`);
-
-  // Load data files.
-  const stinky = loadData(guildId, 'stinky.json');
-  console.debug(`[DEBUG] Loaded stinky data: ${JSON.stringify(stinky)}`);
-  const reactedMessages = loadData(guildId, 'reacted_messages.json');
-  console.debug(
-    `[DEBUG] Loaded reactedMessages data: ${JSON.stringify(reactedMessages)}`,
-  );
-
-  let count: any = loadData(guildId, 'count.json');
-  if (!count || typeof count !== 'object') {
-    console.debug(
-      '[DEBUG] count.json not found or invalid. Initializing new count data.',
-    );
-    count = {
-      count_since_last_poo: 0,
-      count_since_last_clown: 0,
-      last_message_with_poo: null,
-      last_message_with_clown: null,
-      total_poo: 0,
-      total_clown: 0,
-    };
-    saveData(guildId, 'count.json', count);
-  } else {
-    count.count_since_last_poo++;
-    count.count_since_last_clown++;
-  }
-  console.debug(`[DEBUG] Updated count data: ${JSON.stringify(count)}`);
-
-  let slayData: any = loadData(guildId, 'slay.json');
-  if (!slayData || typeof slayData !== 'object') {
-    console.debug(
-      '[DEBUG] slay.json not found or invalid. Initializing new slay data.',
-    );
-    slayData = {
-      last_mention: null,
-      mention_interval: null,
-      total_count: 0,
-      user_counts: {},
-    };
-  }
-  console.debug(`[DEBUG] Loaded slay data: ${JSON.stringify(slayData)}`);
-
-  // Handle SLAY keyword tracking.
-  if (SLAY.test(message.content)) {
-    console.debug('[DEBUG] SLAY keyword detected.');
-    const now = new Date();
-    slayData.total_count = (slayData.total_count || 0) + 1;
-    if (!slayData.user_counts) slayData.user_counts = {};
-    slayData.user_counts[userId] = (slayData.user_counts[userId] || 0) + 1;
-
-    let durationMessage = 'LESS THAN A MINUTE';
-    if (slayData.last_mention) {
-      const lastMentionDate = new Date(slayData.last_mention);
-      const timeDelta = now.getTime() - lastMentionDate.getTime();
-      const days = Math.floor(timeDelta / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((timeDelta / (1000 * 60 * 60)) % 24);
-      const minutes = Math.floor((timeDelta / (1000 * 60)) % 60);
-      console.debug(
-        `[DEBUG] Time since last SLAY: ${days} days, ${hours} hours, ${minutes} minutes`,
-      );
-
-      if (days >= 7) {
-        if (canSend(message.channel)) {
-          await message.channel.send(
-            "Congratulations everyone! We've gone 7 days without saying slay!",
-          );
-          console.debug('[DEBUG] Sent 7-day congratulatory message.');
-        }
-        slayData = {
-          last_mention: null,
-          mention_interval: null,
-          total_count: 0,
-          user_counts: {},
-        };
-        saveData(guildId, 'slay.json', slayData);
-        console.debug('[DEBUG] Reset slay data after 7 days.');
-        return;
-      }
-
-      const timeParts: string[] = [];
-      if (days > 0) timeParts.push(`${days} DAY${days > 1 ? 'S' : ''}`);
-      if (hours > 0) timeParts.push(`${hours} HOUR${hours > 1 ? 'S' : ''}`);
-      if (minutes > 0)
-        timeParts.push(`${minutes} MINUTE${minutes > 1 ? 'S' : ''}`);
-      if (timeParts.length > 0) durationMessage = timeParts.join(', ');
-      console.debug(`[DEBUG] Computed durationMessage: ${durationMessage}`);
-    }
-    slayData.last_mention = now.toISOString();
-
-    // Helper for ordinal numbers.
-    const ordinal = (n: number): string => {
-      const suffixes: { [key: number]: string } = { 1: 'st', 2: 'nd', 3: 'rd' };
-      if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`;
-      const suffix = suffixes[n % 10] || 'th';
-      return `${n}${suffix}`;
-    };
-
-    const userMentionCount = slayData.user_counts[userId];
-    const totalMentions = slayData.total_count;
-    console.debug(
-      `[DEBUG] SLAY counts - User: ${userMentionCount}, Total: ${totalMentions}`,
-    );
-    await message.reply(
-      `OH MY FUCKING GOD YOU JUST SAID SLAY FOR THE **${ordinal(
-        userMentionCount,
-      )}** TIME ${message.author}!
-  THIS IS THE **${ordinal(totalMentions)}** TIME TOTAL FOR YOU GUYS. YOU COULD ONLY LAST **${durationMessage}** THIS TIME! WOW. **DO BETTER!**`,
-    );
-    saveData(guildId, 'slay.json', slayData);
-  }
-
-  // Random reactions: 💩.
-  if (Math.random() < 0.001 && canSend(message.channel)) {
-    console.debug('[DEBUG] Random chance triggered for 💩 reaction.');
-    try {
-      await message.react('💩');
-      console.debug('[DEBUG] Reacted with 💩.');
-    } catch (err) {
-      console.error('[DEBUG] Error reacting with 💩:', err);
-    }
-    count.total_poo = (count.total_poo || 0) + 1;
-    if (count.last_message_with_poo) {
-      const lastReactedLink = `https://discord.com/channels/${guildId}/${message.channel.id}/${count.last_message_with_poo}`;
-      try {
-        await message.reply({
-          content: `Reacted with 💩 after **${count.count_since_last_poo}** messages! Total reactions: **${count.total_poo}**. Last 💩 reaction: ${lastReactedLink}`,
-          allowedMentions: { parse: [] },
-        });
-        console.debug('[DEBUG] Sent reply for 💩 reaction.');
-      } catch (err) {
-        console.error('[DEBUG] Error sending reply for 💩 reaction:', err);
-      }
-    }
-    count.count_since_last_poo = 0;
-    count.last_message_with_poo = message.id;
-  }
-
-  // Random reactions: 🤡.
-  if (Math.random() < 0.00004) {
-    console.debug('[DEBUG] Random chance triggered for 🤡 reaction.');
-    const clownEmoji = message.guild.emojis.cache.find(
-      (e) => e.name === 'clown',
-    );
-    try {
-      if (clownEmoji) {
-        await message.react(clownEmoji);
-        console.debug('[DEBUG] Reacted with custom clown emoji.');
-      } else {
-        await message.react('🤡');
-        console.debug('[DEBUG] Reacted with default 🤡 emoji.');
-      }
-    } catch (err) {
-      console.error('[DEBUG] Error reacting with 🤡:', err);
-    }
-    count.total_clown = (count.total_clown || 0) + 1;
-    if (count.last_message_with_clown && canSend(message.channel)) {
-      const lastReactedLink = `https://discord.com/channels/${guildId}/${message.channel.id}/${count.last_message_with_clown}`;
-      try {
-        await message.channel.send(
-          `Reacted with 🤡 after **${count.count_since_last_clown}** messages! Total 🤡 reactions: **${count.total_clown}**. Last 🤡 reaction: ${lastReactedLink}`,
-        );
-        console.debug('[DEBUG] Sent message for 🤡 reaction.');
-      } catch (err) {
-        console.error('[DEBUG] Error sending message for 🤡 reaction:', err);
-      }
-    }
-    count.count_since_last_clown = 0;
-    count.last_message_with_clown = message.id;
-  }
-
-  // Transform links for Twitter, TikTok, and Instagram.
-  console.debug('[DEBUG] Checking for link transformations...');
-  await transformAndReplyLinks(
-    client,
-    message,
-    TWITTER_DOMAIN_REGEX,
-    'https://vxtwitter.com/{}',
-  );
-  await transformAndReplyLinks(
-    client,
-    message,
-    TIKTOK_DOMAIN_REGEX,
-    'https://tiktxk.com/{}',
-  );
-  await transformAndReplyLinks(
-    client,
-    message,
-    INSTAGRAM_DOMAIN_REGEX,
-    'https://ddinstagram.com/{}',
-  );
-
-  // React to drama llama.
-  if (DRAMA_LLAMA.test(message.content) || message.content.includes('🦙')) {
-    console.debug('[DEBUG] Drama llama detected, reacting with 🦙.');
-    try {
-      await message.react('🦙');
-    } catch (err) {
-      console.error('[DEBUG] Error reacting with 🦙:', err);
-    }
-  }
-
-  // React based on GIRLS and BRITISH regex arrays.
-  const girlsMatch = GIRLS.some((regex) => regex.test(message.content));
-  const britishMatch = BRITISH.some((regex) => regex.test(message.content));
-  console.debug(
-    `[DEBUG] GIRLS match: ${girlsMatch}, BRITISH match: ${britishMatch}`,
-  );
-  try {
-    if (girlsMatch && britishMatch) {
-      const reaction = Math.random() < 0.5 ? '💅' : '🇬🇧';
-      await message.react(reaction);
-      console.debug(
-        `[DEBUG] Reacted with ${reaction} for both GIRLS and BRITISH.`,
-      );
-    } else if (girlsMatch) {
-      await message.react('💅');
-      console.debug('[DEBUG] Reacted with 💅 for GIRLS.');
-    } else if (britishMatch) {
-      await message.react('🇬🇧');
-      console.debug('[DEBUG] Reacted with 🇬🇧 for BRITISH.');
-    }
-  } catch (err) {
-    console.error('[DEBUG] Error reacting based on GIRLS/BRITISH:', err);
-  }
-
-  // React with N-word emojis if matching.
-  if (
-    REGEX_NWORD_HARDR.test(message.content) ||
-    REGEX_NWORD.test(message.content)
-  ) {
-    console.debug(
-      '[DEBUG] N-word pattern detected, reacting with N-word emojis.',
-    );
-    const emojis = NWORD.split(' ');
-    for (const emojiChar of emojis) {
-      try {
-        await message.react(emojiChar);
-        console.debug(`[DEBUG] Reacted with ${emojiChar}`);
-      } catch (err) {
-        console.error('[DEBUG] Error reacting with N-word emoji:', err);
-      }
-    }
-  }
-
-  // React based on user's stinky configuration (if present).
-  if (stinky[userId]) {
-    console.debug('[DEBUG] User-specific stinky configuration found.');
-    // Only react sometimes (10% chance)
-    if (Math.floor(Math.random() * 10) !== 0) {
-      console.debug('[DEBUG] Stinky reaction chance not met.');
-      saveData(guildId, 'count.json', count);
-      return;
-    }
-    const stinkyData = stinky[userId];
-    const emojiName: string = stinkyData.value;
-    if (!emojiName) {
-      console.debug('[DEBUG] Stinky configuration missing emoji value.');
-      saveData(guildId, 'count.json', count);
-      return;
-    }
-    try {
-      if (stinkyData.type === 'emoji') {
-        await message.react(emojiName);
-        console.debug(`[DEBUG] Reacted with emoji: ${emojiName}`);
-      } else if (stinkyData.type === 'custom_emoji') {
-        const customEmoji = message.guild.emojis.cache.find(
-          (e) => e.name === emojiName,
-        );
-        if (customEmoji) {
-          await message.react(customEmoji);
-          console.debug(`[DEBUG] Reacted with custom emoji: ${emojiName}`);
-        }
-      } else if (stinkyData.type === 'word') {
-        for (const emojiChar of stinkyData.value.split(' ')) {
-          try {
-            await message.react(emojiChar);
-            console.debug(`[DEBUG] Reacted with word emoji: ${emojiChar}`);
-          } catch (err) {
-            console.error('[DEBUG] Error reacting with word emoji:', err);
-          }
-        }
-      }
-      const reactedMessages = loadData(guildId, 'reacted_messages.json');
-      reactedMessages[message.id] = true;
-      saveData(guildId, 'reacted_messages.json', reactedMessages);
-      console.debug('[DEBUG] Updated reactedMessages data.');
-    } catch (err) {
-      console.error('[DEBUG] Error with stinky configuration reactions:', err);
-    }
-  }
-  saveData(guildId, 'count.json', count);
-  console.debug('[DEBUG] Finished processing message.');
+  return match ? "https://vxtwitter.com/" + match[1] : url;
 }
 
+/**
+ * Transforms an Instagram URL.
+ * For reels or posts, extracts the type and ID and returns a URL without query parameters.
+ * e.g. https://www.instagram.com/reel/DEsgl4vyuwB/?igsh=... becomes https://ddinstagram.com/reel/DEsgl4vyuwB/
+ */
+function transformInstagramLink(url: string): string {
+  const match = url.match(
+    /https?:\/\/(?:www\.)?instagram\.com\/(reel|p)\/([^/?]+)/i
+  );
+  return match
+    ? "https://ddinstagram.com/" + match[1] + "/" + match[2] + "/"
+    : url;
+}
+
+/**
+ * Transforms a TikTok URL.
+ * If the URL starts with vt.tiktok.com, returns https://vt.vxtiktok.com/<id>/.
+ * Otherwise, if it matches a normal tiktok.com URL, returns https://www.vxtiktok.com/<rest>.
+ */
+function transformTikTokLink(url: string): string {
+  let match = url.match(/https?:\/\/(?:www\.)?vt\.tiktok\.com\/([^/?]+)/i);
+  if (match) return "https://vt.vxtiktok.com/" + match[1] + "/";
+  match = url.match(/https?:\/\/(?:www\.)?tiktok\.com\/(.+)/i);
+  return match ? "https://www.vxtiktok.com/" + match[1] : url;
+}
+
+/**
+ * Generic link transformer.
+ * Finds URLs in the message content, applies transformFn,
+ * and if any URL is transformed, asks for confirmation and then
+ * deletes the original message and sends the transformed content.
+ */
 async function transformAndReplyLinks(
   client: Client,
   message: Message,
-  regex: RegExp,
-  templateUrl: string,
+  transformFn: (url: string) => string
 ): Promise<void> {
-  const matches = message.content.match(regex);
-  if (!matches) {
-    console.debug('[DEBUG] No matches found for link transformation.');
-    return;
-  }
+  const urlRegex = /https?:\/\/[^\s]+/gi;
+  const matches = message.content.match(urlRegex);
+  if (!matches) return;
 
-  // Ensure the channel supports sending messages.
-  if (!canSend(message.channel)) {
-    console.debug('[DEBUG] Channel does not support sending messages.');
-    return;
-  }
+  const transformedPairs = matches
+    .map((url) => {
+      const newUrl = transformFn(url);
+      return { original: url, transformed: newUrl };
+    })
+    .filter((pair) => pair.original !== pair.transformed);
+
+  if (transformedPairs.length === 0) return;
+  const { original, transformed } = transformedPairs[0];
+
+  if (!canSend(message.channel)) return;
   const textChannel = message.channel as TextChannel;
-  console.debug('[DEBUG] Found matches for transformation:', matches);
-
   const confirmed = await getConfirmation(message.author, textChannel);
-  console.debug(`[DEBUG] Link transformation confirmation: ${confirmed}`);
   if (confirmed === true || confirmed === null) {
     try {
       await message.delete();
-      console.debug('[DEBUG] Deleted original message for transformation.');
     } catch (err) {
-      console.error('[DEBUG] Error deleting original message:', err);
+      console.error("Error deleting original message:", err);
       return;
     }
-    let transformedContent = message.content.replace(/<@!?[0-9]+>/g, '').trim();
-    transformedContent = transformedContent.replace(regex, (_match) => {
-      return templateUrl.replace('{}', _match);
-    });
-    console.debug('[DEBUG] Transformed message content:', transformedContent);
-
-    // Determine target channel.
+    const transformedContent = message.content.replace(original, transformed);
     let targetChannelId: Snowflake = textChannel.id;
-    const specifiedChannelId: Snowflake = '1208544659643699200';
+    const specifiedChannelId: Snowflake = "1208544659643699200";
     if (
       message.guild &&
-      message.guild.id === '1113266261619642398' &&
+      message.guild.id === "1113266261619642398" &&
       textChannel.id !== specifiedChannelId
     ) {
       targetChannelId = specifiedChannelId;
-      console.debug('[DEBUG] Overriding target channel for specific guild.');
     }
     const targetChannel = client.channels.cache.get(targetChannelId);
-    if (!targetChannel || !canSend(targetChannel)) {
-      console.debug(
-        '[DEBUG] Target channel not found or cannot send messages.',
-      );
-      return;
-    }
-
+    if (!targetChannel || !canSend(targetChannel)) return;
     try {
       const newMessage = await targetChannel.send({
         content: transformedContent,
         allowedMentions: { parse: [] },
       });
-      console.debug('[DEBUG] Sent transformed message:', newMessage.id);
-      await newMessage.react('🗑️');
-
-      // If target differs from original, send a reference message.
+      await newMessage.react("🗑️");
       if (targetChannelId !== textChannel.id) {
-        const mentions = message.mentions.users.map((user) => user.toString());
-        const mentionText = mentions.join(', ');
-        const referenceText = `${mentionText ? mentionText + ', ' : ''}${message.author} sent slop for you to see. [Click here](${newMessage.url})`;
         await textChannel.send({
-          content: referenceText,
+          content: `${message.author} sent a transformed link. [Click here](${newMessage.url})`,
           allowedMentions: { parse: [] },
         });
-        console.debug('[DEBUG] Sent reference message in original channel.');
-
-        const messageIdMap = loadData(message.guild!.id, 'message_id_map.json');
+        const messageIdMap = loadData(message.guild!.id, "message_id_map.json");
         messageIdMap[newMessage.id] = {
           new_message_id: newMessage.id,
           reference_channel_id: textChannel.id,
         };
-        saveData(message.guild!.id, 'message_id_map.json', messageIdMap);
-        console.debug('[DEBUG] Updated message_id_map data.');
+        saveData(message.guild!.id, "message_id_map.json", messageIdMap);
       }
     } catch (err) {
-      console.error('[DEBUG] Error sending transformed message:', err);
+      console.error("Error sending transformed message:", err);
     }
-  } else if (confirmed === false) {
-    console.debug('[DEBUG] User declined link transformation.');
   }
 }
 
-/**
- * Sends a confirmation message with Yes/No buttons and awaits the user's response.
- * Defaults to "yes" on timeout.
- */
 async function getConfirmation(
   user: any,
-  channel: TextChannel,
+  channel: TextChannel
 ): Promise<boolean | null> {
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId('confirm_yes')
-      .setLabel('Yes')
+      .setCustomId("confirm_yes")
+      .setLabel("Yes")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId('confirm_no')
-      .setLabel('No')
-      .setStyle(ButtonStyle.Danger),
+      .setCustomId("confirm_no")
+      .setLabel("No")
+      .setStyle(ButtonStyle.Danger)
   );
 
   let confirmationMessage;
   try {
     confirmationMessage = await channel.send({
-      content: `${user}, do you want to replace the original link with a new one?`,
+      content: `${user}, replace the original link with the transformed one?`,
       components: [row],
     });
-    console.debug('[DEBUG] Sent confirmation message for link transformation.');
   } catch (err) {
-    console.error('[DEBUG] Error sending confirmation message:', err);
+    console.error("Error sending confirmation message:", err);
     return false;
   }
 
@@ -477,19 +173,198 @@ async function getConfirmation(
     });
     await collected.deferUpdate();
     await confirmationMessage.delete();
-    console.debug(`[DEBUG] Collected confirmation: ${collected.customId}`);
-    return collected.customId === 'confirm_yes' ? true : false;
+    return collected.customId === "confirm_yes" ? true : false;
   } catch (err) {
-    // On timeout, delete the confirmation message and default to confirmation.
-    console.debug('[DEBUG] Confirmation timeout reached.');
     try {
       await confirmationMessage.delete();
     } catch (err2) {
-      console.error(
-        '[DEBUG] Error deleting confirmation message on timeout:',
-        err2,
-      );
+      console.error("Error deleting confirmation on timeout:", err2);
     }
     return true;
   }
+}
+
+export async function handleMessageCreate(
+  client: Client,
+  message: Message
+): Promise<void> {
+  // Key log for incoming message.
+  if (message.author.bot || !message.guild) return;
+
+  const guildId: Snowflake = message.guild.id;
+  const userId: string = message.author.id;
+
+  // Load configuration data.
+  const stinky = loadData(guildId, "stinky.json");
+  const reactedMessages = loadData(guildId, "reacted_messages.json");
+  let count: any = loadData(guildId, "count.json") || {
+    count_since_last_poo: 0,
+    count_since_last_clown: 0,
+    last_message_with_poo: null,
+    last_message_with_clown: null,
+    total_poo: 0,
+    total_clown: 0,
+  };
+  count.count_since_last_poo++;
+  count.count_since_last_clown++;
+
+  let slayData: any = loadData(guildId, "slay.json") || {
+    last_mention: null,
+    total_count: 0,
+    user_counts: {},
+  };
+
+  // Process SLAY keyword.
+  if (SLAY.test(message.content)) {
+    const now = new Date();
+    slayData.total_count++;
+    slayData.user_counts[userId] = (slayData.user_counts[userId] || 0) + 1;
+    if (slayData.last_mention) {
+      const timeDelta =
+        now.getTime() - new Date(slayData.last_mention).getTime();
+      const days = Math.floor(timeDelta / (1000 * 60 * 60 * 24));
+      if (days >= 7 && canSend(message.channel)) {
+        await (message.channel as TextChannel).send(
+          "Congratulations everyone! We've gone 7 days without saying slay!"
+        );
+        slayData = { last_mention: null, total_count: 0, user_counts: {} };
+        saveData(guildId, "slay.json", slayData);
+        return;
+      }
+    }
+    slayData.last_mention = now.toISOString();
+    await message.reply(
+      `You just said SLAY for the ${slayData.user_counts[userId]} time! Total: ${slayData.total_count}.`
+    );
+    saveData(guildId, "slay.json", slayData);
+  }
+
+  // Random reactions.
+  if (Math.random() < 0.001 && canSend(message.channel)) {
+    try {
+      await message.react("💩");
+    } catch (err) {
+      console.error("Error reacting with 💩:", err);
+    }
+    count.total_poo++;
+    if (count.last_message_with_poo) {
+      const link = `https://discord.com/channels/${guildId}/${message.channel.id}/${count.last_message_with_poo}`;
+      try {
+        await message.reply({
+          content: `Reacted with 💩 after ${count.count_since_last_poo} messages. Total: ${count.total_poo}. Last reaction: ${link}`,
+          allowedMentions: { parse: [] },
+        });
+      } catch (err) {
+        console.error("Error replying for 💩 reaction:", err);
+      }
+    }
+    count.count_since_last_poo = 0;
+    count.last_message_with_poo = message.id;
+  }
+  if (Math.random() < 0.00004) {
+    const clownEmoji = message.guild.emojis.cache.find(
+      (e) => e.name === "clown"
+    );
+    try {
+      if (clownEmoji) {
+        await message.react(clownEmoji);
+      } else {
+        await message.react("🤡");
+      }
+    } catch (err) {
+      console.error("Error reacting with 🤡:", err);
+    }
+    count.total_clown++;
+    if (count.last_message_with_clown && canSend(message.channel)) {
+      const link = `https://discord.com/channels/${guildId}/${message.channel.id}/${count.last_message_with_clown}`;
+      try {
+        await (message.channel as TextChannel).send(
+          `Reacted with 🤡 after ${count.count_since_last_clown} messages. Total: ${count.total_clown}. Last reaction: ${link}`
+        );
+      } catch (err) {
+        console.error("Error sending message for 🤡 reaction:", err);
+      }
+    }
+    count.count_since_last_clown = 0;
+    count.last_message_with_clown = message.id;
+  }
+
+  // Process link transformations.
+  await transformAndReplyLinks(client, message, transformTwitterLink);
+  await transformAndReplyLinks(client, message, transformInstagramLink);
+  await transformAndReplyLinks(client, message, transformTikTokLink);
+
+  // React to drama llama.
+  if (DRAMA_LLAMA.test(message.content) || message.content.includes("🦙")) {
+    try {
+      await message.react("🦙");
+    } catch (err) {
+      console.error("Error reacting with 🦙:", err);
+    }
+  }
+
+  // React based on GIRLS and BRITISH patterns.
+  if (
+    GIRLS.some((r) => r.test(message.content)) ||
+    BRITISH.some((r) => r.test(message.content))
+  ) {
+    try {
+      await message.react(
+        GIRLS.some((r) => r.test(message.content)) ? "💅" : "🇬🇧"
+      );
+    } catch (err) {
+      console.error("Error reacting with GIRLS/BRITISH emoji:", err);
+    }
+  }
+
+  // React with N-word emojis if matching.
+  if (
+    REGEX_NWORD_HARDR.test(message.content) ||
+    REGEX_NWORD.test(message.content)
+  ) {
+    for (const emoji of NWORD.split(" ")) {
+      try {
+        await message.react(emoji);
+      } catch (err) {
+        console.error("Error reacting with N-word emoji:", err);
+      }
+    }
+  }
+
+  // React based on user-specific stinky configuration.
+  if (stinky[userId]) {
+    if (Math.floor(Math.random() * 10) === 0) {
+      const cfg = stinky[userId];
+      if (cfg.type === "emoji") {
+        try {
+          await message.react(cfg.value);
+        } catch (err) {
+          console.error("Error reacting with stinky emoji:", err);
+        }
+      } else if (cfg.type === "custom_emoji") {
+        const custom = message.guild.emojis.cache.find(
+          (e) => e.name === cfg.value
+        );
+        if (custom) {
+          try {
+            await message.react(custom);
+          } catch (err) {
+            console.error("Error reacting with custom stinky emoji:", err);
+          }
+        }
+      } else if (cfg.type === "word") {
+        for (const ch of cfg.value.split(" ")) {
+          try {
+            await message.react(ch);
+          } catch (err) {
+            console.error("Error reacting with stinky word emoji:", err);
+          }
+        }
+      }
+      const reacted = loadData(guildId, "reacted_messages.json");
+      reacted[message.id] = true;
+      saveData(guildId, "reacted_messages.json", reacted);
+    }
+  }
+  saveData(guildId, "count.json", count);
 }

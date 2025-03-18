@@ -1,11 +1,12 @@
 // src/index.ts
-import { Client, GatewayIntentBits } from 'discord.js';
-import dotenv from 'dotenv';
+import { Client, GatewayIntentBits, Partials } from "discord.js";
+import dotenv from "dotenv";
+import { handleMessageCreate } from "./events/messageCreate.js";
 import {
+  ExtendedClient,
   loadCommands,
   registerSlashCommands,
-  ExtendedClient,
-} from './handlers/registerCommands.js';
+} from "./handlers/registerCommands.js";
 
 dotenv.config();
 
@@ -13,32 +14,20 @@ const client: ExtendedClient = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.MessageContent, // required to read message content
   ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 }) as ExtendedClient;
 
-client.once('ready', async () => {
+client.once("ready", async () => {
   console.log(`Logged in as ${client.user?.tag}!`);
+  // Dynamically load and register slash commands.
   await loadCommands(client);
   await registerSlashCommands(client);
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isCommand()) return;
-  const command = client.commands.get(interaction.commandName);
-  if (!command) {
-    console.error(`No command matching ${interaction.commandName} was found.`);
-    return;
-  }
-  try {
-    await command.execute(interaction);
-  } catch (error) {
-    console.error(`Error executing ${interaction.commandName}:`, error);
-    await interaction.reply({
-      content: 'There was an error executing that command!',
-      ephemeral: true,
-    });
-  }
+client.on("messageCreate", async (message) => {
+  await handleMessageCreate(client, message);
 });
 
 client.login(process.env.TOKEN);
