@@ -1,33 +1,34 @@
 // src/commands/add.ts
-import { Client, CommandInteraction, GuildMember } from 'discord.js';
-import { loadData, saveData } from '../utils/file';
+import { SlashCommandBuilder, CommandInteraction } from 'discord.js';
+import { loadData, saveData } from '../utils/file.js';
 import dotenv from 'dotenv';
+import { CustomOptions } from '../types/CustomOptions';
 dotenv.config();
 
-const YOUR_ID = process.env.YOUR_ID; // assumed to be a string
+export const data = new SlashCommandBuilder()
+  .setName('add')
+  .setDescription('Sets a custom emoji for a user.')
+  .addUserOption((option) =>
+    option.setName('user').setDescription('User to update').setRequired(true),
+  )
+  .addStringOption((option) =>
+    option.setName('emoji').setDescription('Emoji or word').setRequired(true),
+  );
 
-// Checks if the emoji is a standard Unicode emoji by verifying that its first character is part of a surrogate pair.
-function isValidEmoji(emoji: string): boolean {
-  if (emoji.length === 0) return false;
-  const firstCharCode = emoji.charCodeAt(0);
-  return firstCharCode >= 0xd800 && firstCharCode <= 0xdbff;
+function isValidEmoji(emojiStr: string): boolean {
+  return emojiStr.codePointAt(0)! > 0xffff;
 }
 
-// Converts a word into a string of regional indicator emojis (🇦, 🇧, etc.). Returns null if any letter repeats or is invalid.
 function wordToEmoji(word: string): string | null {
-  const baseEmojiCode = 0x1f1e6; // Unicode code point for regional indicator symbol letter A
+  const baseEmojiCode = 0x1f1e6; // Regional indicator 'A'
   let emojiString = '';
   const seen = new Set<string>();
-
   for (const char of word) {
     if (seen.has(char)) return null;
     seen.add(char);
-
-    if (char >= 'a' && char <= 'z') {
-      const code = baseEmojiCode + (char.charCodeAt(0) - 'a'.charCodeAt(0));
-      emojiString += String.fromCodePoint(code) + ' ';
-    } else if (char >= 'A' && char <= 'Z') {
-      const code = baseEmojiCode + (char.charCodeAt(0) - 'A'.charCodeAt(0));
+    if (char.toLowerCase() >= 'a' && char.toLowerCase() <= 'z') {
+      const code =
+        baseEmojiCode + (char.toLowerCase().charCodeAt(0) - 'a'.charCodeAt(0));
       emojiString += String.fromCodePoint(code) + ' ';
     } else {
       return null;
@@ -36,13 +37,7 @@ function wordToEmoji(word: string): string | null {
   return emojiString.trim();
 }
 
-export async function handleAddCommand(
-  client: Client,
-  interaction: CommandInteraction,
-  user: GuildMember,
-  emoji: string,
-) {
-  // Ensure this command is used in a guild
+export async function execute(interaction: CommandInteraction) {
   if (!interaction.guild) {
     await interaction.reply({
       content: 'This command can only be used in a guild.',
@@ -51,12 +46,10 @@ export async function handleAddCommand(
     return;
   }
   const guildId = interaction.guild.id;
-
-  // Load allowed users and "stinky" configuration data
   const allowed = loadData(guildId, 'allowed.json');
   const stinky = loadData(guildId, 'stinky.json');
+  const YOUR_ID = process.env.YOUR_ID;
 
-  // Check if the user executing the command has permission
   if (
     interaction.user.id !== interaction.guild.ownerId &&
     interaction.user.id !== YOUR_ID &&
@@ -69,8 +62,12 @@ export async function handleAddCommand(
     return;
   }
 
-  // Prevent the bot from modifying itself
-  if (user.id === client.user?.id) {
+  // Cast options to our CustomOptions type.
+  const options = interaction.options as unknown as CustomOptions;
+  const user = options.getUser('user', true);
+  const emojiInput = options.getString('emoji', true);
+
+  if (user.id === interaction.client.user?.id) {
     await interaction.reply({
       content: "I can't add myself!",
       ephemeral: true,
@@ -79,30 +76,24 @@ export async function handleAddCommand(
   }
 
   let emojiName: string | null = null;
-
-  // Process custom emojis: format like "<:emojiName:emojiID>" or "<a:emojiName:emojiID>"
   if (
-    (emoji.startsWith('<:') || emoji.startsWith('<a:')) &&
-    emoji.endsWith('>')
+    (emojiInput.startsWith('<:') || emojiInput.startsWith('<a:')) &&
+    emojiInput.endsWith('>')
   ) {
-    const parts = emoji.split(':');
+    const parts = emojiInput.split(':');
     if (parts.length >= 2) {
       emojiName = parts[1];
       stinky[user.id] = { type: 'custom_emoji', value: emojiName };
     }
-  } else if (isValidEmoji(emoji)) {
-    // Standard Unicode emoji
-    stinky[user.id] = { type: 'emoji', value: emoji };
-    emojiName = emoji;
+  } else if (isValidEmoji(emojiInput)) {
+    stinky[user.id] = { type: 'emoji', value: emojiInput };
+    emojiName = emojiInput;
   } else {
-    // Try converting a word to regional indicator emojis
-    emojiName = wordToEmoji(emoji);
+    emojiName = wordToEmoji(emojiInput);
     if (emojiName) {
       stinky[user.id] = { type: 'word', value: emojiName };
     } else {
-      // Check for duplicate letters as in the original logic
-      const uniqueLetters = new Set(emoji.split(''));
-      if (emoji.length !== uniqueLetters.size) {
+      if (emojiInput.length !== new Set(emojiInput).size) {
         await interaction.reply({
           content: "There can't be any duplicate letters!",
           ephemeral: true,
@@ -110,18 +101,15 @@ export async function handleAddCommand(
         return;
       } else {
         await interaction.reply({
-          content: `Failed to interpret ${emoji} as an emoji!`,
+          content: `Failed to interpret ${emojiInput} as an emoji!`,
           ephemeral: true,
         });
         return;
       }
     }
   }
-
-  // Save the updated stinky configuration
   saveData(guildId, 'stinky.json', stinky);
 
-  // Attempt to retrieve a custom emoji object from the guild using the emoji name
   const emojiObj = interaction.guild.emojis.cache.find(
     (e) => e.name === emojiName,
   );

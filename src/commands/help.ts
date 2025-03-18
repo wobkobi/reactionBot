@@ -1,24 +1,27 @@
 // src/commands/help.ts
-import { Client, CommandInteraction, EmbedBuilder } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  CommandInteraction,
+  EmbedBuilder,
+} from 'discord.js';
 
-export async function handleHelp(client: Client, interaction: CommandInteraction) {
-  const embed = new EmbedBuilder()
-    .setTitle('Help Command')
-    .setColor(0x0000ff);
+export const data = new SlashCommandBuilder()
+  .setName('help')
+  .setDescription('Displays help information about available commands.');
 
-  // Retrieve commands from the client's application commands cache
-  const commands = client.application?.commands.cache;
-  if (commands) {
-    commands.forEach((command) => {
+export async function execute(interaction: CommandInteraction) {
+  const embed = new EmbedBuilder().setTitle('Help').setColor(0x0099ff);
+  const clientCommands = (interaction.client as any).commands;
+  if (clientCommands) {
+    clientCommands.forEach((cmd: any) => {
       embed.addFields({
-        name: command.name,
-        value: command.description || 'No description provided.',
+        name: cmd.data.name,
+        value: cmd.data.description || 'No description provided.',
         inline: false,
       });
     });
   } else {
-    embed.setDescription('No commands found.');
+    embed.setDescription('No commands available.');
   }
-
   await interaction.reply({ embeds: [embed], ephemeral: true });
 }

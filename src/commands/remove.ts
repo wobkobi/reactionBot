@@ -1,21 +1,22 @@
 // src/commands/remove.ts
 import {
-  Client,
+  SlashCommandBuilder,
   CommandInteraction,
-  GuildMember,
-  TextBasedChannel,
+  TextChannel,
 } from 'discord.js';
-import { loadData, saveData } from '../utils/file';
+import { loadData, saveData } from '../utils/file.js';
 import dotenv from 'dotenv';
+import { CustomOptions } from '../types/CustomOptions';
 dotenv.config();
 
-const YOUR_ID = process.env.YOUR_ID;
+export const data = new SlashCommandBuilder()
+  .setName('remove')
+  .setDescription('Removes a user from the stinky list.')
+  .addUserOption((option) =>
+    option.setName('user').setDescription('User to remove').setRequired(true),
+  );
 
-export async function handleRemoveCommand(
-  client: Client,
-  interaction: CommandInteraction,
-  user: GuildMember,
-) {
+export async function execute(interaction: CommandInteraction) {
   if (!interaction.guild || !interaction.channel) {
     await interaction.reply({
       content: 'This command can only be used in a guild.',
@@ -27,6 +28,9 @@ export async function handleRemoveCommand(
   const allowed = loadData(guildId, 'allowed.json');
   const stinky = loadData(guildId, 'stinky.json');
   const reactedMessages = loadData(guildId, 'reacted_messages.json');
+  const options = interaction.options as unknown as CustomOptions;
+  const user = options.getUser('user', true);
+  const YOUR_ID = process.env.YOUR_ID;
 
   if (
     interaction.user.id !== interaction.guild.ownerId &&
@@ -40,7 +44,7 @@ export async function handleRemoveCommand(
     return;
   }
 
-  if (user.id === client.user?.id) {
+  if (user.id === interaction.client.user?.id) {
     await interaction.reply({
       content: "I can't remove myself!",
       ephemeral: true,
@@ -50,38 +54,36 @@ export async function handleRemoveCommand(
 
   if (!stinky[user.id]) {
     await interaction.reply({
-      content: `${user.displayName} is not on the list!`,
+      content: `<@${user.id}> is not on the list!`,
       ephemeral: true,
     });
     return;
   }
 
-  // Assume reactedMessages stores an array of message IDs per user ID
-  const userReactedMessages: string[] = reactedMessages[user.id] || [];
-  const channel = interaction.channel as TextBasedChannel;
-  for (const messageId of userReactedMessages) {
+  const channel = interaction.channel as TextChannel;
+  const userMessages: string[] = reactedMessages[user.id] || [];
+  for (const messageId of userMessages) {
     try {
       const msg = await channel.messages.fetch(messageId);
-      const userData = stinky[user.id];
-      if (userData.type === 'word') {
-        const emojis = userData.value.split(' ');
+      if (stinky[user.id].type === 'word') {
+        const emojis = stinky[user.id].value.split(' ');
         for (const emojiChar of emojis) {
           try {
             await msg.reactions.resolve(emojiChar)?.remove();
           } catch (error) {
-            continue;
+            console.error(error);
           }
         }
       } else {
-        const emojiValue = userData.value;
+        const emojiValue = stinky[user.id].value;
         try {
           await msg.reactions.resolve(emojiValue)?.remove();
         } catch (error) {
-          continue;
+          console.error(error);
         }
       }
     } catch (error) {
-      continue;
+      console.error(error);
     }
   }
 
