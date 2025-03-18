@@ -8,24 +8,8 @@ import {
   Snowflake,
   TextChannel,
 } from "discord.js";
-import {
-  INSTAGRAM_DOMAIN_REGEX,
-  TIKTOK_DOMAIN_REGEX,
-  TWITTER_DOMAIN_REGEX,
-} from "../regex.js";
+import { INSTAGRAM_DOMAIN_REGEX, TWITTER_DOMAIN_REGEX } from "../regex.js";
 import { loadData, saveData } from "../utils/file.js";
-
-/**
- * Checks if a given URL's hostname is in the allowed list.
- */
-function isAllowedHost(url: string, allowedHosts: string[]): boolean {
-  try {
-    const parsed = new URL(url);
-    return allowedHosts.includes(parsed.hostname.toLowerCase());
-  } catch (e) {
-    return false;
-  }
-}
 
 /**
  * Transforms a Twitter URL.
@@ -33,15 +17,25 @@ function isAllowedHost(url: string, allowedHosts: string[]): boolean {
  *   https://x.com/shitpost_2077/status/1901430784483115510
  * becomes:
  *   https://vxtwitter.com/shitpost_2077/status/1901430784483115510
- *
- * Only transforms if the hostname is one of the allowed hosts.
  */
 export function transformTwitterLink(url: string): string {
-  const allowedHosts = ["x.com", "twitter.com", "www.x.com", "www.twitter.com"];
-  if (!isAllowedHost(url, allowedHosts)) return url;
-
-  const match = url.match(TWITTER_DOMAIN_REGEX);
-  return match ? "https://vxtwitter.com/" + match[2] : url;
+  try {
+    const parsedUrl = new URL(url);
+    // Ensure the hostname is allowed.
+    if (
+      parsedUrl.hostname !== "twitter.com" &&
+      parsedUrl.hostname !== "www.twitter.com" &&
+      parsedUrl.hostname !== "x.com"
+    ) {
+      return url;
+    }
+    // Optionally, you could check allowed hosts here if desired.
+    const match = url.match(TWITTER_DOMAIN_REGEX);
+    return match ? "https://vxtwitter.com/" + match[2] : url;
+  } catch (e) {
+    console.error("Error parsing Twitter URL:", e);
+    return url;
+  }
 }
 
 /**
@@ -50,49 +44,56 @@ export function transformTwitterLink(url: string): string {
  *   https://www.instagram.com/reel/DEsgl4vyuwB/?igsh=...
  * becomes:
  *   https://ddinstagram.com/reel/DEsgl4vyuwB/
- *
- * Only transforms if the hostname is allowed.
  */
 export function transformInstagramLink(url: string): string {
-  const allowedHosts = ["instagram.com", "www.instagram.com"];
-  if (!isAllowedHost(url, allowedHosts)) return url;
-
-  const match = url.match(INSTAGRAM_DOMAIN_REGEX);
-  if (match) {
-    // match[1] contains the rest of the URL, e.g. "reel/DEsgl4vyuwB/?igsh=..."
-    const parts = match[1].split("/");
-    if (parts.length >= 2 && (parts[0] === "reel" || parts[0] === "p")) {
-      return "https://ddinstagram.com/" + parts[0] + "/" + parts[1] + "/";
+  try {
+    const parsedUrl = new URL(url);
+    // Ensure the hostname is allowed.
+    if (
+      parsedUrl.hostname !== "instagram.com" &&
+      parsedUrl.hostname !== "www.instagram.com"
+    ) {
+      return url;
     }
+    const match = url.match(INSTAGRAM_DOMAIN_REGEX);
+    if (match) {
+      // match[1] contains the path after the domain, e.g. "reel/DEsgl4vyuwB/?igsh=..."
+      const parts = match[1].split("/");
+      if (parts.length >= 2 && (parts[0] === "reel" || parts[0] === "p")) {
+        return "https://ddinstagram.com/" + parts[0] + "/" + parts[1] + "/";
+      }
+    }
+  } catch (e) {
+    console.error("Error parsing Instagram URL:", e);
   }
   return url;
 }
 
 /**
  * Transforms a TikTok URL.
- * If the URL comes from vt.tiktok.com, returns:
+ * Uses the URL API to properly parse the link.
+ * If the hostname equals "vt.tiktok.com", returns:
  *   https://vt.vxtiktok.com/<id>/
- * Otherwise, for normal tiktok.com URLs, returns:
+ * Otherwise, if the hostname includes "tiktok.com", returns:
  *   https://www.vxtiktok.com/<rest>
- *
- * Only transforms if the hostname is one of the allowed hosts.
  */
 export function transformTikTokLink(url: string): string {
-  const allowedHosts = [
-    "tiktok.com",
-    "www.tiktok.com",
-    "vt.tiktok.com",
-    "www.vt.tiktok.com",
-  ];
-  if (!isAllowedHost(url, allowedHosts)) return url;
-
-  const match = url.match(TIKTOK_DOMAIN_REGEX);
-  if (match) {
-    if (url.includes("vt.tiktok.com")) {
-      return "https://vt.vxtiktok.com/" + match[1] + "/";
-    } else {
-      return "https://www.vxtiktok.com/" + match[1];
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname === "vt.tiktok.com") {
+      // Remove any leading slash from the pathname.
+      const id = parsedUrl.pathname.startsWith("/")
+        ? parsedUrl.pathname.slice(1)
+        : parsedUrl.pathname;
+      return `https://vt.vxtiktok.com/${id}/`;
+    } else if (parsedUrl.hostname.includes("tiktok.com")) {
+      const id = parsedUrl.pathname.startsWith("/")
+        ? parsedUrl.pathname.slice(1)
+        : parsedUrl.pathname;
+      return `https://www.vxtiktok.com/${id}`;
     }
+  } catch (e) {
+    console.error("Error parsing TikTok URL:", e);
   }
   return url;
 }
