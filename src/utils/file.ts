@@ -1,29 +1,47 @@
-import fs from "fs";
-import path from "path";
+// src/utils/file.ts
 
-export function loadData(guildId: string, filename: string): any {
-  const directory = path.join("data", guildId);
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, {recursive: true});
-  }
-  const filepath = path.join(directory, filename);
-  if (fs.existsSync(filepath)) {
-    try {
-      const data = fs.readFileSync(filepath, "utf8");
-      return JSON.parse(data);
-    } catch (error) {
-      console.error("Error parsing JSON", error);
-      return {};
-    }
-  }
-  return {};
+/**
+ * Utility functions for loading and saving per-guild JSON data files.
+ */
+import * as fs from "fs";
+import * as path from "path";
+
+/**
+ * Root directory where guild data folders are stored.
+ */
+const DATA_ROOT = path.resolve(__dirname, "../../data");
+
+/**
+ * Loads JSON data for a given guild and filename. Creates the guild directory if it doesn't exist.
+ * @template T - The expected shape of the JSON data.
+ * @param guildId - The Discord guild (server) ID.
+ * @param fileName - The name of the JSON file (e.g., "allowed.json").
+ * @returns The parsed JSON data, or an empty object if the file does not exist.
+ */
+export function loadData<T = Record<string, unknown>>(
+  guildId: string,
+  fileName: string
+): T {
+  const dir = path.join(DATA_ROOT, guildId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, fileName);
+  if (!fs.existsSync(filePath)) return {} as T;
+  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
 }
 
-export function saveData(guildId: string, filename: string, data: any): void {
-  const directory = path.join("data", guildId);
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, {recursive: true});
-  }
-  const filepath = path.join(directory, filename);
-  fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
+/**
+ * Saves JSON data for a given guild and filename. Creates the guild directory if it doesn't exist.
+ * @param guildId - The Discord guild (server) ID.
+ * @param fileName - The name of the JSON file (e.g., "media_channel.json").
+ * @param data - The data to serialize and save.
+ */
+export function saveData(
+  guildId: string,
+  fileName: string,
+  data: Record<string, unknown>
+): void {
+  const dir = path.join(DATA_ROOT, guildId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
