@@ -19,8 +19,8 @@ import {
   TIKTOK_FULL_REGEX,
   TIKTOK_SHORT_REGEX,
   TWITTER_X_REGEX,
-} from "./regex";
-import { loadData } from "./utils/file";
+} from "./regex.js";
+import { loadData } from "./utils/file.js";
 
 /**
  * Handles incoming messages and transforms supported media links.

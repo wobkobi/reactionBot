@@ -1,4 +1,4 @@
-// src/commands/setmediachannel.ts
+// src/commands/setchannel.ts
 
 /**
  * Slash command for setting the channel where media links (TikTok, Instagram, Twitter, Reddit)
@@ -7,7 +7,7 @@
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { ChatInputCommandInteraction, TextChannel } from "discord.js";
 import * as dotenv from "dotenv";
-import { loadData, saveData } from "../utils/file";
+import { loadData, saveData } from "../utils/file.js";
 
 dotenv.config();
 
@@ -15,7 +15,7 @@ dotenv.config();
  * Command definition for /setmediachannel.
  */
 export const data = new SlashCommandBuilder()
-  .setName("setmediachannel")
+  .setName("setchannel")
   .setDescription("📺 Set where media links get reposted")
   .addChannelOption((option) =>
     option
@@ -31,19 +31,19 @@ const OWNER_ID = process.env.YOUR_ID;
  * Executes the /setmediachannel command.
  * Checks if the user is an admin (guild owner, bot owner, or listed in allowed.json),
  * then saves the selected channel ID to the guild's media_channel.json and confirms.
- * @param interaction The ChatInputCommandInteraction provided by Discord.js.
+ * @param interaction - Interaction context for the command invocation.
  */
-export async function execute(interaction: ChatInputCommandInteraction) {
+export async function execute(
+  interaction: ChatInputCommandInteraction
+): Promise<void> {
   const channel = interaction.options.getChannel(
     "channel",
     true
   ) as TextChannel;
   const guildId = interaction.guildId!;
 
-  const { allowed } = loadData(guildId, "allowed.json") as {
-    allowed?: string[];
-  };
-  const allowedIds = allowed || [];
+  const config = loadData<{ allowed?: string[] }>(guildId, "allowed.json");
+  const allowedIds = config.allowed ?? [];
 
   const isAdmin =
     interaction.user.id === interaction.guild!.ownerId ||
