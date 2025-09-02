@@ -1,18 +1,20 @@
 // src/commands/setchannel.ts
 
-/**
- * Slash command for setting the channel where media links (TikTok, Instagram, Twitter, Reddit)
- * will be reposted after transformation.
- */
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { ChatInputCommandInteraction, TextChannel } from "discord.js";
 import * as dotenv from "dotenv";
 import { loadData, saveData } from "../utils/file.js";
+import { createLogger } from "../utils/log.js";
 
 dotenv.config();
 
+const log = createLogger("cmd/setchannel");
+
+// Bot owner ID from environment
+const OWNER_ID = process.env.YOUR_ID;
+
 /**
- * Command definition for /setmediachannel.
+ * Command definition for /setchannel.
  */
 export const data = new SlashCommandBuilder()
   .setName("setchannel")
@@ -24,43 +26,84 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-// Bot owner ID from environment
-const OWNER_ID = process.env.YOUR_ID;
-
 /**
- * Executes the /setmediachannel command.
- * Checks if the user is an admin (guild owner, bot owner, or listed in allowed.json),
- * then saves the selected channel ID to the guild's media_channel.json and confirms.
- * @param interaction - Interaction context for the command invocation.
+ * Executes the `/setchannel` command.
+ * Validates permissions, persists `media_settings.json`, and confirms to the user.
+ * @param interaction - The command interaction context.
+ * @returns A promise that resolves when the reply has been sent.
  */
 export async function execute(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
+  if (!interaction.inGuild()) {
+    log.warn("invoked outside guild", { userId: interaction.user.id });
+    await interaction.reply({ content: "Use in a server.", ephemeral: true });
+    return;
+  }
+
   const channel = interaction.options.getChannel(
     "channel",
     true
   ) as TextChannel;
   const guildId = interaction.guildId!;
+  const userId = interaction.user.id;
 
-  const config = loadData<{ allowed?: string[] }>(guildId, "allowed.json");
-  const allowedIds = config.allowed ?? [];
+  log.debug("invoked", {
+    guildId,
+    userId,
+    targetChannelId: channel.id,
+  });
 
-  const isAdmin =
-    interaction.user.id === interaction.guild!.ownerId ||
-    interaction.user.id === OWNER_ID ||
-    allowedIds.includes(interaction.user.id);
+  try {
+    const config = loadData<{ allowed?: string[] }>(guildId, "allowed.json", {
+      soft: true,
+    });
+    const allowedIds = config.allowed ?? [];
 
-  if (!isAdmin) {
+    const isAdmin =
+      userId === interaction.guild!.ownerId ||
+      userId === OWNER_ID ||
+      allowedIds.includes(userId);
+
+    if (!isAdmin) {
+      log.warn("permission denied", { guildId, userId });
+      await interaction.reply({
+        content: "❌ You’re not allowed to run this.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Save (compat): write into media_settings.json (used by onMessage) and legacy media_channel.json
+    const settings = loadData<{ channelId?: string; grace?: unknown }>(
+      guildId,
+      "media_settings.json",
+      { soft: true }
+    );
+    settings.channelId = channel.id;
+
+    saveData(guildId, "media_settings.json", settings);
+    saveData(guildId, "media_channel.json", { channelId: channel.id }); // legacy
+
+    log.info("media channel set", {
+      guildId,
+      channelId: channel.id,
+      by: userId,
+    });
+
     await interaction.reply({
-      content: "❌ You’re not allowed to run this.",
+      content: `✅ Media channel set to ${channel}`,
       ephemeral: true,
     });
-    return;
+  } catch (err) {
+    log.error("failed to set media channel", {
+      guildId,
+      userId,
+      error: (err as Error)?.message,
+    });
+    await interaction.reply({
+      content: "⚠️ There was an error.",
+      ephemeral: true,
+    });
   }
-
-  saveData(guildId, "media_channel.json", { channelId: channel.id });
-  await interaction.reply({
-    content: `✅ Media channel set to ${channel}`,
-    ephemeral: true,
-  });
 }
