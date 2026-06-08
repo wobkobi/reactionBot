@@ -13,7 +13,7 @@ const config: Config = {
   bracketSpacing: true,
   bracketSameLine: false,
   arrowParens: "always",
-  endOfLine: "lf",
+  endOfLine: "auto",
 
   overrides: [
     { files: ["*.md", "*.mdx"], options: { proseWrap: "always" } },
