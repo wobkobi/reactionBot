@@ -13,8 +13,12 @@ export type ServiceKey =
   | "twitter"
   | "instagram"
   | "reddit-comments"
+  | "reddit-share"
   | "reddit-short"
-  | "reddit-media";
+  | "bluesky"
+  | "threads"
+  | "tumblr"
+  | "tumblr-sub";
 
 /**
  * Grace period setting for auto-approval:

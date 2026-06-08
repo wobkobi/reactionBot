@@ -7,6 +7,8 @@
  * Exits non-zero on the first failed assertion. Grows as features land.
  */
 
+import { matchAny } from "@/media/match.js";
+import { buildTransformedUrl } from "@/media/transform.js";
 import { readdirSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -51,7 +53,54 @@ async function checkCommandsLoad(): Promise<void> {
   }
 }
 
+/**
+ * Verifies link detection and transformation: supported links map to the
+ * expected embeddable frontend, while already-transformed links and Reddit
+ * direct-media links are left untouched (no match).
+ */
+function checkLinkTransforms(): void {
+  console.log("link transforms:");
+
+  // [input, expected transformed URL]
+  const transforms: Array<[string, string]> = [
+    ["https://x.com/u/status/1", "https://fixupx.com/u/status/1"],
+    ["https://www.instagram.com/reel/AbC", "https://vxinstagram.com/reel/AbC"],
+    ["https://www.instagram.com/reels/AbC", "https://vxinstagram.com/reels/AbC"],
+    ["https://www.tiktok.com/@u/video/123", "https://d.tnktok.com/@u/video/123"],
+    ["https://vm.tiktok.com/AbC123", "https://d.vm.tnktok.com/AbC123"],
+    ["https://www.reddit.com/r/x/comments/abc/title", "https://rxddit.com/r/x/comments/abc/title"],
+    ["https://www.reddit.com/r/x/s/Ab12", "https://rxddit.com/r/x/s/Ab12"],
+    ["https://redd.it/abc1", "https://rxddit.com/abc1"],
+    [
+      "https://bsky.app/profile/h.bsky.social/post/ID1",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1",
+    ],
+    ["https://www.threads.net/@u/post/ID1", "https://vxthreads.net/@u/post/ID1"],
+    ["https://www.tumblr.com/blog/123/slug", "https://tpmblr.com/blog/123/slug"],
+    ["https://blog.tumblr.com/post/123", "https://blog.tpmblr.com/post/123"],
+  ];
+  for (const [input, expected] of transforms) {
+    const m = matchAny(input);
+    const got = m ? buildTransformedUrl(m) : "(no match)";
+    check(got === expected, `${input} -> ${expected}`);
+  }
+
+  // Links that must NOT match (already embeddable, or unfixable direct media).
+  const noMatch = [
+    "https://vxinstagram.com/reel/AbC",
+    "https://fixupx.com/u/status/1",
+    "https://rxddit.com/r/x/comments/abc",
+    "https://d.tnktok.com/@u/video/123",
+    "https://v.redd.it/xyz",
+    "https://i.redd.it/xyz.jpg",
+  ];
+  for (const input of noMatch) {
+    check(matchAny(input) === null, `${input} -> no match`);
+  }
+}
+
 await checkCommandsLoad();
+checkLinkTransforms();
 
 if (failures > 0) {
   console.error(`\nsmoke test FAILED: ${failures} check(s)`);

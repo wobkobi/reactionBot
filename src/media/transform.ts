@@ -9,6 +9,22 @@ import { MediaMatch, RewriteResult } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("media/transform");
+
+/**
+ * Embeddable frontend domains per platform. These privacy/embed frontends die
+ * or get blocked periodically, so keeping them in one place makes swapping a
+ * dead service a one-line change. (Current as of June 2026.)
+ */
+export const FRONTENDS = {
+  tiktok: "tnktok.com", // fxTikTok; "d." prefix = direct video/image embed
+  twitter: "fixupx.com", // FxEmbed
+  instagram: "vxinstagram.com",
+  reddit: "rxddit.com", // fxreddit
+  bluesky: "fxbsky.app", // FxEmbed
+  threads: "vxthreads.net",
+  tumblr: "tpmblr.com", // fxtumblr
+} as const;
+
 /**
  * Builds the transformed URL for a given platform match.
  * @param match - The {@link MediaMatch} describing the platform and captures.
@@ -18,19 +34,27 @@ export function buildTransformedUrl(match: MediaMatch): string {
   const [a, b] = match.captures;
   switch (match.which) {
     case "tiktok-short":
-      return `https://vt.vxtiktok.com/${a}`;
+      // a = "vt" | "vm" short host, b = id; "d." = direct embed
+      return `https://d.${a}.${FRONTENDS.tiktok}/${b}`;
     case "tiktok-full":
-      return `https://www.vxtiktok.com/${a}`;
+      return `https://d.${FRONTENDS.tiktok}/${a}`;
     case "twitter":
-      return `https://vxtwitter.com/${a}`;
+      return `https://${FRONTENDS.twitter}/${a}`;
     case "instagram":
-      return `https://ddinstagram.com/${a}`;
+      return `https://${FRONTENDS.instagram}/${a}`;
     case "reddit-comments":
-      return `https://libredd.it/${a}`;
+    case "reddit-share":
     case "reddit-short":
-      return `https://libredd.it/comments/${a}`;
-    case "reddit-media":
-      return a === "v.redd.it" ? `https://libredd.it/v/${b}` : `https://libredd.it/i/${b}`;
+      return `https://${FRONTENDS.reddit}/${a}`;
+    case "bluesky":
+      return `https://${FRONTENDS.bluesky}/${a}`;
+    case "threads":
+      return `https://${FRONTENDS.threads}/${a}`;
+    case "tumblr":
+      return `https://${FRONTENDS.tumblr}/${a}`;
+    case "tumblr-sub":
+      // a = blog subdomain, b = post id (+ optional slug)
+      return `https://${a}.${FRONTENDS.tumblr}/post/${b}`;
   }
 }
 
