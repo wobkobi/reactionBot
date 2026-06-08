@@ -1,6 +1,6 @@
 // src/commands/swearnuke.ts
 
-import { resetGuild } from "@/swears/storage.js";
+import { resetGuild, resetUser } from "@/swears/storage.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
@@ -14,8 +14,8 @@ import {
 const log = createLogger("cmd/swearnuke");
 
 /**
- * @file Defines the /swearnuke command to reset all swear statistics
- * for the current guild.
+ * @file Defines the /swearnuke command to reset swear statistics for the whole
+ * guild or a single member.
  */
 
 /**
@@ -24,7 +24,10 @@ const log = createLogger("cmd/swearnuke");
  */
 export const data = new SlashCommandBuilder()
   .setName("swearnuke")
-  .setDescription("Reset swear stats for this server")
+  .setDescription("Reset swear stats for this server (or one member)")
+  .addUserOption((opt) =>
+    opt.setName("user").setDescription("Reset only this member (defaults to the whole server)"),
+  )
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setContexts(InteractionContextType.Guild);
 
@@ -50,14 +53,25 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   const guildId = interaction.guildId!;
+  const target = interaction.options.getUser("user");
 
   try {
-    resetGuild(guildId);
-    log.info("reset complete", { guildId });
-    await interaction.reply({
-      content: "✅ Swear stats reset.",
-      flags: MessageFlags.Ephemeral,
-    });
+    if (target) {
+      resetUser(guildId, target.id);
+      log.info("reset user complete", { guildId, userId: target.id });
+      await interaction.reply({
+        content: `✅ Swear stats reset for ${target}.`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
+    } else {
+      resetGuild(guildId);
+      log.info("reset complete", { guildId });
+      await interaction.reply({
+        content: "✅ Swear stats reset for the whole server.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   } catch (err) {
     log.error("reset failed", {
       guildId,

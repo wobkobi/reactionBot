@@ -20,6 +20,7 @@ import { resolveGrace } from "@/commands/setgrace.js";
 import { matchAny } from "@/media/match.js";
 import { buildMovedContent, buildPointerContent } from "@/media/repost.js";
 import { buildTransformedUrl } from "@/media/transform.js";
+import { countSwears, loadSwearSet, tokenise } from "@/swears/detector.js";
 import { readdirSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -170,6 +171,17 @@ function checkGrace(): void {
   check("grace", "disabled passes through", resolveGrace("disabled") === "disabled");
 }
 
+/**
+ * Verifies swear detection against the seeded global word list: the list is
+ * non-empty and a sample sentence containing a seeded word is detected.
+ */
+function checkSwears(): void {
+  const set = loadSwearSet("global");
+  check("swears", "global word list is non-empty", set.size > 0);
+  const counts = countSwears(tokenise("oh fuck this, what the hell"), set);
+  check("swears", "detects seeded swears in a sentence", counts.size >= 1);
+}
+
 /* --------------------------------------------------------------- reporting */
 
 /**
@@ -197,6 +209,7 @@ void (async () => {
     checkLinkTransforms();
     checkRepostContent();
     checkGrace();
+    checkSwears();
 
     printTable();
 
