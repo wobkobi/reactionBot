@@ -109,6 +109,10 @@ export function loadData<T>(guildId: string, fileName: string, opts?: LoadOption
 export function saveData<T>(guildId: string, fileName: string, data: T): void {
   const dir = ensureDir(guildDataDir(guildId));
   const filePath = path.join(dir, fileName);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  // Write to a temp file then rename so a crash mid-write cannot leave a
+  // truncated or empty JSON file in place.
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(tmpPath, filePath);
   log.debug("wrote json", { filePath });
 }

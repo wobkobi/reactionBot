@@ -6,7 +6,7 @@
  * - Optionally auto-deletes the prompt on resolve/timeout
  */
 
-import { ApprovalOptions } from "@/media/types.js";
+import { ApprovalOptions, GraceSetting } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
 import {
   ActionRowBuilder,
@@ -18,14 +18,7 @@ import {
   User,
 } from "discord.js";
 
-const log = createLogger("handlers/approval");
-/**
- * Grace period behavior for the approval prompt.
- * - `"instant"`: auto-approve immediately with no UI
- * - `"disabled"`: wait indefinitely (no timeout)
- * - `number`: time in **milliseconds** to wait before the collector ends
- */
-export type GraceSetting = "instant" | "disabled" | number;
+const log = createLogger("media/approval");
 
 /**
  * Request in-channel approval from a user via Yes/No buttons.

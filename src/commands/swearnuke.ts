@@ -4,7 +4,12 @@ import { resetGuild } from "@/swears/storage.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  InteractionReplyOptions,
+  MessageFlags,
+  PermissionFlagsBits,
+} from "discord.js";
 
 const log = createLogger("cmd/swearnuke");
 
@@ -39,7 +44,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     log.warn("used outside guild", { userId: interaction.user.id });
     await interaction.reply({
       content: "Use this command in a server.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -51,7 +56,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     log.info("reset complete", { guildId });
     await interaction.reply({
       content: "✅ Swear stats reset.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   } catch (err) {
     log.error("reset failed", {
@@ -59,9 +64,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       error: err instanceof Error ? err.message : String(err),
     });
 
-    const reply = {
+    const reply: InteractionReplyOptions = {
       content: "⚠️ Failed to reset stats. Try again later.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     };
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp(reply);

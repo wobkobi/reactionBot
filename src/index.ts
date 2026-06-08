@@ -9,7 +9,9 @@ import {
   Collection,
   GatewayIntentBits,
   Interaction,
+  InteractionReplyOptions,
   Message,
+  MessageFlags,
   Partials,
   SlashCommandBuilder,
 } from "discord.js";
@@ -26,6 +28,15 @@ const boot = (msg: string, extra?: Record<string, unknown>) =>
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const CLIENT_ID = process.env.CLIENT_ID!;
+
+if (!BOT_TOKEN || !CLIENT_ID) {
+  log.fatal("missing required environment variables", {
+    hasToken: !!BOT_TOKEN,
+    hasClientId: !!CLIENT_ID,
+  });
+  boot("Missing BOT_TOKEN or CLIENT_ID; set them in .env. Exiting.");
+  process.exit(1);
+}
 
 declare module "discord.js" {
   interface Client {
@@ -130,7 +141,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
       command: interaction.commandName,
       error: err instanceof Error ? err.message : String(err),
     });
-    const reply = { content: "⚠️ There was an error.", ephemeral: true };
+    const reply: InteractionReplyOptions = {
+      content: "⚠️ There was an error.",
+      flags: MessageFlags.Ephemeral,
+    };
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp(reply);
     } else {

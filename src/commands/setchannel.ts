@@ -3,7 +3,7 @@
 import { loadData, saveData } from "@/utils/file.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { ChatInputCommandInteraction, TextChannel } from "discord.js";
+import { ChatInputCommandInteraction, MessageFlags, TextChannel } from "discord.js";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -35,7 +35,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", ephemeral: true });
+    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -62,12 +62,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       log.warn("permission denied", { guildId, userId });
       await interaction.reply({
         content: "❌ You’re not allowed to run this.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    // Save (compat): write into media_settings.json (used by onMessage) and legacy media_channel.json
+    // Persist the target channel into media_settings.json (read by onMessage).
     const settings = loadData<{ channelId?: string; grace?: unknown }>(
       guildId,
       "media_settings.json",
@@ -76,7 +76,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     settings.channelId = channel.id;
 
     saveData(guildId, "media_settings.json", settings);
-    saveData(guildId, "media_channel.json", { channelId: channel.id }); // legacy
 
     log.info("media channel set", {
       guildId,
@@ -86,7 +85,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     await interaction.reply({
       content: `✅ Media channel set to ${channel}`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   } catch (err) {
     log.error("failed to set media channel", {
@@ -96,7 +95,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     });
     await interaction.reply({
       content: "⚠️ There was an error.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 }

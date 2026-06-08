@@ -3,7 +3,7 @@
 import { loadData, saveData } from "@/utils/file.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { ChatInputCommandInteraction } from "discord.js";
+import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 const log = createLogger("cmd/setgrace");
 
@@ -17,7 +17,7 @@ interface MediaSettings {
    * Grace period before moving a media link.
    * - "instant": move immediately without confirmation.
    * - "disabled": never auto-move (prompt stays).
-   * - number: seconds before auto-approval.
+   * - number: milliseconds before auto-approval.
    */
   grace?: "instant" | "disabled" | number;
 }
@@ -52,14 +52,15 @@ export const data = new SlashCommandBuilder()
  * Converts the provided mode/value into the persisted grace representation.
  * @param mode - "instant", "disabled", or "seconds".
  * @param seconds - Optional seconds value when mode is "seconds".
- * @returns The grace value to persist.
+ * @returns The grace value to persist (milliseconds when mode is "seconds").
  */
-function resolveGrace(
+export function resolveGrace(
   mode: "instant" | "disabled" | "seconds",
   seconds?: number | null,
 ): "instant" | "disabled" | number {
   if (mode === "instant" || mode === "disabled") return mode;
-  return Number(seconds ?? 10); // fallback is unused with validation but keeps type-safe
+  // Stored as milliseconds: the approval pipeline treats a numeric grace as ms.
+  return Number(seconds ?? 10) * 1000;
 }
 
 /**
@@ -71,7 +72,7 @@ function resolveGrace(
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", ephemeral: true });
+    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -86,7 +87,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     log.warn("invalid seconds value", { guildId, userId, mode, value });
     await interaction.reply({
       content: "Provide a valid seconds value between 1 and 300.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -112,7 +113,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     const msg = mode === "seconds" ? `✅ Grace set to ${value}s.` : `✅ Grace set to ${mode}.`;
 
-    await interaction.reply({ content: msg, ephemeral: true });
+    await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
   } catch (err) {
     log.error("failed to update grace", {
       guildId,
@@ -121,7 +122,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     });
     await interaction.reply({
       content: "⚠️ There was an error.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 }

@@ -4,7 +4,12 @@ import { getTopUsers } from "@/swears/storage.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  InteractionReplyOptions,
+  MessageFlags,
+} from "discord.js";
 
 const log = createLogger("cmd/sweartop");
 
@@ -37,15 +42,15 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     log.warn("used outside guild", { userId: interaction.user.id });
     await interaction.reply({
       content: "Use this command in a server.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
   try {
     const limit = interaction.options.getInteger("limit") ?? 10;
-    const stats = getTopUsers(interaction.guildId!, limit);
-    const entries = stats.sort((a, b) => b.total - a.total).slice(0, limit);
+    // getTopUsers already returns the top `limit` users sorted by total desc.
+    const entries = getTopUsers(interaction.guildId!, limit);
 
     log.debug("computed leaderboard", {
       guildId: interaction.guildId!,
@@ -57,7 +62,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       entries.map(async (entry, i) => {
         const user = await interaction.client.users.fetch(entry.userId).catch(() => null);
         const name = user?.tag ?? entry.userId;
-        return `**${i + 1}.** ${name} — **${entry.total}**`;
+        return `**${i + 1}.** ${name} - **${entry.total}**`;
       }),
     );
 
@@ -65,7 +70,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .setTitle("Swearboard")
       .setDescription(lines.join("\n") || "No data.");
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 
     log.info("sent leaderboard", {
       guildId: interaction.guildId!,
@@ -78,9 +83,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       error: err instanceof Error ? err.message : String(err),
     });
 
-    const reply = {
+    const reply: InteractionReplyOptions = {
       content: "⚠️ Couldn’t fetch the leaderboard. Try again later.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     };
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp(reply);
