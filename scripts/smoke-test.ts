@@ -8,6 +8,7 @@
  */
 
 import { matchAny } from "@/media/match.js";
+import { buildMovedContent, buildPointerContent } from "@/media/repost.js";
 import { buildTransformedUrl } from "@/media/transform.js";
 import { readdirSync } from "fs";
 import path from "path";
@@ -99,8 +100,28 @@ function checkLinkTransforms(): void {
   }
 }
 
+/**
+ * Verifies the repost content builders: the moved message carries the
+ * transformed link (so it embeds), and the source pointer links to the moved
+ * message for quick access.
+ */
+function checkRepostContent(): void {
+  console.log("repost content:");
+  const moved = buildMovedContent("<@1>", "look https://vxinstagram.com/reel/x");
+  check(
+    moved.includes("https://vxinstagram.com/reel/x"),
+    "moved message contains the embeddable link",
+  );
+  const pointer = buildPointerContent("<@1>", "https://discord.com/channels/1/2/3");
+  check(
+    pointer.includes("https://discord.com/channels/1/2/3"),
+    "source pointer links to the moved message",
+  );
+}
+
 await checkCommandsLoad();
 checkLinkTransforms();
+checkRepostContent();
 
 if (failures > 0) {
   console.error(`\nsmoke test FAILED: ${failures} check(s)`);

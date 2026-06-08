@@ -11,7 +11,7 @@ import { enableAuthorDelete, repostWithOptionalStub } from "@/media/repost.js";
 import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings.js";
 import { rewriteContent } from "@/media/transform.js";
 import { createLogger } from "@/utils/log.js";
-import { GuildTextBasedChannel, Message, TextChannel } from "discord.js";
+import { GuildTextBasedChannel, Message } from "discord.js";
 
 const log = createLogger("media/workflow");
 
@@ -82,18 +82,5 @@ export async function handleMediaMessage(message: Message): Promise<void> {
       source.id,
       outcome.stub?.id,
     );
-  }
-
-  // Optional watchers note — only when moved to a different channel and no mentions
-  if (!sameChannel && outcome.moved && message.mentions?.users?.size === 0) {
-    try {
-      await (target as TextChannel).send({
-        content: `New media moved: ${outcome.moved.url}`,
-        allowedMentions: { parse: [] },
-      });
-      log.trace("watchers note sent", { channelId: target.id });
-    } catch {
-      log.warn("failed to send watchers note", { channelId: target.id });
-    }
   }
 }

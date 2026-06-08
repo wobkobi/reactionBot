@@ -7,52 +7,37 @@ import { GuildTextBasedChannel, Message, MessageReaction, TextChannel, User } fr
 const log = createLogger("media/repost");
 
 /**
- * Split message text around the first URL.
- * @param text Full message content.
- * @returns Text before and after the first URL (trimmed). Empty strings if no URL.
- */
-function extractBeforeAfter(text: string): { before: string; after: string } {
-  const m = /(https?:\/\/\S+)/.exec(text);
-  if (!m) return { before: "", after: "" };
-  const i = m.index;
-  const linkLen = m[1].length;
-  const before = text.slice(0, i).trim();
-  const after = text.slice(i + linkLen).trim();
-  return { before, after };
-}
-
-/**
- * Build the slop line(s) for both channels.
+ * Build the moved-message content for the target channel. Includes the
+ * rewritten text (which contains the transformed link) so Discord renders the
+ * embed.
  * @param authorMention Mention string, e.g. "<@123>".
- * @param chatLink URL of the moved message.
- * @param before Text before the original link (optional).
- * @param after Text after the original link (optional).
- * @returns Formatted content per spec.
+ * @param rewrittenText Message content with the original URL replaced by the embeddable link.
+ * @returns The content to post in the target channel.
  */
-function formatSlop(
-  authorMention: string,
-  chatLink: string,
-  before: string,
-  after: string,
-): string {
-  if (before || after) {
-    const mid = [before, chatLink, after].filter(Boolean).join(" ");
-    return `${authorMention} SENT SLOP\n\n${mid}`;
-  }
-  return `${authorMention} SENT SLOP ${chatLink}`;
+export function buildMovedContent(authorMention: string, rewrittenText: string): string {
+  return `${authorMention} SENT SLOP\n\n${rewrittenText}`;
 }
 
 /**
- * Delete the original, post the reformatted message in the target, and optionally mirror it as a stub.
- * The new content is:
- * - "`user` SENT SLOP `chat link`" if no extra text, or
- * - "`user` SENT SLOP\\n\\n`before` `chat link` `after`" if extra text exists.
+ * Build the pointer left in the source channel, linking to the moved message
+ * for quick access.
+ * @param authorMention Mention string, e.g. "<@123>".
+ * @param movedUrl Jump URL of the moved message.
+ * @returns The content to post in the source channel.
+ */
+export function buildPointerContent(authorMention: string, movedUrl: string): string {
+  return `${authorMention} SENT SLOP ${movedUrl}`;
+}
+
+/**
+ * Delete the original, post the embeddable rewrite in the target channel, and
+ * optionally leave a pointer back in the source channel.
  * @param original The original guild message to move.
- * @param rewrittenText The rewritten content where the first URL is the transformed link.
+ * @param rewrittenText The rewritten content where the first URL is the transformed (embeddable) link.
  * @param source Source channel.
  * @param target Target channel.
- * @param withStub When true and channels differ, post the same content back in source as a stub.
- * @returns The moved message, optional stub, and link URL.
+ * @param withStub When true and channels differ, leave a pointer in the source channel.
+ * @returns The moved message, optional pointer, and link URL.
  */
 export async function repostWithOptionalStub(
   original: Message<true>,
@@ -61,32 +46,25 @@ export async function repostWithOptionalStub(
   target: GuildTextBasedChannel,
   withStub: boolean,
 ): Promise<RepostOutcome> {
-  const { before, after } = extractBeforeAfter(rewrittenText);
   const authorMention = `<@${original.author.id}>`;
 
   await original.delete().catch(() => {});
   log.trace("deleted original", { originalId: original.id });
 
-  // Send placeholder, then edit to include its own chat link.
+  // Post the rewrite (with the embeddable link) so Discord renders the embed.
   const moved = await (target as TextChannel).send({
-    content: "…",
-    allowedMentions: { parse: [] },
-  });
-  const movedText = formatSlop(authorMention, moved.url, before, after);
-  await moved.edit({
-    content: movedText,
+    content: buildMovedContent(authorMention, rewrittenText),
     allowedMentions: { parse: [], users: [original.author.id] },
   });
   log.info("posted moved message", { movedId: moved.id, targetId: target.id });
 
   let stub: Message<true> | undefined;
   if (withStub && source.id !== target.id) {
-    const stubText = movedText; // same format in source channel
     stub = await source.send({
-      content: stubText,
+      content: buildPointerContent(authorMention, moved.url),
       allowedMentions: { parse: [], users: [original.author.id] },
     });
-    log.debug("posted stub", { stubId: stub.id, sourceId: source.id });
+    log.debug("posted pointer", { stubId: stub.id, sourceId: source.id });
   }
 
   return { moved, stub, linkUrl: moved.url };
