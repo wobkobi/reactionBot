@@ -15,9 +15,7 @@ const LEVELS: Record<LogLevel, number> = {
 
 // Env-driven defaults
 const ENV_LEVEL = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
-const ENV_FORMAT = (process.env.LOG_FORMAT?.toLowerCase() || "pretty") as
-  | "pretty"
-  | "json";
+const ENV_FORMAT = (process.env.LOG_FORMAT?.toLowerCase() || "pretty") as "pretty" | "json";
 const MIN_LEVEL = LEVELS[ENV_LEVEL] ?? 30;
 
 /**
@@ -51,11 +49,9 @@ function writePretty(
   ns: string,
   level: LogLevel,
   msg: string,
-  ctx?: Record<string, unknown>
+  ctx?: Record<string, unknown>,
 ): void {
-  console.log(
-    `[${fmtTS()}] ${ns} ${level.toUpperCase()}: ${msg}${ctx ? " " + flat(ctx) : ""}`
-  );
+  console.log(`[${fmtTS()}] ${ns} ${level.toUpperCase()}: ${msg}${ctx ? " " + flat(ctx) : ""}`);
 }
 
 /**
@@ -65,12 +61,7 @@ function writePretty(
  * @param msg - Message describing the event.
  * @param [ctx] - Optional structured context merged into the JSON payload.
  */
-function writeJson(
-  ns: string,
-  level: LogLevel,
-  msg: string,
-  ctx?: Record<string, unknown>
-): void {
+function writeJson(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
   console.log(
     JSON.stringify({
       ts: fmtTS(),
@@ -78,7 +69,7 @@ function writeJson(
       level,
       msg,
       ...(ctx ?? {}),
-    })
+    }),
   );
 }
 
@@ -98,12 +89,7 @@ function shouldLog(level: LogLevel): boolean {
  * @param msg - Message describing the event.
  * @param [ctx] - Optional structured context to include.
  */
-function emit(
-  ns: string,
-  level: LogLevel,
-  msg: string,
-  ctx?: Record<string, unknown>
-): void {
+function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
   if (!shouldLog(level)) return;
   if (ENV_FORMAT === "json") {
     writeJson(ns, level, msg, ctx);
