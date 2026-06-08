@@ -4,6 +4,7 @@
  * @file Detects supported media URLs inside message content.
  */
 
+import { MediaMatch, ServiceKey } from "@/media/types.js";
 import {
   INSTAGRAM_REGEX,
   REDDIT_COMMENTS_REGEX,
@@ -12,9 +13,8 @@ import {
   TIKTOK_FULL_REGEX,
   TIKTOK_SHORT_REGEX,
   TWITTER_X_REGEX,
-} from "../regex.js";
-import { createLogger } from "../utils/log.js";
-import { MediaMatch, ServiceKey } from "./types.js";
+} from "@/regex.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("media/match");
 /**

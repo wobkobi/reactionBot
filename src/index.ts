@@ -1,4 +1,6 @@
 // src/index.ts
+import { onMessage } from "@/onMessage.js";
+import { createLogger } from "@/utils/log.js";
 import { REST } from "@discordjs/rest";
 import { Routes } from "discord-api-types/v10";
 import {
@@ -15,8 +17,6 @@ import * as dotenv from "dotenv";
 import { readdirSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { onMessage } from "./onMessage.js";
-import { createLogger } from "./utils/log.js";
 
 dotenv.config();
 
@@ -46,12 +46,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [
-    Partials.Channel,
-    Partials.Message,
-    Partials.Reaction,
-    Partials.User,
-  ],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
 
 const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
@@ -67,9 +62,7 @@ type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
 
 {
   const commandsDir = path.join(__dirname, "commands");
-  const files = readdirSync(commandsDir).filter(
-    (f) => f.endsWith(".js") || f.endsWith(".ts")
-  );
+  const files = readdirSync(commandsDir).filter((f) => f.endsWith(".js") || f.endsWith(".ts"));
   client.commands = new Collection<string, SlashCommandModule>();
   const commandData: JSONCommand[] = [];
 
@@ -77,11 +70,7 @@ type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
     try {
       const moduleURL = pathToFileURL(path.join(commandsDir, file)).href;
       const mod = (await import(moduleURL)) as Partial<SlashCommandModule>;
-      if (
-        mod.data &&
-        typeof mod.data.toJSON === "function" &&
-        typeof mod.execute === "function"
-      ) {
+      if (mod.data && typeof mod.data.toJSON === "function" && typeof mod.execute === "function") {
         client.commands.set(mod.data.name, {
           data: mod.data,
           execute: mod.execute,
@@ -154,5 +143,5 @@ boot("Starting login");
 client.login(BOT_TOKEN).catch((err) =>
   log.error("login failed", {
     error: err instanceof Error ? err.message : String(err),
-  })
+  }),
 );

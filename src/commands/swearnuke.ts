@@ -1,10 +1,10 @@
 // src/commands/swearnuke.ts
 
+import { resetGuild } from "@/swears/storage.js";
+import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, PermissionFlagsBits } from "discord.js";
-import { resetGuild } from "../swears/storage.js";
-import { createLogger } from "../utils/log.js";
 
 const log = createLogger("cmd/swearnuke");
 
@@ -28,9 +28,7 @@ export const data = new SlashCommandBuilder()
  * Clears the guild’s swear statistics.
  * @param interaction - The command interaction context.
  */
-export async function execute(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   log.info("invoked", {
     userId: interaction.user.id,
     userTag: interaction.user.tag,

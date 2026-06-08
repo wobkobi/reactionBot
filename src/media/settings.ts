@@ -4,9 +4,9 @@
  * @file Loads and resolves per-guild media settings.
  */
 
-import { loadData, saveData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
-import { ApprovalPlan, GraceSetting, MediaSettings } from "./types.js";
+import { ApprovalPlan, GraceSetting, MediaSettings } from "@/media/types.js";
+import { loadData, saveData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("media/settings");
 
@@ -48,10 +48,7 @@ export function saveSettings(guildId: string, next: MediaSettings): void {
  * @param fallbackChannelId - The source channel ID if settings lack `channelId`.
  * @returns The channel ID to use for reposting (settings.channelId or fallback).
  */
-export function resolveTargetChannelId(
-  settings: MediaSettings,
-  fallbackChannelId: string
-): string {
+export function resolveTargetChannelId(settings: MediaSettings, fallbackChannelId: string): string {
   const id = settings.channelId ?? fallbackChannelId;
   log.trace("resolved target channel", {
     resolved: id,
@@ -71,7 +68,7 @@ export function resolveTargetChannelId(
  */
 export function resolveApprovalPlan(
   grace: GraceSetting | undefined,
-  sameChannel: boolean
+  sameChannel: boolean,
 ): ApprovalPlan {
   if (sameChannel) {
     // Special-case per product spec
@@ -102,8 +99,7 @@ export function resolveApprovalPlan(
       promptText: "Move your media link to the media channel?",
     };
   } else {
-    const ms =
-      Number.isFinite(g) && (g as number) >= 0 ? (g as number) : 10_000;
+    const ms = Number.isFinite(g) && (g as number) >= 0 ? (g as number) : 10_000;
     plan = {
       autoApprove: false,
       timeoutMs: ms,

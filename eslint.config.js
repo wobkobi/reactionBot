@@ -1,87 +1,73 @@
-import { FlatCompat } from "@eslint/eslintrc";
+// eslint.config.js
 import js from "@eslint/js";
-import typescriptEslint from "@typescript-eslint/eslint-plugin";
-import tsParser from "@typescript-eslint/parser";
+import prettier from "eslint-config-prettier/flat";
 import jsdoc from "eslint-plugin-jsdoc";
-import prettier from "eslint-plugin-prettier";
+import prettierPlugin from "eslint-plugin-prettier/recommended";
+import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import tseslint from "typescript-eslint";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export default defineConfig([
+  globalIgnores([
+    "build/**",
+    "dist/**",
+    "node_modules/**",
+    "eslint.config.js",
+    "prettier.config.ts",
+  ]),
 
-// Compat wrapper to merge ESLint’s recommended configs
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-});
+  // ESLint + TypeScript-ESLint recommended rules
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
 
-export default [
-  // Ignore patterns entirely
-  { ignores: ["**/node_modules/**", "build/**", "dist/**"] },
-
-  // JSDoc recommended rules for TypeScript (report as errors)
+  // JSDoc baseline tuned for TypeScript (reported as errors)
   jsdoc.configs["flat/recommended-typescript-error"],
 
-  // ESLint, TypeScript-ESLint, and Prettier recommended rules
-  ...compat.extends(
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended",
-    "prettier"
-  ),
-
-  // Project-specific overrides
+  // Project rules (Node, TypeScript bot - no browser/React)
   {
+    files: ["src/**/*.{js,ts}", "scripts/**/*.{js,ts}"],
     languageOptions: {
-      parser: tsParser,
-      ecmaVersion: 2020,
-      sourceType: "module",
-      globals: {
-        ...globals.browser,
-        ...globals.node,
-      },
+      globals: { ...globals.node },
     },
-
-    plugins: {
-      "@typescript-eslint": typescriptEslint,
-      prettier,
-      jsdoc,
-    },
-
     settings: {
-      // Resolve imports for these extensions
-      "import/resolver": {
-        node: {
-          extensions: [".js", ".jsx", ".ts", ".tsx", ".mjs"],
-        },
-      },
-      jsdoc: {
-        mode: "typescript",
-      },
+      jsdoc: { mode: "typescript" },
     },
-
     rules: {
-      // No unused variables
+      // TS hygiene
       "@typescript-eslint/no-unused-vars": "error",
-
-      // Prettier formatting enforcement
-      "prettier/prettier": ["error", { endOfLine: "crlf" }],
-      "linebreak-style": ["error", "windows"],
-
-      // Consistent type definitions
       "@typescript-eslint/consistent-type-definitions": "error",
 
-      // JSDoc enforcement rules
-      "jsdoc/require-jsdoc": "error",
+      // JSDoc enforcement - only on named declarations/methods, not inline
+      // callbacks (collectors, .map/.catch, etc. are full of arrow functions).
+      "jsdoc/require-jsdoc": [
+        "error",
+        {
+          publicOnly: true,
+          require: {
+            FunctionDeclaration: true,
+            MethodDefinition: true,
+            FunctionExpression: false,
+            ArrowFunctionExpression: false,
+          },
+        },
+      ],
       "jsdoc/require-param": "error",
-      "jsdoc/require-param-description": "error",
       "jsdoc/require-returns": "error",
-      "jsdoc/require-returns-description": "error",
       "jsdoc/check-param-names": "error",
       "jsdoc/check-tag-names": "error",
       "jsdoc/no-undefined-types": "error",
+      "jsdoc/require-param-description": "error",
+      "jsdoc/require-returns-description": "error",
+      "jsdoc/require-description": "error",
+      // Types come from TypeScript, not JSDoc tags
+      "jsdoc/require-param-type": "off",
+      "jsdoc/require-returns-type": "off",
+      "jsdoc/require-throws-type": "off",
     },
   },
-];
+
+  // Disable stylistic rules that clash with Prettier, then surface Prettier
+  // violations through ESLint.
+  prettier,
+  prettierPlugin,
+]);

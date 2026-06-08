@@ -1,10 +1,10 @@
 // src/commands/sweartop.ts
 
+import { getTopUsers } from "@/swears/storage.js";
+import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
-import { getTopUsers } from "../swears/storage.js";
-import { createLogger } from "../utils/log.js";
 
 const log = createLogger("cmd/sweartop");
 
@@ -16,11 +16,7 @@ export const data = new SlashCommandBuilder()
   .setName("sweartop")
   .setDescription("Show top users by total tracked swears")
   .addIntegerOption((opt) =>
-    opt
-      .setName("limit")
-      .setDescription("How many to show (1-25)")
-      .setMinValue(1)
-      .setMaxValue(25)
+    opt.setName("limit").setDescription("How many to show (1-25)").setMinValue(1).setMaxValue(25),
   )
   .setContexts(InteractionContextType.Guild);
 
@@ -30,9 +26,7 @@ export const data = new SlashCommandBuilder()
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the leaderboard is sent.
  */
-export async function execute(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   log.info("invoked", {
     userId: interaction.user.id,
     userTag: interaction.user.tag,
@@ -61,12 +55,10 @@ export async function execute(
 
     const lines = await Promise.all(
       entries.map(async (entry, i) => {
-        const user = await interaction.client.users
-          .fetch(entry.userId)
-          .catch(() => null);
+        const user = await interaction.client.users.fetch(entry.userId).catch(() => null);
         const name = user?.tag ?? entry.userId;
         return `**${i + 1}.** ${name} — **${entry.total}**`;
-      })
+      }),
     );
 
     const embed = new EmbedBuilder()

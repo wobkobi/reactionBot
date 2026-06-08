@@ -1,10 +1,10 @@
 // src/commands/setchannel.ts
 
+import { loadData, saveData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { ChatInputCommandInteraction, TextChannel } from "discord.js";
 import * as dotenv from "dotenv";
-import { loadData, saveData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
 
 dotenv.config();
 
@@ -23,7 +23,7 @@ export const data = new SlashCommandBuilder()
     option
       .setName("channel")
       .setDescription("Text channel to post transformed media into")
-      .setRequired(true)
+      .setRequired(true),
   );
 
 /**
@@ -32,19 +32,14 @@ export const data = new SlashCommandBuilder()
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the reply has been sent.
  */
-export async function execute(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
     await interaction.reply({ content: "Use in a server.", ephemeral: true });
     return;
   }
 
-  const channel = interaction.options.getChannel(
-    "channel",
-    true
-  ) as TextChannel;
+  const channel = interaction.options.getChannel("channel", true) as TextChannel;
   const guildId = interaction.guildId!;
   const userId = interaction.user.id;
 
@@ -61,9 +56,7 @@ export async function execute(
     const allowedIds = config.allowed ?? [];
 
     const isAdmin =
-      userId === interaction.guild!.ownerId ||
-      userId === OWNER_ID ||
-      allowedIds.includes(userId);
+      userId === interaction.guild!.ownerId || userId === OWNER_ID || allowedIds.includes(userId);
 
     if (!isAdmin) {
       log.warn("permission denied", { guildId, userId });
@@ -78,7 +71,7 @@ export async function execute(
     const settings = loadData<{ channelId?: string; grace?: unknown }>(
       guildId,
       "media_settings.json",
-      { soft: true }
+      { soft: true },
     );
     settings.channelId = channel.id;
 

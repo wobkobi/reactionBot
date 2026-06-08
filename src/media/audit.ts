@@ -1,6 +1,6 @@
 // src/media/audit.ts
-import { loadData, saveData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
+import { loadData, saveData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("media/audit");
 export interface DeletionLogEntry {
@@ -18,16 +18,11 @@ export interface DeletionLogEntry {
  * @param guildId - Guild whose log to update.
  * @param entry - The deletion entry to append.
  */
-export function appendDeletionLog(
-  guildId: string,
-  entry: DeletionLogEntry
-): void {
+export function appendDeletionLog(guildId: string, entry: DeletionLogEntry): void {
   const raw = loadData<unknown>(guildId, "deleted_links.json", { soft: true });
 
   // Coerce into an array (empty on first run or if legacy shape exists)
-  const logArr: DeletionLogEntry[] = Array.isArray(raw)
-    ? (raw as DeletionLogEntry[])
-    : [];
+  const logArr: DeletionLogEntry[] = Array.isArray(raw) ? (raw as DeletionLogEntry[]) : [];
 
   logArr.push(entry);
 

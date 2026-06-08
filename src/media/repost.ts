@@ -1,14 +1,8 @@
 // src/media/repost.ts
-import {
-  GuildTextBasedChannel,
-  Message,
-  MessageReaction,
-  TextChannel,
-  User,
-} from "discord.js";
-import { createLogger } from "../utils/log.js";
-import { appendDeletionLog } from "./audit.js";
-import { RepostOutcome } from "./types.js";
+import { appendDeletionLog } from "@/media/audit.js";
+import { RepostOutcome } from "@/media/types.js";
+import { createLogger } from "@/utils/log.js";
+import { GuildTextBasedChannel, Message, MessageReaction, TextChannel, User } from "discord.js";
 
 const log = createLogger("media/repost");
 
@@ -39,7 +33,7 @@ function formatSlop(
   authorMention: string,
   chatLink: string,
   before: string,
-  after: string
+  after: string,
 ): string {
   if (before || after) {
     const mid = [before, chatLink, after].filter(Boolean).join(" ");
@@ -65,7 +59,7 @@ export async function repostWithOptionalStub(
   rewrittenText: string,
   source: GuildTextBasedChannel,
   target: GuildTextBasedChannel,
-  withStub: boolean
+  withStub: boolean,
 ): Promise<RepostOutcome> {
   const { before, after } = extractBeforeAfter(rewrittenText);
   const authorMention = `<@${original.author.id}>`;
@@ -113,7 +107,7 @@ export async function enableAuthorDelete(
   author: User,
   guildId: string,
   originalChannelId: string,
-  stubId?: string
+  stubId?: string,
 ): Promise<void> {
   await moved.react("🗑️").catch(() => {});
   log.trace("added delete reaction", {
@@ -121,8 +115,7 @@ export async function enableAuthorDelete(
     authorId: author.id,
   });
 
-  const filter = (r: MessageReaction, u: User) =>
-    r.emoji.name === "🗑️" && u.id === author.id;
+  const filter = (r: MessageReaction, u: User) => r.emoji.name === "🗑️" && u.id === author.id;
   const collector = moved.createReactionCollector({
     filter,
     max: 1,

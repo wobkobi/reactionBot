@@ -7,10 +7,10 @@
  *   (See src/media/workflow.ts and submodules.)
  */
 
+import { handleMediaMessage } from "@/media/workflow.js";
+import { trackSwears } from "@/swears/track.js";
+import { createLogger } from "@/utils/log.js";
 import { Message } from "discord.js";
-import { handleMediaMessage } from "./media/workflow.js";
-import { trackSwears } from "./swears/track.js";
-import { createLogger } from "./utils/log.js";
 
 const log = createLogger("core/onMessage");
 /**

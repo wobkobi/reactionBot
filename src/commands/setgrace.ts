@@ -1,9 +1,9 @@
 // src/commands/setgrace.ts
 
+import { loadData, saveData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { ChatInputCommandInteraction } from "discord.js";
-import { loadData, saveData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
 
 const log = createLogger("cmd/setgrace");
 
@@ -37,15 +37,15 @@ export const data = new SlashCommandBuilder()
       .addChoices(
         { name: "instant", value: "instant" },
         { name: "disabled", value: "disabled" },
-        { name: "seconds", value: "seconds" }
-      )
+        { name: "seconds", value: "seconds" },
+      ),
   )
   .addIntegerOption((opt) =>
     opt
       .setName("value")
       .setDescription("If mode=seconds, number of seconds (1–300)")
       .setMinValue(1)
-      .setMaxValue(300)
+      .setMaxValue(300),
   );
 
 /**
@@ -56,7 +56,7 @@ export const data = new SlashCommandBuilder()
  */
 function resolveGrace(
   mode: "instant" | "disabled" | "seconds",
-  seconds?: number | null
+  seconds?: number | null,
 ): "instant" | "disabled" | number {
   if (mode === "instant" || mode === "disabled") return mode;
   return Number(seconds ?? 10); // fallback is unused with validation but keeps type-safe
@@ -68,19 +68,14 @@ function resolveGrace(
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the reply has been sent.
  */
-export async function execute(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
     await interaction.reply({ content: "Use in a server.", ephemeral: true });
     return;
   }
 
-  const mode = interaction.options.getString("mode", true) as
-    | "instant"
-    | "disabled"
-    | "seconds";
+  const mode = interaction.options.getString("mode", true) as "instant" | "disabled" | "seconds";
   const value = interaction.options.getInteger("value");
   const guildId = interaction.guildId!;
   const userId = interaction.user.id;
@@ -115,10 +110,7 @@ export async function execute(
       resolved,
     });
 
-    const msg =
-      mode === "seconds"
-        ? `✅ Grace set to ${value}s.`
-        : `✅ Grace set to ${mode}.`;
+    const msg = mode === "seconds" ? `✅ Grace set to ${value}s.` : `✅ Grace set to ${mode}.`;
 
     await interaction.reply({ content: msg, ephemeral: true });
   } catch (err) {

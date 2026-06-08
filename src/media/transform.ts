@@ -5,8 +5,8 @@
  * and rewrites the message content.
  */
 
-import { createLogger } from "../utils/log.js";
-import { MediaMatch, RewriteResult } from "./types.js";
+import { MediaMatch, RewriteResult } from "@/media/types.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("media/transform");
 /**
@@ -30,9 +30,7 @@ export function buildTransformedUrl(match: MediaMatch): string {
     case "reddit-short":
       return `https://libredd.it/comments/${a}`;
     case "reddit-media":
-      return a === "v.redd.it"
-        ? `https://libredd.it/v/${b}`
-        : `https://libredd.it/i/${b}`;
+      return a === "v.redd.it" ? `https://libredd.it/v/${b}` : `https://libredd.it/i/${b}`;
   }
 }
 
@@ -43,10 +41,7 @@ export function buildTransformedUrl(match: MediaMatch): string {
  * @param match - The platform match result.
  * @returns A {@link RewriteResult} containing the new URL and full rewritten text.
  */
-export function rewriteContent(
-  content: string,
-  match: MediaMatch
-): RewriteResult {
+export function rewriteContent(content: string, match: MediaMatch): RewriteResult {
   const newLink = buildTransformedUrl(match);
   const rewrittenText = content.replace(match.regex, newLink);
   log.debug("rewrote content", { which: match.which, newLink });
