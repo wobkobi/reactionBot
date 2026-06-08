@@ -6,8 +6,8 @@
  * Populate them in `data/global/swears.json` or per-guild overrides.
  */
 
-import { loadData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
+import { loadData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("swears/detector");
 /**
@@ -79,9 +79,7 @@ export function loadSwearSet(guildId: string): Set<string> {
   const globalCfg = loadData<SwearConfig>("global", "swears.json", {
     soft: true,
   });
-  const words = guildCfg?.words?.length
-    ? guildCfg.words
-    : globalCfg?.words || [];
+  const words = guildCfg?.words?.length ? guildCfg.words : globalCfg?.words || [];
   log.debug("loaded swear set", {
     guildId,
     count: words.length,
@@ -96,10 +94,7 @@ export function loadSwearSet(guildId: string): Set<string> {
  * @param swearSet - A set of swear words to match against.
  * @returns A map of swear words to their occurrence counts.
  */
-export function countSwears(
-  tokens: string[],
-  swearSet: Set<string>
-): Map<string, number> {
+export function countSwears(tokens: string[], swearSet: Set<string>): Map<string, number> {
   const counts = new Map<string, number>();
   for (const t of tokens) {
     if (!swearSet.has(t)) continue;

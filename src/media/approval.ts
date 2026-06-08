@@ -1,4 +1,4 @@
-// src/handlers/approval.ts
+// src/media/approval.ts
 /**
  * @file Generic approval prompt with grace handling.
  * - Shows Yes/No buttons to the intended author
@@ -6,6 +6,8 @@
  * - Optionally auto-deletes the prompt on resolve/timeout
  */
 
+import { ApprovalOptions, GraceSetting } from "@/media/types.js";
+import { createLogger } from "@/utils/log.js";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -15,17 +17,8 @@ import {
   GuildTextBasedChannel,
   User,
 } from "discord.js";
-import { createLogger } from "../utils/log.js";
-import { ApprovalOptions } from "./types";
 
-const log = createLogger("handlers/approval");
-/**
- * Grace period behavior for the approval prompt.
- * - `"instant"`: auto-approve immediately with no UI
- * - `"disabled"`: wait indefinitely (no timeout)
- * - `number`: time in **milliseconds** to wait before the collector ends
- */
-export type GraceSetting = "instant" | "disabled" | number;
+const log = createLogger("media/approval");
 
 /**
  * Request in-channel approval from a user via Yes/No buttons.
@@ -44,7 +37,7 @@ export type GraceSetting = "instant" | "disabled" | number;
 export async function requestApproval(
   channel: GuildTextBasedChannel,
   author: User,
-  opts: ApprovalOptions = {}
+  opts: ApprovalOptions = {},
 ): Promise<boolean> {
   const promptText = opts.prompt ?? `${author}, proceed?`;
   const grace: GraceSetting = opts.grace ?? 10_000; // ms default
@@ -58,14 +51,8 @@ export async function requestApproval(
 
   // Compose buttons
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId("yes")
-      .setLabel("Yes")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId("no")
-      .setLabel("No")
-      .setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId("yes").setLabel("Yes").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("no").setLabel("No").setStyle(ButtonStyle.Danger),
   );
 
   // Send prompt

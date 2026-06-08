@@ -1,6 +1,6 @@
-// src/commands/sweartop.ts
+// src/commands/swearwords.ts
 
-import { getTopUsers } from "@/swears/storage.js";
+import { getTopSwears } from "@/swears/storage.js";
 import { createLogger } from "@/utils/log.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
@@ -11,33 +11,27 @@ import {
   MessageFlags,
 } from "discord.js";
 
-const log = createLogger("cmd/sweartop");
+const log = createLogger("cmd/swearwords");
 
 /**
- * Slash command definition for `/sweartop`.
- * Shows the top users in the server ranked by total swear count.
+ * Slash command definition for `/swearwords`.
+ * Shows the most-used swear words across the server.
  */
 export const data = new SlashCommandBuilder()
-  .setName("sweartop")
-  .setDescription("Show top users by total tracked swears")
+  .setName("swearwords")
+  .setDescription("Show the most-used swear words in this server")
   .addIntegerOption((opt) =>
     opt.setName("limit").setDescription("How many to show (1-25)").setMinValue(1).setMaxValue(25),
   )
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Executes the `/sweartop` command.
- * Gathers the top N users by total swears and replies with a compact leaderboard.
+ * Executes the `/swearwords` command.
+ * Builds a leaderboard of the most-used swear words and replies with it.
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the leaderboard is sent.
  */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
-  log.info("invoked", {
-    userId: interaction.user.id,
-    userTag: interaction.user.tag,
-    guildId: interaction.guildId ?? "DM",
-  });
-
   if (!interaction.inGuild()) {
     log.warn("used outside guild", { userId: interaction.user.id });
     await interaction.reply({
@@ -49,42 +43,22 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   try {
     const limit = interaction.options.getInteger("limit") ?? 10;
-    // getTopUsers already returns the top `limit` users sorted by total desc.
-    const entries = getTopUsers(interaction.guildId!, limit);
-
-    log.debug("computed leaderboard", {
-      guildId: interaction.guildId!,
-      limit,
-      count: entries.length,
-    });
-
-    const lines = await Promise.all(
-      entries.map(async (entry, i) => {
-        const user = await interaction.client.users.fetch(entry.userId).catch(() => null);
-        const name = user?.tag ?? entry.userId;
-        return `**${i + 1}.** ${name} - **${entry.total}**`;
-      }),
-    );
+    const rows = getTopSwears(interaction.guildId!, limit);
+    const lines = rows.map((r, i) => `**${i + 1}.** ${r.swear} - **${r.count}**`);
 
     const embed = new EmbedBuilder()
-      .setTitle("Swearboard")
-      .setDescription(lines.join("\n") || "No data.");
+      .setTitle("Most-used swears")
+      .setDescription(lines.join("\n") || "No data yet.");
 
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-
-    log.info("sent leaderboard", {
-      guildId: interaction.guildId!,
-      limit,
-      shown: entries.length,
-    });
+    log.info("sent swear words", { guildId: interaction.guildId!, shown: rows.length });
   } catch (err) {
-    log.error("failed to build/send leaderboard", {
+    log.error("failed to build swear words", {
       guildId: interaction.guildId!,
       error: err instanceof Error ? err.message : String(err),
     });
-
     const reply: InteractionReplyOptions = {
-      content: "⚠️ Couldn’t fetch the leaderboard. Try again later.",
+      content: "⚠️ Could not fetch the swear words. Try again later.",
       flags: MessageFlags.Ephemeral,
     };
     if (interaction.deferred || interaction.replied) {

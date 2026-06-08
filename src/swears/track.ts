@@ -4,10 +4,10 @@
  * @file Hooks into message events to detect and record swears.
  */
 
+import { countSwears, loadSwearSet, tokenise } from "@/swears/detector.js";
+import { incrementUserCounts } from "@/swears/storage.js";
+import { createLogger } from "@/utils/log.js";
 import { GuildTextBasedChannel, Message } from "discord.js";
-import { createLogger } from "../utils/log.js";
-import { countSwears, loadSwearSet, tokenise } from "./detector.js";
-import { incrementUserCounts } from "./storage.js";
 
 const log = createLogger("swears/track");
 /**

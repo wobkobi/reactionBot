@@ -9,8 +9,8 @@
  * }
  */
 
-import { loadData, saveData } from "../utils/file.js";
-import { createLogger } from "../utils/log.js";
+import { loadData, saveData } from "@/utils/file.js";
+import { createLogger } from "@/utils/log.js";
 
 const log = createLogger("swears/storage");
 
@@ -56,11 +56,7 @@ export function loadStore(guildId: string): GuildSwearStore {
  */
 export function saveStore(guildId: string, store: GuildSwearStore): void {
   // Cast to a generic record to satisfy saveData typing.
-  saveData(
-    guildId,
-    SWEAR_STORE_FILE,
-    store as unknown as Record<string, unknown>
-  );
+  saveData(guildId, SWEAR_STORE_FILE, store as unknown as Record<string, unknown>);
   log.debug("store saved", {
     guildId,
     users: Object.keys(store.users).length,
@@ -78,7 +74,7 @@ export function saveStore(guildId: string, store: GuildSwearStore): void {
 export function incrementUserCounts(
   guildId: string,
   userId: string,
-  counts: Map<string, number>
+  counts: Map<string, number>,
 ): GuildSwearStore {
   const store = loadStore(guildId);
   if (!store.users[userId]) store.users[userId] = {};
@@ -117,10 +113,7 @@ export function getUserTotal(guildId: string, userId: string): number {
  * @param limit - Max number of users to return (default 10).
  * @returns Array of `{ userId, total }` sorted desc by total.
  */
-export function getTopUsers(
-  guildId: string,
-  limit = 10
-): Array<{ userId: string; total: number }> {
+export function getTopUsers(guildId: string, limit = 10): Array<{ userId: string; total: number }> {
   const store = loadStore(guildId);
   const rows = Object.entries(store.users).map(([userId, counts]) => ({
     userId,
@@ -136,10 +129,7 @@ export function getTopUsers(
  * @param limit - Max swears to return (default 10).
  * @returns Array of `{ swear, count }` sorted desc by count.
  */
-export function getTopSwears(
-  guildId: string,
-  limit = 10
-): Array<{ swear: string; count: number }> {
+export function getTopSwears(guildId: string, limit = 10): Array<{ swear: string; count: number }> {
   const store = loadStore(guildId);
   const rows = Object.entries(store.totals).map(([swear, count]) => ({
     swear,

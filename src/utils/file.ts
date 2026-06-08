@@ -1,7 +1,7 @@
 // src/utils/file.ts
+import { createLogger } from "@/utils/log.js";
 import fs from "fs";
 import path from "path";
-import { createLogger } from "./log.js";
 
 const log = createLogger("utils/file");
 /** Absolute folder where per-guild JSON data is stored. */
@@ -67,11 +67,7 @@ export function dataFilePath(guildId: string, fileName: string): string {
  * @returns Parsed JSON object of type `T`.
  * @throws If the file is missing or invalid JSON and `soft` is not enabled.
  */
-export function loadData<T>(
-  guildId: string,
-  fileName: string,
-  opts?: LoadOptions<T>
-): T {
+export function loadData<T>(guildId: string, fileName: string, opts?: LoadOptions<T>): T {
   const filePath = dataFilePath(guildId, fileName);
 
   if (!fs.existsSync(filePath)) {
@@ -98,7 +94,7 @@ export function loadData<T>(
       filePath,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new Error(`Failed to parse JSON: ${filePath}\n${String(err)}`);
+    throw new Error(`Failed to parse JSON: ${filePath}`, { cause: err });
   }
 }
 
@@ -113,6 +109,10 @@ export function loadData<T>(
 export function saveData<T>(guildId: string, fileName: string, data: T): void {
   const dir = ensureDir(guildDataDir(guildId));
   const filePath = path.join(dir, fileName);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  // Write to a temp file then rename so a crash mid-write cannot leave a
+  // truncated or empty JSON file in place.
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(tmpPath, filePath);
   log.debug("wrote json", { filePath });
 }

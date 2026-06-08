@@ -1,0 +1,16 @@
+// scripts/tsconfig.json
+// Standalone programme for the one-off Node scripts (run via tsx). They live
+// outside the app's tsconfig `include`, so this config gives them their own
+// type-checking context with the Node globals (`process`, etc.) loaded. The
+// app build is unaffected - the root `tsc` still uses ../tsconfig.json, which
+// excludes this folder. noEmit + rootDir are set because the root config emits
+// (rootDir ./src); these scripts are only ever run through tsx, never compiled.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["**/*.ts"]
+}
