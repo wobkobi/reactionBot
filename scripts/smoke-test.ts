@@ -147,17 +147,19 @@ function checkLinkTransforms(): void {
  * message for quick access.
  */
 function checkRepostContent(): void {
-  const moved = buildMovedContent("<@1>", "look https://vxinstagram.com/reel/x");
+  const rewritten = "look https://vxinstagram.com/reel/x";
+  const moved = buildMovedContent("<@1>", rewritten);
   check(
     "repost",
-    "moved message contains the embeddable link",
-    moved.includes("https://vxinstagram.com/reel/x"),
+    "moved message carries the rewritten text verbatim",
+    moved === `<@1> SENT SLOP\n\n${rewritten}`,
   );
-  const pointer = buildPointerContent("<@1>", "https://discord.com/channels/1/2/3");
+  const movedUrl = "https://discord.com/channels/1/2/3";
+  const pointer = buildPointerContent("<@1>", movedUrl);
   check(
     "repost",
     "source pointer links to the moved message",
-    pointer.includes("https://discord.com/channels/1/2/3"),
+    pointer === `<@1> SENT SLOP ${movedUrl}`,
   );
 }
 
