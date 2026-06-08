@@ -8,8 +8,8 @@
     "build": "tsc && tsc-alias",
     "start": "tsc && tsc-alias && node build/index.js",
     "dev": "tsx watch src/index.ts",
-    "lint": "eslint \"src/**/*.{js,ts,tsx}\" --fix",
-    "format": "prettier --write \"**/*.{js,ts,jsx,tsx,mjs,css,html,md,json,yml,yaml}\"",
+    "lint": "eslint \"{src,scripts}/**/*.{js,ts}\" --fix",
+    "format": "prettier --write \"**/*.{js,ts,md,json,yml,yaml}\"",
     "smoke": "tsx scripts/smoke-test.ts",
     "prepare": "simple-git-hooks"
   },
@@ -52,10 +52,10 @@
     "pre-push": "npm run build && npm run smoke"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": [
+    "**/*.{js,ts}": [
       "prettier --write",
-      "eslint --fix --no-warn-ignored"
+      "eslint --max-warnings=0"
     ],
-    "*.{css,html,json,md,mjs,yml,yaml}": "prettier --write"
+    "**/*.{json,md,yml,yaml}": "prettier --write"
   }
 }

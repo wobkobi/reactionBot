@@ -8,13 +8,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores([
-    "build/**",
-    "dist/**",
-    "node_modules/**",
-    "eslint.config.js",
-    "prettier.config.ts",
-  ]),
+  globalIgnores(["build/**", "dist/**", "node_modules/**"]),
 
   // ESLint + TypeScript-ESLint recommended rules
   js.configs.recommended,
