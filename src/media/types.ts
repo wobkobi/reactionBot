@@ -4,7 +4,7 @@
  * @file Shared types for the media workflow.
  */
 
-import { GuildTextBasedChannel, Message } from "discord.js";
+import { Message } from "discord.js";
 
 /** Supported media match keys (kept in sync with regex + transform). */
 export type ServiceKey =
@@ -32,22 +32,20 @@ export type GraceSetting = "instant" | "disabled" | number;
 export interface MediaSettings {
   /** Destination channel for reposts; if absent, use source channel. */
   channelId?: string;
-  /** Grace behavior for approval. */
   grace?: GraceSetting;
 }
 
 /** Result of matching a supported link inside content. */
 export interface MediaMatch {
   which: ServiceKey;
-  /** The regex that matched (for replacement). */
+  /** The regex that matched (kept for replacement). */
   regex: RegExp;
-  /** Capture groups extracted from the URL. */
   captures: string[];
 }
 
 /** Result of rewriting content containing a matched link. */
 export interface RewriteResult {
-  /** The single transformed URL for convenience. */
+  /** The transformed URL on its own. */
   newLink: string;
   /** The full message text with the original URL replaced. */
   rewrittenText: string;
@@ -55,50 +53,18 @@ export interface RewriteResult {
 
 /** Parameters that control the approval prompt at runtime. */
 export interface ApprovalPlan {
-  /** Whether to auto-approve without asking. */
   autoApprove: boolean;
   /** If set, the prompt auto-closes after this many ms. */
   timeoutMs?: number;
-  /** If true, the prompt persists indefinitely (until a click). */
   persistIndefinitely: boolean;
-  /** Text shown in the confirmation message. */
   promptText: string;
 }
 
-/** Outcome info when posting a repost + optional stub. */
+/** Outcome of posting a repost + optional source-channel pointer. */
 export interface RepostOutcome {
-  /** The reposted (or rewritten-in-place) message. */
   moved?: Message<true>;
-  /** Optional stub/pointer left in the source channel. */
   stub?: Message<true>;
-  /** Convenience link to the moved message (Discord URL). */
   linkUrl?: string;
-}
-
-/** Minimal shape for deletion audit entries. */
-export interface DeletionLogEntry {
-  originalMessageId: string;
-  originalChannelId: string;
-  repostMessageId: string;
-  repostChannelId: string;
-  stubMessageId?: string;
-  deletedAt: string;
-}
-
-/** Narrow Discord channel type used by the workflow. */
-export type GChannel = GuildTextBasedChannel;
-
-/**
- * Context passed around the workflow after preflight.
- */
-export interface MediaContext {
-  message: Message<true>;
-  source: GChannel;
-  target: GChannel;
-  sameChannel: boolean;
-  settings: Required<Pick<MediaSettings, "channelId" | "grace">>;
-  match: MediaMatch;
-  rewrite: RewriteResult;
 }
 
 export interface ApprovalOptions {
@@ -109,7 +75,7 @@ export interface ApprovalOptions {
   prompt?: string;
 
   /**
-   * Grace behavior:
+   * Grace behaviour:
    * - `"instant"` auto-approves immediately
    * - `"disabled"` never times out
    * - `number` is a timeout in **milliseconds**

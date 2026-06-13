@@ -20,8 +20,17 @@ import { resolveGrace } from "@/commands/setgrace.js";
 import { matchAny } from "@/media/match.js";
 import { buildMovedContent, buildPointerContent } from "@/media/repost.js";
 import { buildTransformedUrl } from "@/media/transform.js";
-import { countSwears, loadSwearSet, tokenise } from "@/swears/detector.js";
-import { readdirSync } from "fs";
+import { aggregateByCategory, countMatches, loadList, wordToPattern } from "@/tracking/detect.js";
+import {
+  chooseSlurGif,
+  fillPlaceholders,
+  poolFor,
+  SLUR_COOLDOWN_MS,
+  SLUR_SPAM_THRESHOLD,
+} from "@/tracking/slurResponse.js";
+import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store.js";
+import { CALLED, SLURS, SWEARS } from "@/tracking/trackers.js";
+import { readdirSync, rmSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -178,10 +187,150 @@ function checkGrace(): void {
  * non-empty and a sample sentence containing a seeded word is detected.
  */
 function checkSwears(): void {
-  const set = loadSwearSet("global");
-  check("swears", "global word list is non-empty", set.size > 0);
-  const counts = countSwears(tokenise("oh fuck this, what the hell"), set);
+  const list = loadList("global", SWEARS.listFile);
+  check("swears", "global swear list is non-empty", list.phrases.length > 0);
+  const counts = countMatches("oh fuck this, what a shitshow", list);
   check("swears", "detects seeded swears in a sentence", counts.size >= 1);
+}
+
+/**
+ * Verifies the slur and called-names trackers: the insults list detects words,
+ * the slurs list parses, and the generic store round-trips totals (under a
+ * throwaway guild that is cleaned up afterwards).
+ */
+function checkTrackers(): void {
+  const insults = loadList("global", CALLED.listFile);
+  check("trackers", "insults list is non-empty", insults.phrases.length > 0);
+  loadList("global", SLURS.listFile); // parses without throwing (may be empty)
+
+  const counts = countMatches("you absolute bender and wanker", insults);
+  check(
+    "trackers",
+    "detects insults in a sentence",
+    counts.get("bender") === 1 && counts.get("wanker") === 1,
+  );
+  // Multi-word phrases and word boundaries (benign words; the slur list relies
+  // on both for entries like "porch monkey" without matching inside words).
+  check(
+    "trackers",
+    "detects multi-word phrases",
+    countMatches("he is a couch potato today", {
+      phrases: ["couch potato"],
+      patterns: [],
+      category: new Map(),
+    }).get("couch potato") === 1,
+  );
+  check(
+    "trackers",
+    "respects word boundaries",
+    countMatches("class", { phrases: ["lass"], patterns: [], category: new Map() }).size === 0,
+  );
+  // Regex patterns: obfuscation-resistant but boundary-safe (benign "duck").
+  const duck = {
+    phrases: [],
+    patterns: [{ word: "duck", re: /(?<![\p{L}\p{N}])(?:d+u+ck)(?![\p{L}\p{N}])/giu }],
+    category: new Map<string, string>(),
+  };
+  check(
+    "trackers",
+    "regex pattern matches obfuscation",
+    countMatches("you ddduuuck mate", duck).get("duck") === 1,
+  );
+  check("trackers", "regex pattern respects boundaries", countMatches("abduck", duck).size === 0);
+
+  // Category roll-up: which group is offended most (benign words).
+  const groups = aggregateByCategory(
+    { apple: 3, pear: 2, oak: 1 },
+    new Map([
+      ["apple", "fruit"],
+      ["pear", "fruit"],
+      ["oak", "tree"],
+    ]),
+  );
+  check(
+    "trackers",
+    "aggregates counts by category",
+    groups[0]?.category === "fruit" && groups[0]?.count === 5,
+  );
+
+  // Auto-generated fuzzy matching (catches stretched/obfuscated spellings).
+  check("trackers", "fuzzy generator uses run-length", wordToPattern("boot") === "b+o{2,}t+s*");
+  const fuzzyInsults = loadList("global", CALLED.listFile, true);
+  check(
+    "trackers",
+    "fuzzy matches a stretched word",
+    countMatches("you absolute beeeender", fuzzyInsults).get("bender") === 1,
+  );
+  check(
+    "trackers",
+    "fuzzy still needs the whole word",
+    countMatches("just bend it", fuzzyInsults).get("bender") === undefined,
+  );
+
+  const guild = "__smoketest__";
+  try {
+    incrementCounts(guild, CALLED.storeFile, "u1", new Map([["bender", 2]]));
+    check(
+      "trackers",
+      "store records a user total",
+      getUserTotal(guild, CALLED.storeFile, "u1") === 2,
+    );
+    check(
+      "trackers",
+      "store records a word total",
+      getTopWords(guild, CALLED.storeFile)[0]?.word === "bender",
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+}
+
+/**
+ * Verifies the slur reply chooser: silent within the cooldown, a pool entry
+ * after it, and the spam entry once the threshold is hit.
+ */
+function checkSlurResponses(): void {
+  const pool = ["A", "B"];
+  check(
+    "responder",
+    "stays silent within cooldown",
+    chooseSlurGif(1, SLUR_COOLDOWN_MS - 1, pool, "ENOUGH", 0) === null,
+  );
+  check(
+    "responder",
+    "picks a pool entry after cooldown",
+    chooseSlurGif(1, SLUR_COOLDOWN_MS, pool, "ENOUGH", 1) === "B",
+  );
+  check(
+    "responder",
+    "escalates to the spam entry",
+    chooseSlurGif(SLUR_SPAM_THRESHOLD, SLUR_COOLDOWN_MS, pool, "ENOUGH", 0) === "ENOUGH",
+  );
+  check(
+    "responder",
+    "fills {user}/{count} placeholders",
+    fillPlaceholders("{user} said a slur #{count}", "<@1>", 7) === "<@1> said a slur #7",
+  );
+  // Tagged replies: generic always applies; a tagged reply only joins matching categories.
+  const config = {
+    responses: ["G", { content: "B", categories: ["black", "LGBT"] }],
+    spam: "",
+  };
+  check(
+    "responder",
+    "pools generic + matching category",
+    poolFor(config, ["black"]).join(",") === "G,B",
+  );
+  check(
+    "responder",
+    "shares one entry across categories",
+    poolFor(config, ["LGBT"]).join(",") === "G,B",
+  );
+  check(
+    "responder",
+    "excludes non-matching category",
+    poolFor(config, ["jewish"]).join(",") === "G",
+  );
 }
 
 /* --------------------------------------------------------------- reporting */
@@ -212,6 +361,8 @@ void (async () => {
     checkRepostContent();
     checkGrace();
     checkSwears();
+    checkTrackers();
+    checkSlurResponses();
 
     printTable();
 

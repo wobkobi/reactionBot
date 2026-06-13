@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "license": "MIT",
   "type": "module",
   "main": "index.js",
@@ -54,7 +54,7 @@
   "lint-staged": {
     "**/*.{js,ts}": [
       "prettier --write",
-      "eslint --max-warnings=0"
+      "eslint --max-warnings=0 --no-warn-ignored"
     ],
     "**/*.{json,md,yml,yaml}": "prettier --write"
   }

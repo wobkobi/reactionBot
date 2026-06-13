@@ -30,7 +30,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN!;
 const CLIENT_ID = process.env.CLIENT_ID!;
 
 if (!BOT_TOKEN || !CLIENT_ID) {
-  log.fatal("missing required environment variables", {
+  log.error("missing required environment variables", {
     hasToken: !!BOT_TOKEN,
     hasClientId: !!CLIENT_ID,
   });

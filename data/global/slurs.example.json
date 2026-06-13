@@ -1,0 +1,7 @@
+{
+  "_comment": "Template for data/global/slurs.json (the real file is gitignored). Entries can be plain strings or { word, category } objects. 'category' is the group a slur targets and powers /slurgroups (which group someone offends most); keep it short. Slurs are matched whole-word and fuzzily, so leetspeak, repeated letters and stretched spellings are caught automatically - just list the plain word.",
+  "words": [
+    "plain-word-or-phrase",
+    { "word": "term", "category": "group" }
+  ]
+}

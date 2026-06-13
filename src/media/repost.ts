@@ -49,7 +49,7 @@ export async function repostWithOptionalStub(
   const authorMention = `<@${original.author.id}>`;
 
   await original.delete().catch(() => {});
-  log.trace("deleted original", { originalId: original.id });
+  log.debug("deleted original", { originalId: original.id });
 
   // Post the rewrite (with the embeddable link) so Discord renders the embed.
   const moved = await (target as TextChannel).send({
@@ -88,7 +88,7 @@ export async function enableAuthorDelete(
   stubId?: string,
 ): Promise<void> {
   await moved.react("🗑️").catch(() => {});
-  log.trace("added delete reaction", {
+  log.debug("added delete reaction", {
     movedId: moved.id,
     authorId: author.id,
   });
@@ -112,7 +112,7 @@ export async function enableAuthorDelete(
       if (ch) {
         const stub = await ch.messages.fetch(stubId).catch(() => null);
         if (stub) await stub.delete().catch(() => {});
-        log.trace("deleted stub if existed", { stubId });
+        log.debug("deleted stub if existed", { stubId });
       }
     }
 
