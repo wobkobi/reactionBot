@@ -28,7 +28,7 @@ const log = createLogger("media/approval");
  * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`, else clears buttons.
  * @param channel Target channel for the prompt.
  * @param author Allowed responder.
- * @param [opts] Prompt and behavior controls.
+ * @param [opts] Prompt and behaviour controls.
  * @param [opts.prompt] Custom text. Default: `"{author}, proceed?"`.
  * @param [opts.grace] Timeout in ms or special modes.
  * @param [opts.autoDelete] Delete prompt on end. Default: true unless grace is "disabled".
@@ -98,11 +98,11 @@ export async function requestApproval(
     collector.on("end", async () => {
       if (autoDelete && grace !== "disabled") {
         await msg.delete().catch(() => {});
-        log.trace("prompt deleted", { messageId: msg.id });
+        log.debug("prompt deleted", { messageId: msg.id });
       } else {
         // If not auto-deleting, strip buttons so it can't be clicked later
         await msg.edit({ components: [] }).catch(() => {});
-        log.trace("prompt buttons cleared", { messageId: msg.id });
+        log.debug("prompt buttons cleared", { messageId: msg.id });
       }
       resolve(approved);
     });

@@ -44,10 +44,10 @@ export function matchAny(content: string): MediaMatch | null {
     const m = rx.exec(content);
     if (m) {
       const hit = { which, regex: rx, captures: m.slice(1) };
-      log.trace("matched", { which });
+      log.debug("matched", { which });
       return hit;
     }
   }
-  log.trace("no match");
+  log.debug("no match");
   return null;
 }

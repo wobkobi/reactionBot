@@ -50,7 +50,7 @@ export function saveSettings(guildId: string, next: MediaSettings): void {
  */
 export function resolveTargetChannelId(settings: MediaSettings, fallbackChannelId: string): string {
   const id = settings.channelId ?? fallbackChannelId;
-  log.trace("resolved target channel", {
+  log.debug("resolved target channel", {
     resolved: id,
     usedFallback: !settings.channelId,
   });
