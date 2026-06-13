@@ -1,22 +1,12 @@
 // src/commands/swearwords.ts
 
-import { getTopSwears } from "@/swears/storage.js";
-import { createLogger } from "@/utils/log.js";
+import { replyTopWords } from "@/tracking/commands.js";
+import { SWEARS } from "@/tracking/trackers.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import {
-  ChatInputCommandInteraction,
-  EmbedBuilder,
-  InteractionReplyOptions,
-  MessageFlags,
-} from "discord.js";
+import { ChatInputCommandInteraction } from "discord.js";
 
-const log = createLogger("cmd/swearwords");
-
-/**
- * Slash command definition for `/swearwords`.
- * Shows the most-used swear words across the server.
- */
+/** Slash command definition for `/swearwords`. */
 export const data = new SlashCommandBuilder()
   .setName("swearwords")
   .setDescription("Show the most-used swear words in this server")
@@ -26,45 +16,10 @@ export const data = new SlashCommandBuilder()
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Executes the `/swearwords` command.
- * Builds a leaderboard of the most-used swear words and replies with it.
+ * Executes `/swearwords`: a leaderboard of the most-used swear words.
  * @param interaction - The command interaction context.
- * @returns A promise that resolves when the leaderboard is sent.
+ * @returns A promise that resolves when the reply is sent.
  */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!interaction.inGuild()) {
-    log.warn("used outside guild", { userId: interaction.user.id });
-    await interaction.reply({
-      content: "Use this command in a server.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  try {
-    const limit = interaction.options.getInteger("limit") ?? 10;
-    const rows = getTopSwears(interaction.guildId!, limit);
-    const lines = rows.map((r, i) => `**${i + 1}.** ${r.swear} - **${r.count}**`);
-
-    const embed = new EmbedBuilder()
-      .setTitle("Most-used swears")
-      .setDescription(lines.join("\n") || "No data yet.");
-
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-    log.info("sent swear words", { guildId: interaction.guildId!, shown: rows.length });
-  } catch (err) {
-    log.error("failed to build swear words", {
-      guildId: interaction.guildId!,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    const reply: InteractionReplyOptions = {
-      content: "⚠️ Could not fetch the swear words. Try again later.",
-      flags: MessageFlags.Ephemeral,
-    };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.followUp(reply);
-    } else {
-      await interaction.reply(reply);
-    }
-  }
+  await replyTopWords(interaction, SWEARS, "Most-used swears");
 }

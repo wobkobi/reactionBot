@@ -1,0 +1,4 @@
+{
+  "_comment": "Template for data/global/insults.json - insults the called-names tracker attributes to whoever they are aimed at (everyone @mentioned, plus the author of a replied-to message). Plain strings, matched whole-word. Copy this to insults.json and edit. A per-guild data/<guildId>/insults.json overrides this global list.",
+  "words": ["muppet", "numpty", "plonker", "pillock", "melt"]
+}

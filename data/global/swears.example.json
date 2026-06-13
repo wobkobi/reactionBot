@@ -1,0 +1,4 @@
+{
+  "_comment": "Template for data/global/swears.json - words the swear tracker counts against whoever says them. Plain strings, matched whole-word and leetspeak-insensitive (d4mn -> damn). Copy this to swears.json and edit. A per-guild data/<guildId>/swears.json overrides this global list.",
+  "words": ["damn", "hell", "crap", "bloody"]
+}
