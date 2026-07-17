@@ -18,15 +18,12 @@ npm-debug.log*
 *.pem
 .eslintcache
 
-# runtime per-guild data (keep the global lists plus the example templates)
+# runtime per-guild data (keep the docs and example templates)
 /data/*
+!/data/readme.md
 !/data/global/
 /data/global/*
-!/data/global/swears.json
-!/data/global/swears.example.json
-!/data/global/insults.json
-!/data/global/insults.example.json
+# words.json (the real word config, contains the slur list) and
+# slur_responses.json (your own replies) stay local; data/readme.md and the
+# .example file document the shapes.
 !/data/global/slur_responses.example.json
-# slurs.json (real slurs) and slur_responses.json (your own replies) stay local;
-# the bot falls back to a built-in default, and the .example files are the templates.
-!/data/global/slurs.example.json

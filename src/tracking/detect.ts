@@ -1,23 +1,18 @@
 // src/tracking/detect.ts
 
 /**
- * @file Generic word/phrase detection shared by the swear, slur and
- * called-names trackers. Word lists live in `data/global/<list>.json` (or
- * per-guild overrides) and are never hard-coded here. Entries are plain strings
- * ("wanker") or `{ word, category }` objects, matched whole-word and leetspeak-
- * and diacritic-insensitive. Callers may opt into fuzzy matching, which compiles
- * each word into an obfuscation-tolerant regex (see {@link wordToPattern}).
+ * @file Generic word/phrase detection shared by the trackers and reactions.
+ * Words come from the unified config (see tracking/words.ts) and are matched
+ * whole-word, leetspeak- and diacritic-insensitive. Fuzzy items compile into
+ * an obfuscation-tolerant regex (see {@link wordToPattern}).
  */
 
-import { loadData } from "@/utils/file.js";
-
-/** A word-list entry: a plain word/phrase, or an object with optional metadata. */
-export type WordListEntry = string | { word: string; category?: string };
-
-/** Configuration object for a word list. */
-export interface WordListConfig {
-  /** Words/phrases to detect (plain strings or objects). */
-  words: WordListEntry[];
+/** One word/phrase to compile, with its matching mode and metadata. */
+export interface CompileItem {
+  word: string;
+  /** Compile into an obfuscation-tolerant pattern instead of a literal phrase. */
+  fuzzy?: boolean;
+  category?: string;
 }
 
 /** A compiled list ready for matching: literal phrases plus regex patterns. */
@@ -46,29 +41,43 @@ const LEET_MAP: Record<string, string> = {
   "¿": "i",
 };
 
+// Discord structural tokens: custom emojis (<:name:id>), user/role/channel
+// mentions, timestamps, and slash-command mentions. Dropped before matching so
+// emoji NAMES don't count as said words and so their long digit IDs can't
+// de-leet into phantom letter-soup matches.
+const DISCORD_TOKEN_REGEX = /<a?:\w+:\d+>|<\/[\w -]+:\d+>|<[@#][!&]?\d+>|<t:-?\d+(?::[a-zA-Z])?>/g;
+
+// Zero-width and other invisible characters (ZWSP/ZWJ/ZWNJ, word joiner,
+// BOM, soft hyphen). Removed (not spaced) so a zero-width-broken "slur" still reads "slur"
+// instead of evading the whole-word matchers.
+const INVISIBLE_CHARS_REGEX = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g;
+
+// Links: words inside a URL weren't said by the poster.
+const URL_REGEX = /https?:\/\/\S+/gi;
+
 /**
- * Normalises text for detection by lowercasing, de-leetspeaking, stripping
- * diacritics, and collapsing non-alphanumeric runs to single spaces.
+ * Normalises text for detection: drops Discord tokens, URLs, invisible
+ * characters, and markdown marks, then lowercases, de-leetspeaks, strips
+ * diacritics, and collapses non-alphanumeric runs to single spaces.
+ * Apostrophes are removed rather than spaced so contractions stay one word:
+ * "can't"/"can’t" fold to "cant" and match a "cant" list entry.
  * @param text - The input text to normalise.
  * @returns A cleaned, lowercase string of words separated by single spaces.
  */
 export function normalise(text: string): string {
-  let s = text.toLowerCase();
+  let s = text.replace(DISCORD_TOKEN_REGEX, " ").replace(URL_REGEX, " ");
+  s = s.replace(INVISIBLE_CHARS_REGEX, "");
+  // Fold markdown marks so "sl**ur**" and "||slur||" read whole. Spoiler
+  // pipes are stripped as a PAIR before the leet map turns single "|" into
+  // "i" (which would wrap the word in letters and defeat word boundaries).
+  s = s.replace(/\|\|/g, "").replace(/[*_~`]/g, "");
+  s = s.toLowerCase();
   s = s.replace(/[0134578@$!|¿]/g, (m) => LEET_MAP[m] ?? m);
   s = s.normalize("NFKD").replace(/\p{Diacritic}+/gu, "");
+  s = s.replace(/['’`´]/g, "");
   s = s.replace(/[^\p{L}\p{N}]+/gu, " ");
   s = s.trim().replace(/\s+/g, " ");
   return s;
-}
-
-/**
- * Extracts the raw word/phrase from a list entry.
- * @param entry - A string entry or `{ word }` object.
- * @returns The word/phrase, or an empty string when malformed.
- */
-function entryWord(entry: WordListEntry): string {
-  if (typeof entry === "string") return entry;
-  return entry?.word ?? "";
 }
 
 /**
@@ -115,32 +124,26 @@ export function wordToPattern(word: string): string {
 }
 
 /**
- * Loads and compiles the word list for a guild, falling back to the global list
- * when no per-guild override exists.
- * @param guildId - The Discord guild (server) ID.
- * @param listFile - JSON filename for the word list (e.g. "slurs.json").
- * @param fuzzy - When true, each word is compiled into an auto-generated
- *   obfuscation-tolerant pattern instead of a literal phrase.
+ * Compiles words into a matchable {@link DetectList}. Each item chooses its
+ * own mode: fuzzy items become obfuscation-tolerant patterns, the rest are
+ * whole-word literal phrases.
+ * @param items - The words to compile, with per-item mode and metadata.
  * @returns A {@link DetectList} of literal phrases and regex patterns.
  */
-export function loadList(guildId: string, listFile: string, fuzzy = false): DetectList {
-  const guildCfg = loadData<WordListConfig | null>(guildId, listFile, { soft: true });
-  const globalCfg = loadData<WordListConfig>("global", listFile, { soft: true });
-  const raw = guildCfg?.words?.length ? guildCfg.words : (globalCfg?.words ?? []);
-
+export function compileItems(items: CompileItem[]): DetectList {
   const phrases: string[] = [];
   const patterns: Array<{ word: string; re: RegExp }> = [];
   const category = new Map<string, string>();
 
-  for (const entry of raw) {
-    const word = normalise(entryWord(entry));
+  for (const item of items) {
+    const word = normalise(item.word);
     if (!word) continue;
-    if (fuzzy) {
+    if (item.fuzzy) {
       patterns.push({ word, re: boundedPattern(wordToPattern(word)) });
     } else {
       phrases.push(word);
     }
-    if (typeof entry === "object" && entry.category) category.set(word, entry.category);
+    if (item.category) category.set(word, item.category);
   }
 
   return { phrases: [...new Set(phrases)], patterns, category };
@@ -165,7 +168,7 @@ export function buildMatcher(phrases: string[]): RegExp | null {
  * phrases are recorded under the matched text; pattern hits under the entry's
  * canonical `word`.
  * @param text - Raw message content.
- * @param list - A compiled {@link DetectList} from {@link loadList}.
+ * @param list - A compiled {@link DetectList} from {@link compileItems}.
  * @returns Map of matched word > occurrence count.
  */
 export function countMatches(text: string, list: DetectList): Map<string, number> {
@@ -192,7 +195,7 @@ export function countMatches(text: string, list: DetectList): Map<string, number
  * slurs target most), sorted highest first. Words with no category fall under
  * "uncategorised".
  * @param counts - Word > count map (a user's counts or guild totals).
- * @param category - Word > category map from {@link loadList}.
+ * @param category - Word > category map from a compiled {@link DetectList}.
  * @returns Array of `{ category, count }` sorted desc by count.
  */
 export function aggregateByCategory(

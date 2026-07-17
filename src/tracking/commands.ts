@@ -6,7 +6,7 @@
  * to one of these, passing the relevant {@link Tracker}.
  */
 
-import { aggregateByCategory, loadList } from "@/tracking/detect.js";
+import { aggregateByCategory } from "@/tracking/detect.js";
 import {
   getTopUsers,
   getTopUsersForWord,
@@ -18,6 +18,7 @@ import {
   resetUser,
 } from "@/tracking/store.js";
 import { Tracker } from "@/tracking/trackers.js";
+import { loadWords } from "@/tracking/words.js";
 import { createLogger } from "@/utils/log.js";
 import {
   ChatInputCommandInteraction,
@@ -97,7 +98,8 @@ export async function replyTopUsers(
     const embed = new EmbedBuilder()
       .setTitle(word ? `${opts.title} (${word})` : opts.title)
       .setDescription(lines.join("\n") || "No data yet.");
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    // Public on purpose: leaderboards are for the whole channel to see.
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
     log.error("failed to build user leaderboard", {
       storeFile: tracker.storeFile,
@@ -130,7 +132,8 @@ export async function replyTopWords(
     const embed = new EmbedBuilder()
       .setTitle(title)
       .setDescription(lines.join("\n") || "No data yet.");
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    // Public on purpose: leaderboards are for the whole channel to see.
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
     log.error("failed to build word leaderboard", {
       storeFile: tracker.storeFile,
@@ -157,7 +160,7 @@ export async function replyCategoryBreakdown(
     return;
   }
   try {
-    const { category } = loadList(interaction.guildId, tracker.listFile);
+    const { category } = loadWords(interaction.guildId).tracks[tracker.track];
     const target = interaction.options.getUser("user");
     const counts = target
       ? getUserCounts(interaction.guildId, tracker.storeFile, target.id)
@@ -170,7 +173,8 @@ export async function replyCategoryBreakdown(
     const embed = new EmbedBuilder()
       .setTitle(title)
       .setDescription(lines.join("\n") || "No data yet.");
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    // Public on purpose: breakdowns are for the whole channel to see.
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
     log.error("failed to build category breakdown", {
       storeFile: tracker.storeFile,
@@ -199,18 +203,26 @@ export async function replyUserTotal(
     await guildOnly(interaction);
     return;
   }
-  const target = interaction.options.getUser("user") ?? interaction.user;
-  const total = getUserTotal(interaction.guildId, tracker.storeFile, target.id);
-  const isSelf = target.id === interaction.user.id;
-  const subject = isSelf ? "You" : `${target}`;
-  const has = isSelf ? "have" : "has";
-  const verb = phrasing.verbPast ? ` ${phrasing.verbPast}` : "";
-  const noun = `${phrasing.noun}${total === 1 ? "" : "s"}`;
-  await interaction.reply({
-    content: `${subject} ${has}${verb} **${total}** ${noun}.`,
-    flags: MessageFlags.Ephemeral,
-    allowedMentions: { parse: [] },
-  });
+  try {
+    const target = interaction.options.getUser("user") ?? interaction.user;
+    const total = getUserTotal(interaction.guildId, tracker.storeFile, target.id);
+    const isSelf = target.id === interaction.user.id;
+    const subject = isSelf ? "You" : `${target}`;
+    const has = isSelf ? "have" : "has";
+    const verb = phrasing.verbPast ? ` ${phrasing.verbPast}` : "";
+    const noun = `${phrasing.noun}${total === 1 ? "" : "s"}`;
+    await interaction.reply({
+      content: `${subject} ${has}${verb} **${total}** ${noun}.`,
+      flags: MessageFlags.Ephemeral,
+      allowedMentions: { parse: [] },
+    });
+  } catch (err) {
+    log.error("failed to fetch user total", {
+      storeFile: tracker.storeFile,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await replyError(interaction, "⚠️ Could not fetch the count. Try again later.");
+  }
 }
 
 /**

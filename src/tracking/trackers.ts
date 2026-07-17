@@ -1,15 +1,18 @@
 // src/tracking/trackers.ts
 
 /**
- * @file Tracker configs. Each tracker pairs a word list (detection) with a
- * store file (persistence). Swears and slurs are attributed to the message
- * author; called-names are attributed to the target (who got called the name).
+ * @file Tracker configs. Each tracker pairs a track key in the unified word
+ * config (words.json, see tracking/words.ts) with a store file
+ * (persistence). Swears and slurs are attributed to the message author;
+ * called-names are attributed to the target (who got called the name).
  */
 
-/** A tracker's list/store filenames and display noun. */
+import { TrackKey } from "@/tracking/words.js";
+
+/** A tracker's word-config key, store filename and display noun. */
 export interface Tracker {
-  /** Word-list JSON filename under data/<guild|global>/. */
-  listFile: string;
+  /** Track key in the unified word config (words.json `types[].track`). */
+  track: TrackKey;
   /** Per-guild count-store JSON filename. */
   storeFile: string;
   /** Singular noun used in command copy (e.g. "swear"). */
@@ -18,21 +21,21 @@ export interface Tracker {
 
 /** Swears said by the author. */
 export const SWEARS: Tracker = {
-  listFile: "swears.json",
+  track: "swears",
   storeFile: "swear_counts.json",
   noun: "swear",
 };
 
 /** Slurs said by the author (triggers a public shame). */
 export const SLURS: Tracker = {
-  listFile: "slurs.json",
+  track: "slurs",
   storeFile: "slur_counts.json",
   noun: "slur",
 };
 
 /** Insults attributed to the target who got called them. */
 export const CALLED: Tracker = {
-  listFile: "insults.json",
+  track: "called",
   storeFile: "insult_counts.json",
   noun: "insult",
 };
