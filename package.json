@@ -1,51 +1,15 @@
 {
   "name": "reactionbot",
-  "version": "2.1.0",
-  "license": "MIT",
+  "version": "2.2.1",
   "type": "module",
-  "main": "index.js",
   "scripts": {
     "build": "tsc && tsc-alias",
-    "start": "tsc && tsc-alias && node build/index.js",
     "dev": "tsx watch src/index.ts",
+    "format": "prettier --write \"**/*.{js,mjs,cjs,ts,md,json,yml,yaml}\"",
     "lint": "eslint \"{src,scripts}/**/*.{js,ts}\" --fix",
-    "format": "prettier --write \"**/*.{js,ts,md,json,yml,yaml}\"",
+    "prepare": "simple-git-hooks",
     "smoke": "tsx scripts/smoke-test.ts",
-    "prepare": "simple-git-hooks"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/wobkobi/reactionBot.git"
-  },
-  "keywords": [],
-  "bugs": {
-    "url": "https://github.com/wobkobi/reactionBot/issues"
-  },
-  "homepage": "https://github.com/wobkobi/reactionBot#readme",
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.60.1",
-    "@typescript-eslint/parser": "^8.60.1",
-    "eslint": "^10.4.1",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-jsdoc": "^63.0.2",
-    "eslint-plugin-prettier": "^5.5.6",
-    "globals": "^17.6.0",
-    "prettier": "^3.8.3",
-    "prettier-plugin-organize-imports": "^4.3.0",
-    "simple-git-hooks": "^2.13.1",
-    "tsc-alias": "^1.8.17",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.1"
-  },
-  "dependencies": {
-    "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2"
-  },
-  "engines": {
-    "node": ">=20",
-    "npm": ">=7.0.0"
+    "start": "tsc && tsc-alias && node build/index.js"
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged",
@@ -56,6 +20,33 @@
       "prettier --write",
       "eslint --max-warnings=0 --no-warn-ignored"
     ],
-    "**/*.{json,md,yml,yaml}": "prettier --write"
+    "**/*.{mjs,cjs,json,md,yml,yaml}": "prettier --write"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsdoc": "^63.0.2",
+    "eslint-plugin-prettier": "^5.5.6",
+    "globals": "^17.6.0",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "prettier-plugin-packagejson": "^3.0.2",
+    "simple-git-hooks": "^2.13.1",
+    "tsc-alias": "^1.8.17",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=7.0.0"
   }
 }

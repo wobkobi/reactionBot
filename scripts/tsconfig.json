@@ -9,8 +9,8 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "types": ["node"],
-    "noEmit": true,
-    "rootDir": ".."
+    "rootDir": "..",
+    "noEmit": true
   },
   "include": ["**/*.ts"]
 }

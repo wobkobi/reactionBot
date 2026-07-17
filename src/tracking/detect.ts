@@ -99,7 +99,7 @@ const FUZZY_CLASS: Record<string, string> = {
  */
 export function wordToPattern(word: string): string {
   let out = "";
-  for (let i = 0; i < word.length; ) {
+  for (let i = 0; i < word.length;) {
     const ch = word[i];
     let run = 1;
     while (word[i + run] === ch) run++;

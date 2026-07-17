@@ -93,7 +93,8 @@ export async function enableAuthorDelete(
     authorId: author.id,
   });
 
-  const filter = (r: MessageReaction, u: User) => r.emoji.name === "🗑️" && u.id === author.id;
+  const filter = (r: MessageReaction, u: User): boolean =>
+    r.emoji.name === "🗑️" && u.id === author.id;
   const collector = moved.createReactionCollector({
     filter,
     max: 1,
@@ -107,8 +108,7 @@ export async function enableAuthorDelete(
 
     if (stubId) {
       const ch = moved.client.channels.cache.get(originalChannelId) as
-        | GuildTextBasedChannel
-        | undefined;
+        GuildTextBasedChannel | undefined;
       if (ch) {
         const stub = await ch.messages.fetch(stubId).catch(() => null);
         if (stub) await stub.delete().catch(() => {});

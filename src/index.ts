@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "url";
 dotenv.config();
 
 const log = createLogger("core/index");
-const boot = (msg: string, extra?: Record<string, unknown>) =>
+const boot = (msg: string, extra?: Record<string, unknown>): void =>
   console.log(`[BOOT] ${msg}${extra ? " " + JSON.stringify(extra) : ""}`);
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
