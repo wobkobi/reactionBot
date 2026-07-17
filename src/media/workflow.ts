@@ -7,7 +7,8 @@
 
 import { requestApproval } from "@/media/approval.js";
 import { matchAny } from "@/media/match.js";
-import { enableAuthorDelete, repostWithOptionalStub } from "@/media/repost.js";
+import { repostWithOptionalStub } from "@/media/repost.js";
+import { registerRepostActions } from "@/media/repostActions.js";
 import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings.js";
 import { rewriteContent } from "@/media/transform.js";
 import { createLogger } from "@/utils/log.js";
@@ -34,15 +35,24 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   const targetId = resolveTargetChannelId(settings, message.channelId);
 
   const source = message.channel as GuildTextBasedChannel;
-  const target = (message.client.channels.cache.get(targetId) ?? source) as GuildTextBasedChannel;
+  // Tracking cleans are not media: the link stays in its channel, cleaned.
+  const isTrackingClean = match.which === "tracking";
+  const target = isTrackingClean
+    ? source
+    : ((message.client.channels.cache.get(targetId) ?? source) as GuildTextBasedChannel);
 
   const sameChannel = source.id === target.id;
+
+  // Pre-embedded links have nothing to rewrite; without a separate media
+  // channel to move them to, there is nothing to do.
+  if (match.which === "pre-embedded" && sameChannel) return;
 
   // Prepare rewrite
   const rewrite = rewriteContent(message.content, match);
 
   // Build approval plan (handles same-channel overrides)
   const plan = resolveApprovalPlan(settings.grace, sameChannel);
+  if (isTrackingClean) plan.promptText = "Clean the tracking junk out of your link?";
 
   // Auto-approve or ask
   let approved = plan.autoApprove;
@@ -73,12 +83,13 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     stubId: outcome.stub?.id ?? null,
   });
 
-  // Author-only delete with audit + optional stub cleanup
+  // Author-only Edit/Delete buttons with audit + stub cleanup (persisted, so
+  // they keep working after restarts)
   if (outcome.moved) {
-    await enableAuthorDelete(
+    registerRepostActions(
       outcome.moved,
-      message.author,
-      message.guildId!,
+      message.author.id,
+      message.id,
       source.id,
       outcome.stub?.id,
     );

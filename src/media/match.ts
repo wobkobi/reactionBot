@@ -4,10 +4,12 @@
  * @file Detects supported media URLs inside message content.
  */
 
+import { stripTracking } from "@/media/cleanTracking.js";
 import { MediaMatch, ServiceKey } from "@/media/types.js";
 import {
   BLUESKY_REGEX,
   INSTAGRAM_REGEX,
+  PRE_EMBEDDED_REGEX,
   REDDIT_COMMENTS_REGEX,
   REDDIT_SHARE_REGEX,
   REDDIT_SHORT_REGEX,
@@ -39,15 +41,30 @@ export function matchAny(content: string): MediaMatch | null {
     ["threads", THREADS_REGEX],
     ["tumblr-sub", TUMBLR_SUB_REGEX],
     ["tumblr", TUMBLR_REGEX],
+    // Last: links already on a fixer frontend (moved as-is, no rewrite)
+    ["pre-embedded", PRE_EMBEDDED_REGEX],
   ];
   for (const [which, rx] of tries) {
     const m = rx.exec(content);
     if (m) {
       const hit = { which, regex: rx, captures: m.slice(1) };
-      log.trace("matched", { which });
+      log.debug("matched", { which });
       return hit;
     }
   }
-  log.trace("no match");
+
+  // No platform/fixer hit: offer a tracking-junk clean for any other link.
+  // The exact URL is carried as `literal` so rewriteContent can replace it
+  // as a plain string (never a content-derived regex).
+  for (const m of content.matchAll(/https?:\/\/\S+/g)) {
+    const url = m[0].replace(/[),.!?;:]+$/, "");
+    const cleaned = stripTracking(url);
+    if (cleaned && cleaned !== url) {
+      log.debug("matched", { which: "tracking" });
+      return { which: "tracking", regex: /$^/, captures: [cleaned], literal: url };
+    }
+  }
+
+  log.debug("no match");
   return null;
 }

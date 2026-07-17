@@ -1,3 +1,4 @@
+// tsconfig.json
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -5,28 +6,22 @@
     "moduleResolution": "NodeNext",
     "rootDir": "./src",
     "outDir": "./build",
-    "strict": true, // enables all strict-mode checks
-    "noImplicitAny": true, // catch untyped values
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "strictPropertyInitialization": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
-    "noUnusedLocals": true, // catch unused variables
-    "noUnusedParameters": true, // catch unused parameters
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true, // allow `import x from './config.json'`
-    "sourceMap": true, // generate .map files for debugging
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "incremental": true,
+    "sourceMap": true,
     "paths": {
       "@/*": ["./src/*"]
-    },
-    "typeRoots": ["./node_modules/@types", "./src/types"]
+    }
   },
   "include": ["src"],
-  "exclude": ["build", "node_modules", "**/*.spec.ts"]
+  "exclude": ["build", "node_modules"]
 }

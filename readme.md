@@ -1,67 +1,103 @@
----
+# reactionBot
 
-# StinkyBot Discord Bot
-
-StinkyBot is a fun and interactive Discord bot that reacts to certain user messages with emojis. The bot uses specific patterns to determine which reaction emoji should be used. It also provides command functionalities for administrators to manage user-specific reactions.
+Discord bot that keeps social media links out of the main chat. When someone posts a TikTok,
+Twitter/X, Instagram, Reddit, Bluesky, Threads or Tumblr link, the bot offers to move it to a
+dedicated media channel, rewritten to an embed-friendly frontend (fixupx, toinstagram, etc.), and
+leaves a small pointer in the original channel so the conversation can still find it. It also keeps
+per-server counters for swears, slurs, and name-calling.
 
 ## Features
 
-- Randomly reacts to messages with "💩", "🤡", or "🦙".
-- Responds to specific phrases and patterns with appropriate emojis.
-- Administrator controls for managing user-specific reactions.
-- `add`, `remove`, `clear`, `allow`, `disallow`, and `help` command functionalities.
+- **Media link relocation**: detect link > Yes/No approval prompt for the author (configurable
+  grace, including instant auto-move) > delete the original > repost the rewritten link in the media
+  channel > leave a pointer "tail" in the source channel. The full message text and any attachments
+  are carried over, and mentions render without pinging. The moved message carries author-only ✏️
+  Edit / 🗑️ Delete buttons: Edit opens a popup pre-filled with the text, Delete removes the repost
+  and its tail. Records are persisted, so the buttons keep working after bot restarts. Links edited
+  into an existing message are caught too.
+- **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
+  `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
+- **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
+  ...) are recognised by their platform path shape on any domain - no mirror list to maintain - and
+  moved to the media channel as-is, without rewriting (see `PRE_EMBEDDED_REGEX` in
+  [src/regex.ts](src/regex.ts)).
+- **Tracking-junk cleaning**: social links get their `?utm_...`/`fbclid`-style tails dropped
+  automatically during the rewrite; any other link carrying known trackers gets a Yes/No prompt to
+  clean it in place (it stays in its channel). Functional params (`v=`, timestamps, share ids in
+  paths) are never touched - see the conservative list in
+  [src/media/cleanTracking.ts](src/media/cleanTracking.ts).
+- **Trackers**: per-guild counters for swears, slurs (with targeted-group breakdown), and insults
+  thrown at members, with leaderboard commands.
+- **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
+  sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
+  emojis (e.g. n-word hits spell "NWORD"; words with repeated letters are skipped).
 
-## Setup & Installation
+## Requirements
 
-### Requirements:
+- Node.js >= 20
+- A Discord application with a bot token, invited with the `bot` and `applications.commands` scopes
+  and message content intent enabled.
 
-- Python 3.8 or newer.
-- The `discord.py` library.
-- A `.env` file with your bot token and your user ID.
+## Setup
 
-### Installation:
+```sh
+git clone https://github.com/wobkobi/reactionBot.git
+cd reactionBot
+cp .env.example .env   # fill in BOT_TOKEN and CLIENT_ID
+npm ci
+npm run build
+npm start              # or: npm run dev (watch mode)
+```
 
-1. Clone this repository.
-   ```
-   git clone https://github.com/wobkobi/reactionBot.git
-   ```
+Per-guild data (settings, counters, audit logs) is stored as JSON under `data/<guildId>/`, relative
+to the working directory. All word behaviour (trackers + reactions) lives in one file,
+`data/global/words.json` - see [data/readme.md](data/readme.md) for the full format, a template, and
+how to add words. It's gitignored (it contains the slur list), so copy your own file in on a fresh
+deploy.
 
-2. Navigate to the repository.
-   ```
-   cd reactionBot
-   ```
+## Running under pm2
 
-3. Install the required packages.
-   ```
-   pip install discord.py python-dotenv
-   ```
+```sh
+npm ci
+npm run build
+pm2 start ecosystem.config.cjs
+pm2 save
+```
 
-4. Create a `.env` file with the following content:
-   ```
-   DISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN
-   YOUR_ID=YOUR_DISCORD_USER_ID
-   ```
-
-5. Run the bot.
-   ```
-   python main.py
-   ```
+Rebuild (`npm run build`) before `pm2 restart reactionbot` after pulling changes.
 
 ## Commands
 
-- `add`: Adds or updates the emoji for a specific user.
-- `remove`: Removes a user from the bot's reaction list.
-- `clear`: Removes all reactions from all users in the bot's list.
-- `allow`: Gives special privileges to a specific user.
-- `disallow`: Removes special privileges from a specific user.
-- `help`: Displays all commands and their descriptions.
+### Media
 
-## Contribution
+The settings commands require the guild owner, the bot owner (`YOUR_ID`), a user granted via
+`allowed.json`, or the Manage Server permission. All other commands only run in the bot channel -
+and refuse to run until one is set.
 
-Feel free to fork this repository, make changes, and submit pull requests. Feedback and contributions are always welcome!
+- `/setbotchannel` - set the channel bot commands must be used in.
+- `/setmediachannel` - set which text channel media links get reposted into.
+- `/setdelay instant` - move links straight away without asking.
+- `/setdelay seconds seconds:<1-300>` - give the poster that long to hit Yes or No.
+- `/setdelay disabled` - always ask, and wait forever for an answer.
+- `/allow`, `/disallow` - grant or revoke bot-admin privileges (the allowed list).
+- `/help` - list all commands.
+
+### Trackers
+
+- `/swears`, `/sweartop`, `/swearwords`, `/swearnuke` - swear counters.
+- `/slurs`, `/slurtop`, `/slurwords`, `/slurgroups`, `/slurnuke` - slur counters and targeted-group
+  breakdown.
+- `/called`, `/calledtop`, `/calledwords`, `/callednuke` - who gets called names, and with what.
+
+## Development
+
+- Set `DEV_GUILD_ID` in `.env` to restrict a dev instance to one test server - it ignores messages
+  and commands everywhere else. Leave it unset in production.
+- `npm run lint` - ESLint (flat config, type-aware) with autofix.
+- `npm run format` - Prettier.
+- `npm run smoke` - offline smoke test of the media pipeline.
+- Pre-commit runs lint-staged; pre-push runs build + smoke.
 
 ## License
 
-MIT License
-
----
+MIT

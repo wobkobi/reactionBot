@@ -1,25 +1,64 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
 # dependencies
 /node_modules
+/.pnp
+.pnp.*
 
-# build output
+# testing
+/coverage
+*.lcov
+
+# production
 /build
-*.tsbuildinfo
+/dist
 
-# logs
-*.log
-npm-debug.log*
-
-# local env files
-.env
-.env*.local
-
-# os / editor
+# misc
 .DS_Store
 *.pem
+Thumbs.db
+NUL
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (never commit secrets!)
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# typescript
+*.tsbuildinfo
+
+# eslint
 .eslintcache
 
-# runtime per-guild data (keep only the global word-list template)
+# claude AI workspace
+.claude/
+
+# runtime per-guild data (keep the docs and example templates)
 /data/*
+!/data/readme.md
 !/data/global/
 /data/global/*
-!/data/global/swears.json
+# words.json (the real word config, contains the slur list) and
+# slur_responses.json (your own replies) stay local; data/readme.md and the
+# .example file document the shapes.
+!/data/global/slur_responses.example.json
