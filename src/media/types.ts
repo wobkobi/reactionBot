@@ -45,6 +45,11 @@ export interface MediaMatch {
   /** The regex that matched (kept for replacement). */
   regex: RegExp;
   captures: string[];
+  /**
+   * Exact matched URL, set on "tracking" matches. Replaced as a literal
+   * string instead of via a content-derived regex.
+   */
+  literal?: string;
 }
 
 /** Result of rewriting content containing a matched link. */

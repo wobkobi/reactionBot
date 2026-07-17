@@ -54,17 +54,14 @@ export function matchAny(content: string): MediaMatch | null {
   }
 
   // No platform/fixer hit: offer a tracking-junk clean for any other link.
-  // The regex is the exact URL (escaped) so rewriteContent can replace it.
+  // The exact URL is carried as `literal` so rewriteContent can replace it
+  // as a plain string (never a content-derived regex).
   for (const m of content.matchAll(/https?:\/\/\S+/g)) {
     const url = m[0].replace(/[),.!?;:]+$/, "");
     const cleaned = stripTracking(url);
     if (cleaned && cleaned !== url) {
       log.debug("matched", { which: "tracking" });
-      return {
-        which: "tracking",
-        regex: new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-        captures: [cleaned],
-      };
+      return { which: "tracking", regex: /$^/, captures: [cleaned], literal: url };
     }
   }
 

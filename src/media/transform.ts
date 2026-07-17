@@ -75,11 +75,17 @@ export function buildTransformedUrl(match: MediaMatch): string {
  */
 export function rewriteContent(content: string, match: MediaMatch): RewriteResult {
   const newLink = buildTransformedUrl(match);
-  // Also consume any query/fragment trailing the matched URL - on social
-  // links that tail is share-tracking junk (?s=20&t=...) which would
-  // otherwise stay glued to the rewritten link.
-  const consuming = new RegExp(`${match.regex.source}(?:[?#]\\S*)?`, match.regex.flags);
-  const rewrittenText = content.replace(consuming, newLink);
+  let rewrittenText: string;
+  if (match.literal) {
+    // Tracking matches carry the exact URL - replace it as a plain string.
+    rewrittenText = content.replace(match.literal, newLink);
+  } else {
+    // Also consume any query/fragment trailing the matched URL - on social
+    // links that tail is share-tracking junk (?s=20&t=...) which would
+    // otherwise stay glued to the rewritten link.
+    const consuming = new RegExp(`${match.regex.source}(?:[?#]\\S*)?`, match.regex.flags);
+    rewrittenText = content.replace(consuming, newLink);
+  }
   log.debug("rewrote content", { which: match.which, newLink });
   return { newLink, rewrittenText };
 }
