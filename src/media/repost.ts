@@ -1,8 +1,8 @@
 // src/media/repost.ts
-import { appendDeletionLog } from "@/media/audit.js";
+import { buildRepostButtons } from "@/media/repostActions.js";
 import { RepostOutcome } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
-import { GuildTextBasedChannel, Message, MessageReaction, TextChannel, User } from "discord.js";
+import { GuildTextBasedChannel, Message, TextChannel } from "discord.js";
 
 const log = createLogger("media/repost");
 
@@ -15,7 +15,7 @@ const log = createLogger("media/repost");
  * @returns The content to post in the target channel.
  */
 export function buildMovedContent(authorMention: string, rewrittenText: string): string {
-  return `${authorMention} SENT SLOP\n\n${rewrittenText}`;
+  return `from ${authorMention}\n\n${rewrittenText}`;
 }
 
 /**
@@ -30,8 +30,9 @@ export function buildPointerContent(authorMention: string, movedUrl: string): st
 }
 
 /**
- * Delete the original, post the embeddable rewrite in the target channel, and
- * optionally leave a pointer back in the source channel.
+ * Delete the original, post the embeddable rewrite in the target channel
+ * (carrying over any attachments), and optionally leave a pointer back in the
+ * source channel.
  * @param original The original guild message to move.
  * @param rewrittenText The rewritten content where the first URL is the transformed (embeddable) link.
  * @param source Source channel.
@@ -48,82 +49,52 @@ export async function repostWithOptionalStub(
 ): Promise<RepostOutcome> {
   const authorMention = `<@${original.author.id}>`;
 
+  // Capture attachment URLs before deleting the original: the signed CDN
+  // links stay valid after deletion, long enough to re-upload the files with
+  // the moved message so images/videos survive the move.
+  const files = [...original.attachments.values()].map((a) => a.url);
+
   await original.delete().catch(() => {});
-  log.trace("deleted original", { originalId: original.id });
+  log.debug("deleted original", { originalId: original.id });
 
   // Post the rewrite (with the embeddable link) so Discord renders the embed.
-  const moved = await (target as TextChannel).send({
+  // Empty allowedMentions: the author's @ renders in the text without pinging.
+  // The Edit/Delete buttons are author-only (enforced on interaction).
+  const payload = {
     content: buildMovedContent(authorMention, rewrittenText),
-    allowedMentions: { parse: [], users: [original.author.id] },
-  });
+    allowedMentions: { parse: [] },
+    components: [buildRepostButtons()],
+  } satisfies Parameters<TextChannel["send"]>[0];
+
+  let moved: Message<true>;
+  if (files.length === 0) {
+    moved = await (target as TextChannel).send(payload);
+  } else {
+    try {
+      moved = await (target as TextChannel).send({ ...payload, files });
+    } catch (err) {
+      // Re-upload can fail (e.g. a file over the bot's upload limit); fall
+      // back to appending the CDN links so nothing is silently lost.
+      log.warn("attachment re-upload failed, linking instead", {
+        count: files.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      moved = await (target as TextChannel).send({
+        ...payload,
+        content: `${payload.content}\n${files.join("\n")}`,
+      });
+    }
+  }
   log.info("posted moved message", { movedId: moved.id, targetId: target.id });
 
   let stub: Message<true> | undefined;
   if (withStub && source.id !== target.id) {
     stub = await source.send({
       content: buildPointerContent(authorMention, moved.url),
-      allowedMentions: { parse: [], users: [original.author.id] },
+      allowedMentions: { parse: [] },
     });
     log.debug("posted pointer", { stubId: stub.id, sourceId: source.id });
   }
 
   return { moved, stub, linkUrl: moved.url };
-}
-
-/**
- * Allow the author to delete the moved message (and stub) with a 🗑️ reaction.
- * Records an audit entry on deletion.
- * @param moved The moved message in the target channel.
- * @param author The original author who is allowed to delete.
- * @param guildId Guild ID for audit logging.
- * @param originalChannelId Source channel ID to find and remove the stub.
- * @param [stubId] Optional stub message ID to delete alongside the moved message.
- * @returns Resolves after the collector is set up.
- */
-export async function enableAuthorDelete(
-  moved: Message<true>,
-  author: User,
-  guildId: string,
-  originalChannelId: string,
-  stubId?: string,
-): Promise<void> {
-  await moved.react("🗑️").catch(() => {});
-  log.trace("added delete reaction", {
-    movedId: moved.id,
-    authorId: author.id,
-  });
-
-  const filter = (r: MessageReaction, u: User) => r.emoji.name === "🗑️" && u.id === author.id;
-  const collector = moved.createReactionCollector({
-    filter,
-    max: 1,
-    time: 86_400_000,
-  });
-
-  collector.on("collect", async (r: MessageReaction, u: User) => {
-    log.debug("delete reaction collected", { movedId: moved.id, by: u.id });
-    await r.users.remove(u.id).catch(() => {});
-    await moved.delete().catch(() => {});
-
-    if (stubId) {
-      const ch = moved.client.channels.cache.get(originalChannelId) as
-        | GuildTextBasedChannel
-        | undefined;
-      if (ch) {
-        const stub = await ch.messages.fetch(stubId).catch(() => null);
-        if (stub) await stub.delete().catch(() => {});
-        log.trace("deleted stub if existed", { stubId });
-      }
-    }
-
-    appendDeletionLog(guildId, {
-      originalMessageId: "unknown",
-      originalChannelId,
-      repostMessageId: moved.id,
-      repostChannelId: moved.channelId,
-      stubMessageId: stubId,
-      deletedAt: new Date().toISOString(),
-    });
-    log.info("appended deletion audit", { guildId, movedId: moved.id });
-  });
 }
