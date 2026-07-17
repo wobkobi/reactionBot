@@ -5,6 +5,7 @@
  * and rewrites the message content.
  */
 
+import { stripTracking } from "@/media/cleanTracking.js";
 import { MediaMatch, RewriteResult } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
 
@@ -13,15 +14,15 @@ const log = createLogger("media/transform");
 /**
  * Embeddable frontend domains per platform. These privacy/embed frontends die
  * or get blocked periodically, so keeping them in one place makes swapping a
- * dead service a one-line change. (Current as of June 2026.)
+ * dead service a one-line change. (Current as of July 2026.)
  */
 export const FRONTENDS = {
   tiktok: "tnktok.com", // fxTikTok; "d." prefix = direct video/image embed
   twitter: "fixupx.com", // FxEmbed
-  instagram: "vxinstagram.com",
-  reddit: "rxddit.com", // fxreddit
+  instagram: "toinstagram.com", // InstaFix; vxinstagram 404s on posts
+  reddit: "vxreddit.com", // rxddit gets blocked by Reddit
   bluesky: "fxbsky.app", // FxEmbed
-  threads: "vxthreads.net",
+  threads: "viewthreads.com", // vxthreads.net is dead
   tumblr: "tpmblr.com", // fxtumblr
 } as const;
 
@@ -55,6 +56,13 @@ export function buildTransformedUrl(match: MediaMatch): string {
     case "tumblr-sub":
       // a = blog subdomain, b = post id (+ optional slug)
       return `https://${a}.${FRONTENDS.tumblr}/post/${b}`;
+    case "pre-embedded":
+      // Already on a fixer frontend - keep the poster's link, minus any
+      // tracking params it carries
+      return stripTracking(a) ?? a;
+    case "tracking":
+      // a = the URL with its tracking params already stripped (see matchAny)
+      return a;
   }
 }
 
@@ -67,7 +75,11 @@ export function buildTransformedUrl(match: MediaMatch): string {
  */
 export function rewriteContent(content: string, match: MediaMatch): RewriteResult {
   const newLink = buildTransformedUrl(match);
-  const rewrittenText = content.replace(match.regex, newLink);
+  // Also consume any query/fragment trailing the matched URL - on social
+  // links that tail is share-tracking junk (?s=20&t=...) which would
+  // otherwise stay glued to the rewritten link.
+  const consuming = new RegExp(`${match.regex.source}(?:[?#]\\S*)?`, match.regex.flags);
+  const rewrittenText = content.replace(consuming, newLink);
   log.debug("rewrote content", { which: match.which, newLink });
   return { newLink, rewrittenText };
 }

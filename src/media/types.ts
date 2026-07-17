@@ -18,7 +18,9 @@ export type ServiceKey =
   | "bluesky"
   | "threads"
   | "tumblr"
-  | "tumblr-sub";
+  | "tumblr-sub"
+  | "pre-embedded"
+  | "tracking";
 
 /**
  * Grace period setting for auto-approval:
@@ -33,6 +35,8 @@ export interface MediaSettings {
   /** Destination channel for reposts; if absent, use source channel. */
   channelId?: string;
   grace?: GraceSetting;
+  /** Channel bot commands must be used in; unset = commands refuse to run. */
+  botChannelId?: string;
 }
 
 /** Result of matching a supported link inside content. */
