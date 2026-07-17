@@ -1,4 +1,4 @@
-// eslint.config.js
+// eslint.config.mjs
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier/flat";
 import jsdoc from "eslint-plugin-jsdoc";
@@ -8,20 +8,20 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores(["build/**", "dist/**", "node_modules/**"]),
-
   // ESLint + TypeScript-ESLint recommended rules
   js.configs.recommended,
   ...tseslint.configs.recommended,
 
-  // JSDoc baseline tuned for TypeScript (reported as errors)
+  // JSDoc baseline (flat config variant, tuned for TS)
   jsdoc.configs["flat/recommended-typescript-error"],
 
-  // Project rules (Node, TypeScript bot - no browser/React)
+  // Project-specific TS + JSDoc rules (Node bot - no browser globals)
   {
-    files: ["src/**/*.{js,ts}", "scripts/**/*.{js,ts}"],
+    files: ["**/*.{js,ts}"],
     languageOptions: {
-      globals: { ...globals.node },
+      globals: {
+        ...globals.node,
+      },
     },
     settings: {
       jsdoc: { mode: "typescript" },
@@ -30,18 +30,18 @@ export default defineConfig([
       // TS hygiene
       "@typescript-eslint/no-unused-vars": "error",
       "@typescript-eslint/consistent-type-definitions": "error",
+      "@typescript-eslint/explicit-function-return-type": ["warn", { allowExpressions: true }],
 
-      // JSDoc enforcement - only on named declarations/methods, not inline
-      // callbacks (collectors, .map/.catch, etc. are full of arrow functions).
+      // JSDoc enforcement - named declarations/methods only; inline callbacks
+      // (collector filters, .map/.catch handlers) stay undocumented.
       "jsdoc/require-jsdoc": [
         "error",
         {
-          publicOnly: true,
           require: {
             FunctionDeclaration: true,
-            MethodDefinition: true,
             FunctionExpression: false,
             ArrowFunctionExpression: false,
+            MethodDefinition: true,
           },
         },
       ],
@@ -50,18 +50,29 @@ export default defineConfig([
       "jsdoc/check-param-names": "error",
       "jsdoc/check-tag-names": "error",
       "jsdoc/no-undefined-types": "error",
-      "jsdoc/require-param-description": "error",
-      "jsdoc/require-returns-description": "error",
-      "jsdoc/require-description": "error",
-      // Types come from TypeScript, not JSDoc tags
       "jsdoc/require-param-type": "off",
       "jsdoc/require-returns-type": "off",
       "jsdoc/require-throws-type": "off",
+      "jsdoc/require-param-description": "error",
+      "jsdoc/require-returns-description": "error",
+      "jsdoc/require-description": "error",
     },
   },
 
-  // Disable stylistic rules that clash with Prettier, then surface Prettier
-  // violations through ESLint.
+  // Turn off stylistic rules that clash with Prettier
   prettier,
+
+  // Re-enable prettier/prettier rule so ESLint reports formatting violations
   prettierPlugin,
+
+  // Ignores
+  globalIgnores([
+    "build/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    ".eslintcache",
+    "prettier.config.ts",
+    "eslint.config.mjs",
+  ]),
 ]);

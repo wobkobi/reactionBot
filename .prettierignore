@@ -2,4 +2,6 @@ build
 dist
 node_modules
 package-lock.json
+# runtime data stays hand-shaped; the committed docs are formatted
 data
+!data/readme.md

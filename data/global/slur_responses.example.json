@@ -1,0 +1,11 @@
+{
+  "_comment": "Template for data/global/slur_responses.json - replies sent when a slur is detected. Each 'responses' entry is a plain string (a 'generic' reply used for every slur) or { content, categories } tagging which slur categories it applies to (names from slurs.json; include 'generic' to also use it everywhere). The pool for a detected slur = all generic replies + every reply tagged its category, then one is picked at random. content can be a GIF/link or text; {user} (author mention) and {count} (their running total) are substituted. 'spam' is sent when a user spams slurs in quick succession. Replies are rate-limited per user. Copy this to slur_responses.json and edit; if absent, the code falls back to a built-in text shame.",
+  "responses": [
+    "🚨 {user} said a slur. That's slur #{count} for them. Shame.",
+    "https://tenor.com/view/a-generic-reaction-gif",
+    { "content": "https://tenor.com/view/black-category-gif", "categories": ["black"] },
+    { "content": "https://tenor.com/view/shared-gif", "categories": ["black", "LGBT"] },
+    { "content": "Used for every slur, with extra weight for jewish.", "categories": ["generic", "jewish"] }
+  ],
+  "spam": "https://tenor.com/view/thats-enough-gif"
+}

@@ -63,7 +63,7 @@ export function dataFilePath(guildId: string, fileName: string): string {
  * @template T - Expected JSON shape.
  * @param guildId - Discord guild ID or `"global"`.
  * @param fileName - JSON file name.
- * @param opts - Optional behavior flags and default value.
+ * @param opts - Optional behaviour flags and default value.
  * @returns Parsed JSON object of type `T`.
  * @throws If the file is missing or invalid JSON and `soft` is not enabled.
  */

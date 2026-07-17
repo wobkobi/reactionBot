@@ -2,18 +2,20 @@
 import type { Config } from "prettier";
 
 const config: Config = {
-  plugins: ["prettier-plugin-organize-imports"],
+  $schema: "https://json.schemastore.org/prettierrc",
+  plugins: ["prettier-plugin-organize-imports", "prettier-plugin-packagejson"],
 
   printWidth: 100,
   tabWidth: 2,
   useTabs: false,
   semi: true,
   singleQuote: false,
+  jsxSingleQuote: false,
   trailingComma: "all",
   bracketSpacing: true,
   bracketSameLine: false,
   arrowParens: "always",
-  endOfLine: "auto",
+  endOfLine: "lf",
 
   overrides: [
     { files: ["*.md", "*.mdx"], options: { proseWrap: "always" } },
