@@ -1,9 +1,18 @@
 // src/index.ts
-import { onMessage } from "@/onMessage.js";
+import {
+  DELETE_BUTTON_ID,
+  EDIT_BUTTON_ID,
+  EDIT_MODAL_ID,
+  handleRepostButton,
+  handleRepostEditModal,
+} from "@/media/repostActions.js";
+import { onMessage, onMessageEdit } from "@/onMessage.js";
+import { requireBotChannel } from "@/utils/botChannel.js";
 import { createLogger } from "@/utils/log.js";
 import { REST } from "@discordjs/rest";
 import { Routes } from "discord-api-types/v10";
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   Client,
   Collection,
@@ -29,6 +38,29 @@ const boot = (msg: string, extra?: Record<string, unknown>): void =>
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const CLIENT_ID = process.env.CLIENT_ID!;
 
+// Commands exempt from the bot-channel rule (see requireBotChannel): the
+// settings commands plus admin management, which should work anywhere.
+const SETTINGS_COMMANDS = new Set([
+  "setbotchannel",
+  "setmediachannel",
+  "setdelay",
+  "allow",
+  "disallow",
+]);
+
+// While developing, set DEV_GUILD_ID to restrict the bot to one server so a
+// dev instance never reacts in the guilds the real bot serves. Leave unset in
+// production.
+const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
+
+/**
+ * Checks whether an event from a guild should be handled, honouring the
+ * {@link DEV_GUILD_ID} restriction when set.
+ * @param guildId - Guild the event came from (null for DMs).
+ * @returns `true` when the event should be processed.
+ */
+const guildInScope = (guildId: string | null): boolean => !DEV_GUILD_ID || guildId === DEV_GUILD_ID;
+
 if (!BOT_TOKEN || !CLIENT_ID) {
   log.error("missing required environment variables", {
     hasToken: !!BOT_TOKEN,
@@ -45,6 +77,7 @@ declare module "discord.js" {
       {
         data: SlashCommandBuilder;
         execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+        autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
       }
     >;
   }
@@ -68,6 +101,7 @@ const __dirname = path.dirname(__filename);
 interface SlashCommandModule {
   data: SlashCommandBuilder;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+  autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
 }
 type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
 
@@ -85,6 +119,7 @@ type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
         client.commands.set(mod.data.name, {
           data: mod.data,
           execute: mod.execute,
+          autocomplete: mod.autocomplete,
         });
         commandData.push(mod.data.toJSON());
       } else {
@@ -127,14 +162,59 @@ type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
 
 client.on("messageCreate", async (message: Message) => {
   if (message.author.bot) return;
+  if (!guildInScope(message.guildId)) return;
   await onMessage(message);
 });
 
+client.on("messageUpdate", async (oldMessage, newMessage) => {
+  if (!guildInScope(newMessage.guildId)) return;
+  await onMessageEdit(oldMessage, newMessage);
+});
+
 client.on("interactionCreate", async (interaction: Interaction) => {
+  if (!guildInScope(interaction.guildId)) return;
+  // Edit/Delete buttons + edit modal on moved messages. Approval buttons are
+  // handled by their own per-message collectors, not here.
+  if (interaction.isButton()) {
+    if (interaction.customId === EDIT_BUTTON_ID || interaction.customId === DELETE_BUTTON_ID) {
+      await handleRepostButton(interaction).catch((err) => {
+        log.error("repost button handling failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    return;
+  }
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === EDIT_MODAL_ID) {
+      await handleRepostEditModal(interaction).catch((err) => {
+        log.error("repost edit modal handling failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    return;
+  }
+  if (interaction.isAutocomplete()) {
+    const cmd = client.commands.get(interaction.commandName);
+    await cmd?.autocomplete?.(interaction).catch((err) => {
+      log.error("autocomplete failed", {
+        command: interaction.commandName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    return;
+  }
   if (!interaction.isChatInputCommand()) return;
   const cmd = client.commands.get(interaction.commandName);
   if (!cmd) return;
   try {
+    // Settings commands are exempt from the bot-channel rule - /setbotchannel
+    // must be runnable before a bot channel exists.
+    if (!SETTINGS_COMMANDS.has(interaction.commandName)) {
+      const allowed = await requireBotChannel(interaction as ChatInputCommandInteraction);
+      if (!allowed) return;
+    }
     await cmd.execute(interaction as ChatInputCommandInteraction);
   } catch (err) {
     log.error("command execution error", {
@@ -153,6 +233,7 @@ client.on("interactionCreate", async (interaction: Interaction) => {
   }
 });
 
+if (DEV_GUILD_ID) boot("Dev guard active: only serving one guild", { guild: DEV_GUILD_ID });
 boot("Starting login");
 client.login(BOT_TOKEN).catch((err) =>
   log.error("login failed", {

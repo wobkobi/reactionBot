@@ -1,4 +1,4 @@
-// src/commands/setmediachannel.ts
+// src/commands/setbotchannel.ts
 
 import { loadSettings, saveSettings } from "@/media/settings.js";
 import { createLogger } from "@/utils/log.js";
@@ -7,27 +7,27 @@ import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChannelType, ChatInputCommandInteraction, MessageFlags, TextChannel } from "discord.js";
 
-const log = createLogger("cmd/setmediachannel");
+const log = createLogger("cmd/setbotchannel");
 
 /**
- * Command definition for /setmediachannel. The picker only offers text
- * channels, so a category or voice channel can't be chosen by mistake.
+ * Command definition for /setbotchannel. Sets the channel bot commands must
+ * be used in; until one is set, non-settings commands refuse to run.
  */
 export const data = new SlashCommandBuilder()
-  .setName("setmediachannel")
-  .setDescription("📺 Set where media links get reposted")
+  .setName("setbotchannel")
+  .setDescription("🤖 Set the channel bot commands must be used in")
   .addChannelOption((option) =>
     option
       .setName("channel")
-      .setDescription("Text channel to post transformed media into")
+      .setDescription("Text channel where bot commands are allowed")
       .addChannelTypes(ChannelType.GuildText)
       .setRequired(true),
   )
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Executes the `/setmediachannel` command: authorises the invoker, persists
- * the target channel, and confirms to the user.
+ * Executes the `/setbotchannel` command: authorises the invoker, persists the
+ * bot channel, and confirms to the user.
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the reply has been sent.
  */
@@ -42,8 +42,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
-  log.debug("invoked", { guildId, userId, targetChannelId: channel.id });
-
   if (!isMediaAdmin(interaction)) {
     log.warn("permission denied", { guildId, userId });
     await interaction.reply({
@@ -55,17 +53,17 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   try {
     const settings = loadSettings(guildId);
-    settings.channelId = channel.id;
+    settings.botChannelId = channel.id;
     saveSettings(guildId, settings);
 
-    log.info("media channel set", { guildId, channelId: channel.id, by: userId });
+    log.info("bot channel set", { guildId, channelId: channel.id, by: userId });
 
     await interaction.reply({
-      content: `✅ Media channel set to ${channel}`,
+      content: `✅ Bot commands now live in ${channel}.`,
       flags: MessageFlags.Ephemeral,
     });
   } catch (err) {
-    log.error("failed to set media channel", {
+    log.error("failed to set bot channel", {
       guildId,
       userId,
       error: err instanceof Error ? err.message : String(err),
