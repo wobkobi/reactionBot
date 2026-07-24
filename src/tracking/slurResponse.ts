@@ -8,6 +8,7 @@
 
 import { loadData } from "@/utils/file.js";
 import { createLogger } from "@/utils/log.js";
+import { recordReply } from "@/utils/replyStore.js";
 import { Message } from "discord.js";
 
 const log = createLogger("tracking/slurResponse");
@@ -154,11 +155,17 @@ export async function respondToSlur(
 
   if (!chosen) return;
   const content = fillPlaceholders(chosen, `<@${message.author.id}>`, total);
-  await message
+  const sent = await message
     .reply({ content, allowedMentions: { users: [message.author.id], repliedUser: true } })
     .catch((err: unknown) => {
       log.warn("failed to send slur reply", {
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     });
+  // Link the reply to the offending message so deleting that message (any
+  // time, even after a restart) also deletes this reply.
+  if (sent) {
+    recordReply(message.guildId, message.id, { channelId: sent.channelId, messageId: sent.id });
+  }
 }

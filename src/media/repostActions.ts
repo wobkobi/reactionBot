@@ -120,6 +120,19 @@ export async function handleRepostButton(interaction: ButtonInteraction): Promis
   }
 
   if (interaction.customId === DELETE_BUTTON_ID) {
+    // Remove the record and audit BEFORE deleting: our own delete fires the
+    // messageDelete cleanup handler, which must not find the record and
+    // double-process it.
+    removeRepost(interaction.guildId, interaction.message.id);
+    appendDeletionLog(interaction.guildId, {
+      originalMessageId: record.originalMessageId,
+      originalChannelId: record.sourceChannelId,
+      repostMessageId: interaction.message.id,
+      repostChannelId: record.repostChannelId,
+      stubMessageId: record.stubMessageId,
+      deletedAt: new Date().toISOString(),
+    });
+
     // Acknowledge first: deleting the message the button lives on would
     // otherwise leave the interaction unanswered ("interaction failed").
     await interaction.deferUpdate();
@@ -132,15 +145,6 @@ export async function handleRepostButton(interaction: ButtonInteraction): Promis
       if (stub) await stub.delete().catch(() => {});
     }
 
-    appendDeletionLog(interaction.guildId, {
-      originalMessageId: record.originalMessageId,
-      originalChannelId: record.sourceChannelId,
-      repostMessageId: interaction.message.id,
-      repostChannelId: record.repostChannelId,
-      stubMessageId: record.stubMessageId,
-      deletedAt: new Date().toISOString(),
-    });
-    removeRepost(interaction.guildId, interaction.message.id);
     log.info("author deleted repost", {
       guildId: interaction.guildId,
       movedId: interaction.message.id,
