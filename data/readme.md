@@ -84,3 +84,6 @@ Nothing else is read from an entry. A word may appear under several types
 - `<guildId>/*_counts.json` - tracker counters (managed by the bot).
 - `<guildId>/reposts.json` + `deleted_links.json` - moved-message records and
   the deletion audit (managed by the bot).
+- `<guildId>/bot_replies.json` - links bot replies (e.g. slur GIFs) to the
+  message that triggered them, so deleting the trigger deletes the reply too
+  (managed by the bot).

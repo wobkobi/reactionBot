@@ -7,6 +7,7 @@ import {
   handleRepostEditModal,
 } from "@/media/repostActions.js";
 import { onMessage, onMessageEdit } from "@/onMessage.js";
+import { onMessageDelete } from "@/onMessageDelete.js";
 import { requireBotChannel } from "@/utils/botChannel.js";
 import { createLogger } from "@/utils/log.js";
 import { REST } from "@discordjs/rest";
@@ -169,6 +170,15 @@ client.on("messageCreate", async (message: Message) => {
 client.on("messageUpdate", async (oldMessage, newMessage) => {
   if (!guildInScope(newMessage.guildId)) return;
   await onMessageEdit(oldMessage, newMessage);
+});
+
+client.on("messageDelete", async (message) => {
+  if (!guildInScope(message.guildId)) return;
+  await onMessageDelete(message).catch((err) => {
+    log.error("message-delete cleanup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 });
 
 client.on("interactionCreate", async (interaction: Interaction) => {

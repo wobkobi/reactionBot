@@ -35,6 +35,7 @@ import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store.js"
 import { resolveReactions, wordToLetterEmojis } from "@/tracking/track.js";
 import { CALLED } from "@/tracking/trackers.js";
 import { loadWords, parseJsonc } from "@/tracking/words.js";
+import { recordReply, takeReplies } from "@/utils/replyStore.js";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -249,6 +250,19 @@ function checkRepostStore(): void {
     );
     removeRepost(guild, "m1");
     check("repost", "store removes a record", getRepost(guild, "m1") === undefined);
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+
+  try {
+    recordReply(guild, "t1", { channelId: "c1", messageId: "r1" });
+    recordReply(guild, "t1", { channelId: "c1", messageId: "r2" });
+    const taken = takeReplies(guild, "t1");
+    check(
+      "repost",
+      "reply store links and releases bot replies",
+      taken.length === 2 && taken[1].messageId === "r2" && takeReplies(guild, "t1").length === 0,
+    );
   } finally {
     rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
   }
