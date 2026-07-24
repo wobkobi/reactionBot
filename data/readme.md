@@ -23,8 +23,9 @@ them when reading.
   "types": {
     // "track" feeds a counter: swears > /swears family.
     "swear": { "track": "swears" },
-    // slurs also trigger the rate-limited GIF reply. "fuzzy" matches
-    // stretched/leetspeak spellings (slaaay, 5l4y) - write the plain word.
+    // Any type can also have a reply pool in responses.json (keyed by this
+    // type name). "fuzzy" matches stretched/leetspeak spellings (slaaay,
+    // 5l4y) - write the plain word.
     "slur": { "track": "slurs", "fuzzy": true },
     // called > /called family (counted against whoever got called it).
     "insult": { "track": "called" },
@@ -68,7 +69,7 @@ Nothing else is read from an entry. A word may appear under several types
 
 | Field          | Meaning                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------- |
-| `track`        | Counter this type feeds: `swears`, `slurs` (also triggers the GIF reply) or `called`.               |
+| `track`        | Counter this type feeds: `swears`, `slurs` or `called`.                                             |
 | `reaction`     | Default reaction for the type's words: an emoji, or a word spelled out in letter emojis.            |
 | `pool`         | Reactions sharing a pool compete - one random pick per message (the girls-vs-british coin flip).    |
 | `fuzzy`        | Match stretched/leetspeak/obfuscated spellings automatically.                                        |
@@ -76,10 +77,14 @@ Nothing else is read from an entry. A word may appear under several types
 
 ## Other files
 
-- `global/slur_responses.json` - GIF reply pools for slur hits (gitignored;
-  `slur_responses.example.json` is the template).
-- `<guildId>/media_settings.json` - `/setmediachannel`, `/setdelay`,
-  `/setbotchannel` settings.
+- `global/responses.json` - reply pools per word type (`responses.example.json`
+  is the template; a `responses.json` in `data/<guildId>/` overrides it per
+  server). The legacy `slur_responses.json` is still read as a slur-only pool
+  when no `responses.json` exists.
+- `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
+  settings.
+- `<guildId>/calm.json` - the calm-mode window (managed by the bot and
+  `/calmdown`).
 - `<guildId>/allowed.json` - users granted bot-admin via `/allow`.
 - `<guildId>/*_counts.json` - tracker counters (managed by the bot).
 - `<guildId>/reposts.json` + `deleted_links.json` - moved-message records and

@@ -8,7 +8,6 @@ import {
 } from "@/media/repostActions.js";
 import { onMessage, onMessageEdit } from "@/onMessage.js";
 import { onMessageDelete } from "@/onMessageDelete.js";
-import { requireBotChannel } from "@/utils/botChannel.js";
 import { createLogger } from "@/utils/log.js";
 import { REST } from "@discordjs/rest";
 import { Routes } from "discord-api-types/v10";
@@ -39,20 +38,12 @@ const boot = (msg: string, extra?: Record<string, unknown>): void =>
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const CLIENT_ID = process.env.CLIENT_ID!;
 
-// Commands exempt from the bot-channel rule (see requireBotChannel): the
-// settings commands plus admin management, which should work anywhere.
-const SETTINGS_COMMANDS = new Set([
-  "setbotchannel",
-  "setmediachannel",
-  "setdelay",
-  "allow",
-  "disallow",
-]);
-
-// While developing, set DEV_GUILD_ID to restrict the bot to one server so a
-// dev instance never reacts in the guilds the real bot serves. Leave unset in
-// production.
-const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
+// While developing, DEV_GUILD_ID restricts the bot to one server so a dev
+// instance never reacts in the guilds the real bot serves. Honoured only when
+// launched via `npm run dev` - production runs (npm start, pm2, plain node)
+// serve every guild even with the variable set in .env.
+const DEV_GUILD_ID =
+  process.env.npm_lifecycle_event === "dev" ? process.env.DEV_GUILD_ID : undefined;
 
 /**
  * Checks whether an event from a guild should be handled, honouring the
@@ -219,12 +210,6 @@ client.on("interactionCreate", async (interaction: Interaction) => {
   const cmd = client.commands.get(interaction.commandName);
   if (!cmd) return;
   try {
-    // Settings commands are exempt from the bot-channel rule - /setbotchannel
-    // must be runnable before a bot channel exists.
-    if (!SETTINGS_COMMANDS.has(interaction.commandName)) {
-      const allowed = await requireBotChannel(interaction as ChatInputCommandInteraction);
-      if (!allowed) return;
-    }
     await cmd.execute(interaction as ChatInputCommandInteraction);
   } catch (err) {
     log.error("command execution error", {

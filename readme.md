@@ -70,29 +70,40 @@ Rebuild (`npm run build`) before `pm2 restart reactionbot` after pulling changes
 
 ### Media
 
-The settings commands require the guild owner, the bot owner (`YOUR_ID`), a user granted via
-`allowed.json`, or the Manage Server permission. All other commands only run in the bot channel -
-and refuse to run until one is set.
+Admin commands (settings, `/allow`/`/disallow`, and the nukes) require the guild owner, the bot
+owner, a user granted via `allowed.json`, or the Manage Server permission. Everything else works for
+anyone, in any channel.
 
-- `/setbotchannel` - set the channel bot commands must be used in.
 - `/setmediachannel` - set which text channel media links get reposted into.
 - `/setdelay instant` - move links straight away without asking.
 - `/setdelay seconds seconds:<1-300>` - give the poster that long to hit Yes or No.
 - `/setdelay disabled` - always ask, and wait forever for an answer.
 - `/allow`, `/disallow` - grant or revoke bot-admin privileges (the allowed list).
+- `/calmdown start [minutes]`, `/calmdown stop` - pause the configured GIF/text replies (default 30
+  minutes); reactions and counting keep going. Also kicks in automatically after a spam-escalation
+  reply fires (5 hits in 30s across all users, sent once per episode), so a flood gets one "enough"
+  and then quiet for 5 minutes or 20 messages, whichever comes first - tune per server with
+  `/calmdown auto [minutes] [messages]`.
 - `/help` - list all commands.
 
 ### Trackers
 
-- `/swears`, `/sweartop`, `/swearwords`, `/swearnuke` - swear counters.
-- `/slurs`, `/slurtop`, `/slurwords`, `/slurgroups`, `/slurnuke` - slur counters and targeted-group
-  breakdown.
-- `/called`, `/calledtop`, `/calledwords`, `/callednuke` - who gets called names, and with what.
+Each tracker is one command with subcommands:
+
+- `/swears count|top|words|nuke` - swear counters.
+- `/slurs count|top|words|groups|nuke` - slur counters and targeted-group breakdown.
+- `/called count|top|words|nuke` - who gets called names, and with what (`top` takes an optional
+  `word` to rank by one specific name).
+
+`count [user]` is a member's total, `top [limit]` is the people leaderboard (with each person's
+favourite word), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin
+only).
 
 ## Development
 
 - Set `DEV_GUILD_ID` in `.env` to restrict a dev instance to one test server - it ignores messages
-  and commands everywhere else. Leave it unset in production.
+  and commands everywhere else. Only honoured under `npm run dev`; production runs (`npm start`,
+  pm2) serve every guild regardless.
 - `npm run lint` - ESLint (flat config, type-aware) with autofix.
 - `npm run format` - Prettier.
 - `npm run smoke` - offline smoke test of the media pipeline.

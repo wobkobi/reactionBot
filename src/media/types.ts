@@ -35,8 +35,6 @@ export interface MediaSettings {
   /** Destination channel for reposts; if absent, use source channel. */
   channelId?: string;
   grace?: GraceSetting;
-  /** Channel bot commands must be used in; unset = commands refuse to run. */
-  botChannelId?: string;
 }
 
 /** Result of matching a supported link inside content. */

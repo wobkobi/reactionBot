@@ -1,15 +1,15 @@
 {
   "name": "reactionbot",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc && tsc-alias",
+    "build": "node -e \"fs.rmSync('build',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
     "dev": "tsx watch src/index.ts",
     "format": "prettier --write \"**/*.{js,mjs,cjs,ts,md,json,yml,yaml}\"",
     "lint": "eslint \"{src,scripts}/**/*.{js,ts}\" --fix",
     "prepare": "simple-git-hooks",
     "smoke": "tsx scripts/smoke-test.ts",
-    "start": "tsc && tsc-alias && node build/index.js",
+    "start": "npm run build && node build/index.js",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json --noEmit"
   },
   "simple-git-hooks": {
@@ -45,7 +45,7 @@
     "typescript-eslint": "^8.65.0"
   },
   "engines": {
-    "node": ">=20",
-    "npm": ">=7.0.0"
+    "node": "24.x",
+    "npm": ">=10.0.0"
   }
 }

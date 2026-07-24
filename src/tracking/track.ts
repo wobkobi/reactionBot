@@ -2,14 +2,15 @@
 
 /**
  * @file Per-message processing of the unified word config: records swears,
- * slurs (with the public GIF shaming) and called-names, and fires the
- * configured emoji reactions - all driven by words.json (see
- * {@link loadWords}).
+ * slurs and called-names, fires the per-type configured replies
+ * (responses.json), and adds the configured emoji reactions - all driven by
+ * words.json (see {@link loadWords}).
  */
 
+import { noteMessage } from "@/tracking/calm.js";
 import { countMatches } from "@/tracking/detect.js";
-import { respondToSlur } from "@/tracking/slurResponse.js";
-import { getUserTotal, incrementCounts } from "@/tracking/store.js";
+import { respondToMessage } from "@/tracking/responses.js";
+import { incrementCounts } from "@/tracking/store.js";
 import { CALLED, SLURS, SWEARS } from "@/tracking/trackers.js";
 import { loadWords, ReactionSpec } from "@/tracking/words.js";
 import { createLogger } from "@/utils/log.js";
@@ -107,8 +108,8 @@ async function resolveTargets(message: Message<true>): Promise<Set<string>> {
 
 /**
  * Scans a guild message against the unified word config: records swears and
- * slurs against the author (slurs also trigger the rate-limited GIF reply),
- * called-names against the resolved targets, and fires configured reactions.
+ * slurs against the author, called-names against the resolved targets, fires
+ * the per-type configured replies, and adds configured reactions.
  * @param message - The message to scan. DMs and bot authors are ignored.
  * @returns A promise that resolves once tracking is complete or skipped.
  */
@@ -121,26 +122,21 @@ export async function trackMessage(message: Message): Promise<void> {
   const content = message.content;
   if (!content) return;
 
+  // Count this message against any active calm window's message limit
+  // (before responding, so the message that starts calm isn't counted).
+  noteMessage(guildId);
+
   const words = loadWords(guildId);
 
   // Author-attributed: swears.
   const swearCounts = countMatches(content, words.tracks.swears);
   if (swearCounts.size > 0) incrementCounts(guildId, SWEARS.storeFile, authorId, swearCounts);
 
-  // Author-attributed: slurs, plus the rate-limited GIF reply.
+  // Author-attributed: slurs.
   const slurCounts = countMatches(content, words.tracks.slurs);
   if (slurCounts.size > 0) {
     incrementCounts(guildId, SLURS.storeFile, authorId, slurCounts);
-    const total = getUserTotal(guildId, SLURS.storeFile, authorId);
-    const categories = [
-      ...new Set(
-        [...slurCounts.keys()]
-          .map((w) => words.tracks.slurs.category.get(w))
-          .filter((c): c is string => Boolean(c)),
-      ),
-    ];
-    log.info("slur detected", { guildId, authorId, total, categories });
-    await respondToSlur(message, total, categories);
+    log.info("slur detected", { guildId, authorId, words: [...slurCounts.keys()] });
   }
 
   // Target-attributed: called-names.
@@ -158,6 +154,10 @@ export async function trackMessage(message: Message): Promise<void> {
       });
     }
   }
+
+  // Configured replies (responses.json): at most one per message, after the
+  // stores are updated so {count} reflects this message.
+  await respondToMessage(message, words);
 
   // Reactions from the config: matched words plus type emoji triggers.
   const reactionHits = countMatches(content, words.reactionList);
