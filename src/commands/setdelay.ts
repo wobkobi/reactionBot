@@ -3,7 +3,7 @@
 import { loadSettings, saveSettings } from "@/media/settings.js";
 import { GraceSetting } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
-import { isMediaAdmin } from "@/utils/permissions.js";
+import { isAdmin } from "@/utils/permissions.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -73,7 +73,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
-  if (!isMediaAdmin(interaction)) {
+  if (!isAdmin(interaction)) {
     log.warn("permission denied", { guildId, userId });
     await interaction.reply({
       content: "❌ You're not allowed to run this.",

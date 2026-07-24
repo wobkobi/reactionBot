@@ -2,7 +2,7 @@
 
 import { loadData, saveData } from "@/utils/file.js";
 import { createLogger } from "@/utils/log.js";
-import { isMediaAdmin } from "@/utils/permissions.js";
+import { isAdmin } from "@/utils/permissions.js";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -27,7 +27,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
-  if (!isMediaAdmin(interaction)) {
+  if (!isAdmin(interaction)) {
     await interaction.reply({
       content: "❌ You're not allowed to run this.",
       flags: MessageFlags.Ephemeral,

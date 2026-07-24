@@ -80,6 +80,8 @@ export interface ReactionSpec {
 export interface CompiledWords {
   /** One detect list per counter. */
   tracks: Record<TrackKey, DetectList>;
+  /** One detect list per type name, for the per-type reply pools. */
+  typeLists: Map<string, { def: TypeDef; list: DetectList }>;
   /** Matcher over every word that carries a reaction. */
   reactionList: DetectList;
   /** Canonical word > reactions to fire when it matches. */
@@ -189,6 +191,7 @@ export function loadWords(guildId: string): CompiledWords {
   const types = cfg.types ?? {};
 
   const trackItems: Record<TrackKey, CompileItem[]> = { swears: [], slurs: [], called: [] };
+  const typeItems = new Map<string, CompileItem[]>();
   const reactionItems: CompileItem[] = [];
   const reactionSpecs = new Map<string, ReactionSpec[]>();
   const seenReactionWords = new Set<string>();
@@ -203,12 +206,15 @@ export function loadWords(guildId: string): CompiledWords {
       const item = typeof raw === "string" ? { word: raw } : raw;
       if (!item?.word) continue;
 
+      const compileItem: CompileItem = {
+        word: item.word,
+        fuzzy: def.fuzzy,
+        category: item.category,
+      };
+      typeItems.set(typeName, [...(typeItems.get(typeName) ?? []), compileItem]);
+
       if (def.track) {
-        trackItems[def.track].push({
-          word: item.word,
-          fuzzy: def.fuzzy,
-          category: item.category,
-        });
+        trackItems[def.track].push(compileItem);
       }
 
       // Entry-level reaction overrides this type's default.
@@ -234,12 +240,18 @@ export function loadWords(guildId: string): CompiledWords {
     .filter((t) => t.triggerEmoji && t.reaction)
     .map((t) => ({ emoji: t.triggerEmoji!, spec: { value: t.reaction!, pool: t.pool } }));
 
+  const typeLists = new Map<string, { def: TypeDef; list: DetectList }>();
+  for (const [typeName, items] of typeItems) {
+    typeLists.set(typeName, { def: types[typeName], list: compileItems(items) });
+  }
+
   return {
     tracks: {
       swears: compileItems(trackItems.swears),
       slurs: compileItems(trackItems.slurs),
       called: compileItems(trackItems.called),
     },
+    typeLists,
     reactionList: compileItems(reactionItems),
     reactionSpecs,
     emojiTriggers,

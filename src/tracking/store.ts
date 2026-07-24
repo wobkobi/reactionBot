@@ -127,22 +127,33 @@ export function getTotals(guildId: string, storeFile: string): Record<string, nu
 }
 
 /**
- * Builds a leaderboard of users by total count.
+ * Builds a leaderboard of users by total count. Each row carries the user's
+ * favourite word - the single word with their highest count (ties broken by
+ * whichever is seen first) - so leaderboards can show it next to the name.
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param limit - Max number of users to return (default 10).
- * @returns Array of `{ userId, total }` sorted desc by total.
+ * @returns Array of `{ userId, total, favourite }` sorted desc by total.
  */
 export function getTopUsers(
   guildId: string,
   storeFile: string,
   limit = 10,
-): Array<{ userId: string; total: number }> {
+): Array<{ userId: string; total: number; favourite: string | null }> {
   const store = loadStore(guildId, storeFile);
-  const rows = Object.entries(store.users).map(([userId, counts]) => ({
-    userId,
-    total: Object.values(counts).reduce((a, b) => a + b, 0),
-  }));
+  const rows = Object.entries(store.users).map(([userId, counts]) => {
+    let total = 0;
+    let favourite: string | null = null;
+    let best = 0;
+    for (const [word, n] of Object.entries(counts)) {
+      total += n;
+      if (n > best) {
+        best = n;
+        favourite = word;
+      }
+    }
+    return { userId, total, favourite };
+  });
   rows.sort((a, b) => b.total - a.total);
   return rows.slice(0, Math.max(0, limit));
 }

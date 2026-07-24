@@ -25,12 +25,12 @@ import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform.js";
 import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect.js";
 import {
-  chooseSlurGif,
+  chooseReply,
   fillPlaceholders,
   poolFor,
-  SLUR_COOLDOWN_MS,
-  SLUR_SPAM_THRESHOLD,
-} from "@/tracking/slurResponse.js";
+  RESPONSE_COOLDOWN_MS,
+  RESPONSE_SPAM_THRESHOLD,
+} from "@/tracking/responses.js";
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store.js";
 import { resolveReactions, wordToLetterEmojis } from "@/tracking/track.js";
 import { CALLED } from "@/tracking/trackers.js";
@@ -544,25 +544,25 @@ function checkTrackers(): void {
 }
 
 /**
- * Verifies the slur reply chooser: silent within the cooldown, a pool entry
- * after it, and the spam entry once the threshold is hit.
+ * Verifies the reply chooser: silent within the cooldown, a pool entry after
+ * it, and the spam entry once the threshold is hit.
  */
 function checkSlurResponses(): void {
   const pool = ["A", "B"];
   check(
     "responder",
     "stays silent within cooldown",
-    chooseSlurGif(1, SLUR_COOLDOWN_MS - 1, pool, "ENOUGH", 0) === null,
+    chooseReply(1, RESPONSE_COOLDOWN_MS - 1, pool, "ENOUGH", 0) === null,
   );
   check(
     "responder",
     "picks a pool entry after cooldown",
-    chooseSlurGif(1, SLUR_COOLDOWN_MS, pool, "ENOUGH", 1) === "B",
+    chooseReply(1, RESPONSE_COOLDOWN_MS, pool, "ENOUGH", 1) === "B",
   );
   check(
     "responder",
     "escalates to the spam entry",
-    chooseSlurGif(SLUR_SPAM_THRESHOLD, SLUR_COOLDOWN_MS, pool, "ENOUGH", 0) === "ENOUGH",
+    chooseReply(RESPONSE_SPAM_THRESHOLD, RESPONSE_COOLDOWN_MS, pool, "ENOUGH", 0) === "ENOUGH",
   );
   check(
     "responder",

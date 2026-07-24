@@ -78,20 +78,25 @@ export async function replyTopUsers(
   try {
     const limit = interaction.options.getInteger("limit") ?? 10;
     const word = opts.word?.trim().toLowerCase();
+    // Word-specific rankings already name the word in the title; overall
+    // rankings carry each user's favourite (most-used) word instead.
     const ranked = word
       ? getTopUsersForWord(interaction.guildId, tracker.storeFile, word, limit).map((r) => ({
           userId: r.userId,
           n: r.count,
+          favourite: null as string | null,
         }))
       : getTopUsers(interaction.guildId, tracker.storeFile, limit).map((r) => ({
           userId: r.userId,
           n: r.total,
+          favourite: r.favourite,
         }));
 
     const lines = await Promise.all(
       ranked.map(async (r, i) => {
         const user = await interaction.client.users.fetch(r.userId).catch(() => null);
-        return `**${i + 1}.** ${user?.tag ?? r.userId} - **${r.n}**`;
+        const favourite = r.favourite ? ` (favourite: ${r.favourite})` : "";
+        return `**${i + 1}.** ${user?.tag ?? r.userId} - **${r.n}**${favourite}`;
       }),
     );
 
