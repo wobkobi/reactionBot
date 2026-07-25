@@ -49,6 +49,11 @@ npm run build
 npm start              # or: npm run dev (watch mode)
 ```
 
+npm 12 blocks dependency install scripts unless the package is listed in `allowScripts` in
+package.json. The two packages that ask for one are denied there on purpose: tsx runs fine without
+esbuild's postinstall, and the git hooks are already set by the root `prepare` script. Installs
+should be warning-free on npm 11 and 12 alike.
+
 Per-guild data (settings, counters, audit logs) is stored as JSON under `data/<guildId>/`, relative
 to the working directory. All word behaviour (trackers + reactions) lives in one file,
 `data/global/words.json` - see [data/readme.md](data/readme.md) for the full format, a template, and
