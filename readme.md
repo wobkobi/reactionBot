@@ -49,10 +49,11 @@ npm run build
 npm start              # or: npm run dev (watch mode)
 ```
 
-npm 12 blocks dependency install scripts unless the package is listed in `allowScripts` in
-package.json. The two packages that ask for one are denied there on purpose: tsx runs fine without
-esbuild's postinstall, and the git hooks are already set by the root `prepare` script. Installs
-should be warning-free on npm 11 and 12 alike.
+npm 11.16 and later block dependency install scripts unless the package is listed in `allowScripts`
+in package.json, so both packages that ask for one have a decision recorded there. esbuild is denied
+because tsx runs fine without its postinstall. simple-git-hooks is approved rather than denied: a
+denied package gets installed but not linked into `node_modules/.bin` on npm 11.16, which would
+break the root `prepare` script that calls it.
 
 Per-guild data (settings, counters, audit logs) is stored as JSON under `data/<guildId>/`, relative
 to the working directory. All word behaviour (trackers + reactions) lives in one file,
