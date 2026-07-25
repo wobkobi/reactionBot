@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "build": "node -e \"fs.rmSync('build',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
@@ -28,8 +28,8 @@
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
-    "eslint": "^9.39.5",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsdoc": "^63.2.2",
     "eslint-plugin-prettier": "^5.5.6",
@@ -47,5 +47,9 @@
   "engines": {
     "node": "24.x",
     "npm": ">=10.0.0"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "simple-git-hooks": true
   }
 }

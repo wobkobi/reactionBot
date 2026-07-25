@@ -18,25 +18,47 @@ import { Message } from "discord.js";
 
 const log = createLogger("tracking/track");
 
+/** Discord's per-message reaction cap - a longer spell-out could not be shown in full. */
+const MAX_REACTIONS = 20;
+
 /**
- * Converts a word to regional-indicator letter emojis for reacting, e.g.
- * "nword" > [🇳, 🇼, 🇴, 🇷, 🇩]. Words with repeated letters return null -
- * Discord can't react twice with the same emoji, so a partial spelling would
- * look broken.
- * @param word - Letters-only word (case-insensitive).
- * @returns The letter emojis in order, or `null` when the word has
- * non-letters or duplicate letters.
+ * Builds the keycap emoji for a digit: the digit itself, the variation selector
+ * that forces emoji presentation, and the combining enclosing keycap.
+ * @param digit - A single character, "0" to "9".
+ * @returns The keycap emoji, e.g. "5️⃣".
  */
-export function wordToLetterEmojis(word: string): string[] | null {
+function digitToKeycap(digit: string): string {
+  return `${digit}️⃣`;
+}
+
+/**
+ * Converts a phrase to the emojis that spell it out, e.g. "nword" >
+ * [🇳, 🇼, 🇴, 🇷, 🇩]. Letters become regional indicators, digits become
+ * keycaps, and spaces are dropped - Discord has no blank reaction, so word gaps
+ * simply close up. The whole phrase is rejected rather than partially spelled
+ * when it cannot be shown faithfully: a repeated character (Discord refuses the
+ * same reaction twice), an unsupported one, or more emojis than a message can
+ * hold.
+ * @param phrase - Letters, digits and spaces (case-insensitive).
+ * @returns The emojis in order, or `null` when the phrase cannot be spelled out.
+ */
+export function phraseToEmojis(phrase: string): string[] | null {
   const base = 0x1f1e6; // 🇦
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const ch of word.toLowerCase()) {
-    if (ch < "a" || ch > "z" || seen.has(ch)) return null;
+  for (const ch of phrase.toLowerCase()) {
+    if (ch === " ") continue;
+    const isLetter = ch >= "a" && ch <= "z";
+    const isDigit = ch >= "0" && ch <= "9";
+    if ((!isLetter && !isDigit) || seen.has(ch)) return null;
     seen.add(ch);
-    out.push(String.fromCodePoint(base + ch.charCodeAt(0) - "a".charCodeAt(0)));
+    out.push(
+      isLetter
+        ? String.fromCodePoint(base + ch.charCodeAt(0) - "a".charCodeAt(0))
+        : digitToKeycap(ch),
+    );
   }
-  return out.length > 0 ? out : null;
+  return out.length > 0 && out.length <= MAX_REACTIONS ? out : null;
 }
 
 /**
@@ -64,18 +86,22 @@ export function resolveReactions(specs: ReactionSpec[]): string[] {
 }
 
 /**
- * Reacts with a resolved reaction value: a plain-letters word is spelled out
- * in letter emojis (skipped when it has repeated letters); anything else is
- * treated as an emoji and reacted directly.
+ * Reacts with a resolved reaction value: a phrase of letters, digits and spaces
+ * is spelled out (see {@link phraseToEmojis}); anything else is treated as an
+ * emoji and reacted directly. Emoji values never take the spell-out branch -
+ * they are non-ASCII, so they cannot match the phrase test.
  * @param message - The message to react to.
  * @param value - The reaction value from the config.
  * @returns A promise that resolves once the reactions are added.
  */
 async function reactWithValue(message: Message<true>, value: string): Promise<void> {
-  if (/^[a-z]+$/i.test(value)) {
-    const letters = wordToLetterEmojis(value);
-    if (!letters) return;
-    for (const emoji of letters) {
+  if (/^[a-z0-9 ]+$/i.test(value)) {
+    const emojis = phraseToEmojis(value);
+    if (!emojis) {
+      log.warn("spell-out reaction skipped: repeated or unsupported character", { value });
+      return;
+    }
+    for (const emoji of emojis) {
       await message.react(emoji).catch(() => {});
     }
     return;

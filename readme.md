@@ -30,7 +30,7 @@ per-server counters for swears, slurs, and name-calling.
   thrown at members, with leaderboard commands.
 - **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
   sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
-  emojis (e.g. n-word hits spell "NWORD"; words with repeated letters are skipped).
+  and keycap emojis (e.g. n-word hits spell "NWORD"; phrases with a repeated character are skipped).
 
 ## Requirements
 
@@ -48,6 +48,12 @@ npm ci
 npm run build
 npm start              # or: npm run dev (watch mode)
 ```
+
+npm 11.16 and later block dependency install scripts unless the package is listed in `allowScripts`
+in package.json, so both packages that ask for one have a decision recorded there. esbuild is denied
+because tsx runs fine without its postinstall. simple-git-hooks is approved rather than denied: a
+denied package gets installed but not linked into `node_modules/.bin` on npm 11.16, which would
+break the root `prepare` script that calls it.
 
 Per-guild data (settings, counters, audit logs) is stored as JSON under `data/<guildId>/`, relative
 to the working directory. All word behaviour (trackers + reactions) lives in one file,
