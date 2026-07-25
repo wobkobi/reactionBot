@@ -32,7 +32,7 @@ import {
   RESPONSE_SPAM_THRESHOLD,
 } from "@/tracking/responses.js";
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store.js";
-import { resolveReactions, wordToLetterEmojis } from "@/tracking/track.js";
+import { phraseToEmojis, resolveReactions } from "@/tracking/track.js";
 import { CALLED } from "@/tracking/trackers.js";
 import { loadWords, parseJsonc } from "@/tracking/words.js";
 import { recordReply, takeReplies } from "@/utils/replyStore.js";
@@ -409,13 +409,25 @@ function checkReactions(): void {
       resolved.includes("💅") !== resolved.includes("🇬🇧"),
   );
 
-  // Spell-out reactions: letters in order; repeated letters are skipped.
+  // Spell-out reactions: letters in order; repeated characters are skipped.
   check(
     "reactions",
     "spell-out word becomes letter emojis",
-    (wordToLetterEmojis("nword") ?? []).join(" ") === "🇳 🇼 🇴 🇷 🇩",
+    (phraseToEmojis("nword") ?? []).join(" ") === "🇳 🇼 🇴 🇷 🇩",
   );
-  check("reactions", "repeated letters skip the spell-out", wordToLetterEmojis("cool") === null);
+  check("reactions", "repeated letters skip the spell-out", phraseToEmojis("cool") === null);
+  check("reactions", "digits become keycaps", (phraseToEmojis("5b") ?? []).join(" ") === "5️⃣ 🇧");
+  check(
+    "reactions",
+    "spaces are dropped from a phrase",
+    (phraseToEmojis("5b to israel") ?? []).join("") === "5️⃣🇧🇹🇴🇮🇸🇷🇦🇪🇱",
+  );
+  check("reactions", "repeated digits skip the spell-out", phraseToEmojis("1488") === null);
+  check(
+    "reactions",
+    "over the reaction cap skips the spell-out",
+    phraseToEmojis("abcdefghijklmnopqrstuvwxyz") === null,
+  );
 }
 
 /**

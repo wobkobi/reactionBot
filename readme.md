@@ -30,7 +30,7 @@ per-server counters for swears, slurs, and name-calling.
   thrown at members, with leaderboard commands.
 - **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
   sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
-  emojis (e.g. n-word hits spell "NWORD"; words with repeated letters are skipped).
+  and keycap emojis (e.g. n-word hits spell "NWORD"; phrases with a repeated character are skipped).
 
 ## Requirements
 

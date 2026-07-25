@@ -60,17 +60,24 @@ mixed freely:
 | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `word`     | yes      | The word or phrase. Write it plainly - fuzzy types match stretched ("slaaay"), leetspeak ("5l4y"), apostrophe and markdown variants for you. |
 | `category` | no       | Groups slurs for `/slurgroups` (e.g. `"black"`, `"LGBT"`).                                                                                   |
-| `reaction` | no       | Overrides the type's default reaction: an emoji, or a lowercase word spelled out in letter emojis (skipped when it repeats a letter).       |
+| `reaction` | no       | Overrides the type's default reaction: an emoji, or a phrase spelled out in letter/keycap emojis (skipped when it repeats a character).      |
 
 Nothing else is read from an entry. A word may appear under several types
 (e.g. `bender` is british + insult).
+
+A spell-out `reaction` takes letters, digits and spaces: letters become
+regional-indicator emojis, digits become keycaps, and spaces are dropped
+(Discord has no blank reaction), so `"5b to israel"` reacts 5️⃣🇧🇹🇴🇮🇸🇷🇦🇪🇱.
+Discord refuses the same reaction twice and caps a message at 20, so a phrase
+that repeats a character or runs past 20 emojis is skipped entirely rather than
+spelled out in part - the bot logs a warning naming the value.
 
 ### Type behaviour (`types` block)
 
 | Field          | Meaning                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------- |
 | `track`        | Counter this type feeds: `swears`, `slurs` or `called`.                                             |
-| `reaction`     | Default reaction for the type's words: an emoji, or a word spelled out in letter emojis.            |
+| `reaction`     | Default reaction for the type's words: an emoji, or a phrase spelled out in letter/keycap emojis.   |
 | `pool`         | Reactions sharing a pool compete - one random pick per message (the girls-vs-british coin flip).    |
 | `fuzzy`        | Match stretched/leetspeak/obfuscated spellings automatically.                                        |
 | `triggerEmoji` | Also fire the type's reaction when the message itself contains this emoji (a 🦙 earns a 🦙).        |
