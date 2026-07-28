@@ -1,7 +1,11 @@
 // src/commands/help.ts
 
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { ApplicationCommandOptionType, InteractionContextType } from "discord-api-types/v10";
+import {
+  ApplicationCommandOptionType,
+  ApplicationCommandType,
+  InteractionContextType,
+} from "discord-api-types/v10";
 import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from "discord.js";
 
 /** Slash command definition for `/help`. */
@@ -24,12 +28,23 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   );
   for (const cmd of commands) {
     const json = cmd.data.toJSON();
-    const subs = (json.options ?? []).filter(
+    // Right-click entries carry no description - Discord rejects one - and an
+    // empty field value would be rejected too, so they get a fixed line saying
+    // how to reach them instead.
+    if (json.type === ApplicationCommandType.Message) {
+      embed.addFields({
+        name: json.name,
+        value: `Right-click a moved post or its pointer > Apps > \`${json.name}\``,
+        inline: false,
+      });
+      continue;
+    }
+    const subs = ("options" in json ? (json.options ?? []) : []).filter(
       (o) => o.type === ApplicationCommandOptionType.Subcommand,
     );
     const value = subs.length
       ? subs.map((s) => `\`/${json.name} ${s.name}\` - ${s.description}`).join("\n")
-      : json.description;
+      : ("description" in json ? json.description : "") || "-";
     embed.addFields({ name: `/${json.name}`, value, inline: false });
   }
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });

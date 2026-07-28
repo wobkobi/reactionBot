@@ -2,15 +2,16 @@
 import {
   DELETE_BUTTON_ID,
   EDIT_BUTTON_ID,
-  EDIT_MODAL_ID,
+  EDIT_MODAL_PREFIX,
   handleRepostButton,
   handleRepostEditModal,
 } from "@/media/repostActions";
 import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
 import { createLogger } from "@/utils/log";
+import { ContextMenuCommandBuilder } from "@discordjs/builders";
 import { REST } from "@discordjs/rest";
-import { Routes } from "discord-api-types/v10";
+import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
@@ -20,6 +21,7 @@ import {
   Interaction,
   InteractionReplyOptions,
   Message,
+  MessageContextMenuCommandInteraction,
   MessageFlags,
   Partials,
   SlashCommandBuilder,
@@ -67,8 +69,8 @@ declare module "discord.js" {
     commands: Collection<
       string,
       {
-        data: SlashCommandBuilder;
-        execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+        data: SlashCommandBuilder | ContextMenuCommandBuilder;
+        execute: (interaction: CommandInteractionOfAnyKind) => Promise<void>;
         autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
       }
     >;
@@ -90,23 +92,28 @@ const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-interface SlashCommandModule {
-  data: SlashCommandBuilder;
-  execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+// Either kind of command Discord dispatches to `execute`: a slash command, or
+// a right-click entry on a message (Apps > Edit post / Delete post).
+type CommandInteractionOfAnyKind =
+  ChatInputCommandInteraction | MessageContextMenuCommandInteraction;
+
+interface CommandModule {
+  data: SlashCommandBuilder | ContextMenuCommandBuilder;
+  execute: (interaction: CommandInteractionOfAnyKind) => Promise<void>;
   autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
 }
-type JSONCommand = ReturnType<SlashCommandBuilder["toJSON"]>;
+type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
 
 {
   const commandsDir = path.join(__dirname, "commands");
   const files = readdirSync(commandsDir).filter((f) => f.endsWith(".js") || f.endsWith(".ts"));
-  client.commands = new Collection<string, SlashCommandModule>();
+  client.commands = new Collection<string, CommandModule>();
   const commandData: JSONCommand[] = [];
 
   for (const file of files) {
     try {
       const moduleURL = pathToFileURL(path.join(commandsDir, file)).href;
-      const mod = (await import(moduleURL)) as Partial<SlashCommandModule>;
+      const mod = (await import(moduleURL)) as Partial<CommandModule>;
       if (mod.data && typeof mod.data.toJSON === "function" && typeof mod.execute === "function") {
         client.commands.set(mod.data.name, {
           data: mod.data,
@@ -187,7 +194,7 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     return;
   }
   if (interaction.isModalSubmit()) {
-    if (interaction.customId === EDIT_MODAL_ID) {
+    if (interaction.customId.startsWith(EDIT_MODAL_PREFIX)) {
       await handleRepostEditModal(interaction).catch((err) => {
         log.error("repost edit modal handling failed", {
           error: err instanceof Error ? err.message : String(err),
@@ -206,11 +213,11 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     });
     return;
   }
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand() && !interaction.isMessageContextMenuCommand()) return;
   const cmd = client.commands.get(interaction.commandName);
   if (!cmd) return;
   try {
-    await cmd.execute(interaction as ChatInputCommandInteraction);
+    await cmd.execute(interaction);
   } catch (err) {
     log.error("command execution error", {
       command: interaction.commandName,

@@ -16,13 +16,14 @@
  *   1  one or more checks failed
  */
 
+import { data as deletePost } from "@/commands/deletepost";
+import { data as editPost } from "@/commands/editpost";
 import { resolveGrace } from "@/commands/setdelay";
 import { data as slursCommand } from "@/commands/slurs";
 import { buildCopyMessage, stripTracking } from "@/media/cleanTracking";
 import { matchAny } from "@/media/match";
 import { buildMovedContent, buildPointerContent } from "@/media/repost";
-import { buildRepostButtons, DELETE_BUTTON_ID, EDIT_BUTTON_ID } from "@/media/repostActions";
-import { getRepost, removeRepost, saveRepost } from "@/media/repostStore";
+import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
 import { trackerCommand } from "@/tracking/commands";
 import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect";
@@ -48,6 +49,7 @@ import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, parseJsonc } from "@/tracking/words";
 import { recordReply, takeReplies } from "@/utils/replyStore";
+import { ApplicationCommandType } from "discord-api-types/v10";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -332,14 +334,43 @@ function checkRepostStore(): void {
     rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
   }
 
-  const row = buildRepostButtons().toJSON();
-  check(
-    "repost",
-    "action row carries the edit + delete buttons",
-    row.components.length === 2 &&
-      row.components.some((c) => "custom_id" in c && c.custom_id === EDIT_BUTTON_ID) &&
-      row.components.some((c) => "custom_id" in c && c.custom_id === DELETE_BUTTON_ID),
-  );
+  // Right-clicking either the moved post or the pointer stub has to reach the
+  // same record - the stub match is a scan, so it is worth pinning down.
+  try {
+    saveRepost(guild, "m1", record);
+    const viaPost = findRepostForMessage(guild, "m1");
+    check(
+      "repost",
+      "lookup resolves the moved post",
+      viaPost?.movedMessageId === "m1" && viaPost.record.authorId === "u1",
+    );
+    const viaStub = findRepostForMessage(guild, "s1");
+    check(
+      "repost",
+      "lookup resolves the pointer stub to its post",
+      viaStub?.movedMessageId === "m1" && viaStub.record.stubMessageId === "s1",
+    );
+    check(
+      "repost",
+      "lookup ignores an unrelated message",
+      findRepostForMessage(guild, "nope") === undefined,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+
+  // The two right-click entries must register as message commands; a wrong
+  // type silently never appears in the Apps menu.
+  for (const [label, json] of [
+    ["Edit post", editPost.toJSON()],
+    ["Delete post", deletePost.toJSON()],
+  ] as const) {
+    check(
+      "repost",
+      `"${label}" registers as a message context command`,
+      json.name === label && json.type === ApplicationCommandType.Message,
+    );
+  }
 }
 
 /** Throwaway guild for list/store checks; cleaned up in checkTrackers. */

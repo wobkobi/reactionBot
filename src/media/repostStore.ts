@@ -63,6 +63,34 @@ export function getRepost(guildId: string, movedMessageId: string): RepostRecord
   return loadMap(guildId)[movedMessageId];
 }
 
+/** A stored record together with the moved message it belongs to. */
+export interface RepostLookup {
+  /** ID of the moved message in the target channel. */
+  movedMessageId: string;
+  /** The stored record. */
+  record: RepostRecord;
+}
+
+/**
+ * Resolves the repost a message belongs to, whether it is the moved message
+ * itself or the pointer stub left behind in the source channel. The map is
+ * keyed by moved-message ID, so the stub match is a scan - a guild holds one
+ * record per moved link, which stays small enough not to warrant a second
+ * index.
+ * @param guildId - Discord guild ID.
+ * @param messageId - ID of the message the user acted on.
+ * @returns The {@link RepostLookup}, or `undefined` when the message is neither.
+ */
+export function findRepostForMessage(guildId: string, messageId: string): RepostLookup | undefined {
+  const map = loadMap(guildId);
+  const direct = map[messageId];
+  if (direct) return { movedMessageId: messageId, record: direct };
+  for (const [movedMessageId, record] of Object.entries(map)) {
+    if (record.stubMessageId === messageId) return { movedMessageId, record };
+  }
+  return undefined;
+}
+
 /**
  * Removes the record for a moved message (after deletion).
  * @param guildId - Discord guild ID.

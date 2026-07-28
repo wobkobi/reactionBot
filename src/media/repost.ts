@@ -1,5 +1,4 @@
 // src/media/repost.ts
-import { buildRepostButtons } from "@/media/repostActions";
 import { RepostOutcome } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { GuildTextBasedChannel, Message, TextChannel } from "discord.js";
@@ -59,11 +58,11 @@ export async function repostWithOptionalStub(
 
   // Post the rewrite (with the embeddable link) so Discord renders the embed.
   // Empty allowedMentions: the author's @ renders in the text without pinging.
-  // The Edit/Delete buttons are author-only (enforced on interaction).
+  // No components: editing and deleting are author-only right-click entries
+  // (Apps > Edit post / Delete post), so the post carries no button row.
   const payload = {
     content: buildMovedContent(authorMention, rewrittenText),
     allowedMentions: { parse: [] },
-    components: [buildRepostButtons()],
   } satisfies Parameters<TextChannel["send"]>[0];
 
   let moved: Message<true>;

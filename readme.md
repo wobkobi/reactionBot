@@ -11,10 +11,10 @@ per-server counters for swears, slurs, and name-calling.
 - **Media link relocation**: detect link > Yes/No approval prompt for the author (configurable
   grace, including instant auto-move) > delete the original > repost the rewritten link in the media
   channel > leave a pointer "tail" in the source channel. The full message text and any attachments
-  are carried over, and mentions render without pinging. The moved message carries author-only ✏️
-  Edit / 🗑️ Delete buttons: Edit opens a popup pre-filled with the text, Delete removes the repost
-  and its tail. Records are persisted, so the buttons keep working after bot restarts. Links edited
-  into an existing message are caught too.
+  are carried over, and mentions render without pinging. The author can change a moved post by
+  right-clicking it - or its tail - and picking **Apps > Edit post** (a popup pre-filled with the
+  text) or **Apps > Delete post** (removes the post and its tail together). Records are persisted,
+  so both keep working after bot restarts. Links edited into an existing message are caught too.
 - **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
   `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
 - **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
@@ -89,6 +89,14 @@ owner, or the Manage Server permission. Everything else works for anyone, in any
   and then quiet for 5 minutes or 20 messages, whichever comes first - tune per server with
   `/calmdown auto [minutes] [messages]`.
 - `/help` - list all commands.
+
+### Right-click a moved post
+
+Under **Apps** when you right-click a moved post, or the pointer tail it left behind. Both are
+author-only - anyone else gets told whose post it is.
+
+- **Edit post** - opens a popup pre-filled with the current text and rewrites the post.
+- **Delete post** - removes the post and its tail, and records the deletion in the audit log.
 
 ### Trackers
 
