@@ -21,14 +21,13 @@ them when reading.
 {
   // Each type defines its behaviour ONCE; the word lists reference them.
   "types": {
-    // "track" feeds a counter: swears > /swears family.
+    // "track" feeds a counter: swears > /swears family, slurs > /slurs family.
+    // Both count against whoever said the word.
     "swear": { "track": "swears" },
     // Any type can also have a reply pool in responses.json (keyed by this
     // type name). "fuzzy" matches stretched/leetspeak spellings (slaaay,
     // 5l4y) - write the plain word.
     "slur": { "track": "slurs", "fuzzy": true },
-    // called > /called family (counted against whoever got called it).
-    "insult": { "track": "called" },
     // "reaction" reacts to matching messages with an emoji. Reactions sharing
     // a "pool" compete: one random pick per message (girls vs british).
     "girls": { "reaction": "💅", "pool": "slang", "fuzzy": true },
@@ -37,9 +36,8 @@ them when reading.
     "llama": { "reaction": "🦙", "fuzzy": true, "triggerEmoji": "🦙" }
   },
   "words": {
-    "swear": ["example-swear"],
+    "swear": ["example-swear", "bender"],
     "slur": [{ "word": "example-slur", "category": "group", "reaction": "nword" }],
-    "insult": ["bender"],
     "girls": ["slay"],
     "british": ["bender", "cheeky"],
     "llama": ["llama"]
@@ -59,11 +57,11 @@ mixed freely:
 | Field      | Required | Meaning                                                                                                                                     |
 | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `word`     | yes      | The word or phrase. Write it plainly - fuzzy types match stretched ("slaaay"), leetspeak ("5l4y"), apostrophe and markdown variants for you. |
-| `category` | no       | Groups slurs for `/slurgroups` (e.g. `"black"`, `"LGBT"`).                                                                                   |
+| `category` | no       | Groups slurs for `/slurs groups` (e.g. `"black"`, `"LGBT"`).                                                                                 |
 | `reaction` | no       | Overrides the type's default reaction: an emoji, or a phrase spelled out in letter/keycap emojis (skipped when it repeats a character).      |
 
 Nothing else is read from an entry. A word may appear under several types
-(e.g. `bender` is british + insult).
+(e.g. `bender` is british + swear).
 
 A spell-out `reaction` takes letters, digits and spaces: letters become
 regional-indicator emojis, digits become keycaps, and spaces are dropped
@@ -76,7 +74,7 @@ spelled out in part - the bot logs a warning naming the value.
 
 | Field          | Meaning                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------- |
-| `track`        | Counter this type feeds: `swears`, `slurs` or `called`.                                             |
+| `track`        | Counter this type feeds: `swears` or `slurs`, counted against whoever said the word.                 |
 | `reaction`     | Default reaction for the type's words: an emoji, or a phrase spelled out in letter/keycap emojis.   |
 | `pool`         | Reactions sharing a pool compete - one random pick per message (the girls-vs-british coin flip).    |
 | `fuzzy`        | Match stretched/leetspeak/obfuscated spellings automatically.                                        |

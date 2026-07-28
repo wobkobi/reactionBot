@@ -60,7 +60,8 @@ const URL_REGEX = /https?:\/\/\S+/gi;
  * characters, and markdown marks, then lowercases, de-leetspeaks, strips
  * diacritics, and collapses non-alphanumeric runs to single spaces.
  * Apostrophes are removed rather than spaced so contractions stay one word:
- * "can't"/"can’t" fold to "cant" and match a "cant" list entry.
+ * "can't"/"can’t" fold to "cant" and match a "cant" list entry. Sentence-final
+ * "!" is punctuation, not a leet "i" - see the de-leet step below.
  * @param text - The input text to normalise.
  * @returns A cleaned, lowercase string of words separated by single spaces.
  */
@@ -72,7 +73,12 @@ export function normalise(text: string): string {
   // "i" (which would wrap the word in letters and defeat word boundaries).
   s = s.replace(/\|\|/g, "").replace(/[*_~`]/g, "");
   s = s.toLowerCase();
-  s = s.replace(/[0134578@$!|¿]/g, (m) => LEET_MAP[m] ?? m);
+  s = s.replace(/[0134578@$]/g, (m) => LEET_MAP[m] ?? m);
+  // The punctuation lookalikes only stand in for a letter when an alphanumeric
+  // follows the run: "sh!t" folds to "shit", but the trailing "!!" in "Mugs!!"
+  // stays punctuation instead of making the word "mugsii" and defeating the
+  // whole-word matchers.
+  s = s.replace(/[!|¿](?=[!|¿]*[\p{L}\p{N}])/gu, (m) => LEET_MAP[m] ?? m);
   s = s.normalize("NFKD").replace(/\p{Diacritic}+/gu, "");
   s = s.replace(/['’`´]/g, "");
   s = s.replace(/[^\p{L}\p{N}]+/gu, " ");

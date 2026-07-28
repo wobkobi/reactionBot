@@ -11,10 +11,10 @@ per-server counters for swears, slurs, and name-calling.
 - **Media link relocation**: detect link > Yes/No approval prompt for the author (configurable
   grace, including instant auto-move) > delete the original > repost the rewritten link in the media
   channel > leave a pointer "tail" in the source channel. The full message text and any attachments
-  are carried over, and mentions render without pinging. The moved message carries author-only ✏️
-  Edit / 🗑️ Delete buttons: Edit opens a popup pre-filled with the text, Delete removes the repost
-  and its tail. Records are persisted, so the buttons keep working after bot restarts. Links edited
-  into an existing message are caught too.
+  are carried over, and mentions render without pinging. The author can change a moved post by
+  right-clicking it - or its tail - and picking **Apps > Edit post** (a popup pre-filled with the
+  text) or **Apps > Delete post** (removes the post and its tail together). Records are persisted,
+  so both keep working after bot restarts. Links edited into an existing message are caught too.
 - **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
   `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
 - **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
@@ -26,8 +26,8 @@ per-server counters for swears, slurs, and name-calling.
   clean it in place (it stays in its channel). Functional params (`v=`, timestamps, share ids in
   paths) are never touched - see the conservative list in
   [src/media/cleanTracking.ts](src/media/cleanTracking.ts).
-- **Trackers**: per-guild counters for swears, slurs (with targeted-group breakdown), and insults
-  thrown at members, with leaderboard commands.
+- **Trackers**: per-guild counters for swears (insults included) and slurs (with targeted-group
+  breakdown), with leaderboard commands.
 - **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
   sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
   and keycap emojis (e.g. n-word hits spell "NWORD"; phrases with a repeated character are skipped).
@@ -90,18 +90,25 @@ owner, or the Manage Server permission. Everything else works for anyone, in any
   `/calmdown auto [minutes] [messages]`.
 - `/help` - list all commands.
 
+### Right-click a moved post
+
+Under **Apps** when you right-click a moved post, or the pointer tail it left behind. Both are
+author-only - anyone else gets told whose post it is.
+
+- **Edit post** - opens a popup pre-filled with the current text and rewrites the post.
+- **Delete post** - removes the post and its tail, and records the deletion in the audit log.
+
 ### Trackers
 
 Each tracker is one command with subcommands:
 
-- `/swears count|top|words|nuke` - swear counters.
+- `/swears count|top|words|nuke` - swear counters (insults count as swears).
 - `/slurs count|top|words|groups|nuke` - slur counters and targeted-group breakdown.
-- `/called count|top|words|nuke` - who gets called names, and with what (`top` takes an optional
-  `word` to rank by one specific name).
 
-`count [user]` is a member's total, `top [limit]` is the people leaderboard (with each person's
-favourite word), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin
-only).
+`count [user]` is a member's total, `top [word] [limit]` is the people leaderboard (with each
+person's favourite word, or ranked by one specific word - it autocompletes from what has actually
+been said), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin only).
+Both trackers count against whoever said the word.
 
 ### Reply GIFs
 

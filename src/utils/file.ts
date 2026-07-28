@@ -1,5 +1,5 @@
 // src/utils/file.ts
-import { createLogger } from "@/utils/log.js";
+import { createLogger } from "@/utils/log";
 import fs from "fs";
 import path from "path";
 

@@ -3,14 +3,14 @@
 // Orchestrates media-link handling for a single message. Splits
 // responsibilities across match/transform/settings/approval/repost/audit.
 
-import { ChoiceButton, requestApproval, requestChoice } from "@/media/approval.js";
-import { buildCopyMessage } from "@/media/cleanTracking.js";
-import { matchAny } from "@/media/match.js";
-import { repostWithOptionalStub } from "@/media/repost.js";
-import { registerRepostActions } from "@/media/repostActions.js";
-import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings.js";
-import { rewriteContent } from "@/media/transform.js";
-import { createLogger } from "@/utils/log.js";
+import { ChoiceButton, requestApproval, requestChoice } from "@/media/approval";
+import { buildCopyMessage } from "@/media/cleanTracking";
+import { matchAny } from "@/media/match";
+import { repostWithOptionalStub } from "@/media/repost";
+import { registerRepostActions } from "@/media/repostActions";
+import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings";
+import { rewriteContent } from "@/media/transform";
+import { createLogger } from "@/utils/log";
 import { ButtonStyle, GuildTextBasedChannel, Message, MessageFlags } from "discord.js";
 
 const log = createLogger("media/workflow");

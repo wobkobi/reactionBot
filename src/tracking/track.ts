@@ -1,19 +1,18 @@
 // src/tracking/track.ts
 
 /**
- * @file Per-message processing of the unified word config: records swears,
- * slurs and called-names, fires the per-type configured replies
- * (responses.json), and adds the configured emoji reactions - all driven by
- * words.json (see {@link loadWords}).
+ * @file Per-message processing of the unified word config: records swears and
+ * slurs, fires the per-type configured replies (responses.json), and adds the
+ * configured emoji reactions - all driven by words.json (see {@link loadWords}).
  */
 
-import { noteMessage } from "@/tracking/calm.js";
-import { countMatches } from "@/tracking/detect.js";
-import { respondToMessage } from "@/tracking/responses.js";
-import { incrementCounts } from "@/tracking/store.js";
-import { CALLED, SLURS, SWEARS } from "@/tracking/trackers.js";
-import { loadWords, ReactionSpec } from "@/tracking/words.js";
-import { createLogger } from "@/utils/log.js";
+import { noteMessage } from "@/tracking/calm";
+import { countMatches } from "@/tracking/detect";
+import { respondToMessage } from "@/tracking/responses";
+import { incrementCounts } from "@/tracking/store";
+import { SLURS, SWEARS } from "@/tracking/trackers";
+import { loadWords, ReactionSpec } from "@/tracking/words";
+import { createLogger } from "@/utils/log";
 import { Message } from "discord.js";
 
 const log = createLogger("tracking/track");
@@ -110,32 +109,9 @@ async function reactWithValue(message: Message<true>, value: string): Promise<vo
 }
 
 /**
- * Resolves the members a message is aimed at: everyone mentioned plus the
- * author of the message being replied to. Bots and the author themselves are
- * excluded.
- * @param message - The guild message to inspect.
- * @returns A set of target user IDs.
- */
-async function resolveTargets(message: Message<true>): Promise<Set<string>> {
-  const authorId = message.author.id;
-  const targets = new Set<string>();
-
-  for (const u of message.mentions.users.values()) {
-    if (!u.bot && u.id !== authorId) targets.add(u.id);
-  }
-
-  if (message.reference?.messageId) {
-    const ref = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-    if (ref && !ref.author.bot && ref.author.id !== authorId) targets.add(ref.author.id);
-  }
-
-  return targets;
-}
-
-/**
  * Scans a guild message against the unified word config: records swears and
- * slurs against the author, called-names against the resolved targets, fires
- * the per-type configured replies, and adds configured reactions.
+ * slurs against the author, fires the per-type configured replies, and adds
+ * configured reactions.
  * @param message - The message to scan. DMs and bot authors are ignored.
  * @returns A promise that resolves once tracking is complete or skipped.
  */
@@ -154,31 +130,13 @@ export async function trackMessage(message: Message): Promise<void> {
 
   const words = loadWords(guildId);
 
-  // Author-attributed: swears.
   const swearCounts = countMatches(content, words.tracks.swears);
   if (swearCounts.size > 0) incrementCounts(guildId, SWEARS.storeFile, authorId, swearCounts);
 
-  // Author-attributed: slurs.
   const slurCounts = countMatches(content, words.tracks.slurs);
   if (slurCounts.size > 0) {
     incrementCounts(guildId, SLURS.storeFile, authorId, slurCounts);
     log.info("slur detected", { guildId, authorId, words: [...slurCounts.keys()] });
-  }
-
-  // Target-attributed: called-names.
-  const insultCounts = countMatches(content, words.tracks.called);
-  if (insultCounts.size > 0) {
-    const targets = await resolveTargets(message);
-    for (const targetId of targets) {
-      incrementCounts(guildId, CALLED.storeFile, targetId, insultCounts);
-    }
-    if (targets.size > 0) {
-      log.info("called-names recorded", {
-        guildId,
-        targets: [...targets],
-        words: [...insultCounts.keys()],
-      });
-    }
   }
 
   // Configured replies (responses.json): at most one per message, after the

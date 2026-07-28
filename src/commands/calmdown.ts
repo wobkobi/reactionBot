@@ -7,9 +7,9 @@ import {
   setAutoCalm,
   startCalm,
   stopCalm,
-} from "@/tracking/calm.js";
-import { createLogger } from "@/utils/log.js";
-import { requireAdmin } from "@/utils/permissions.js";
+} from "@/tracking/calm";
+import { createLogger } from "@/utils/log";
+import { requireAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";

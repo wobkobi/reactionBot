@@ -1,9 +1,9 @@
 // src/commands/setdelay.ts
 
-import { loadSettings, saveSettings } from "@/media/settings.js";
-import { GraceSetting } from "@/media/types.js";
-import { createLogger } from "@/utils/log.js";
-import { isAdmin } from "@/utils/permissions.js";
+import { loadSettings, saveSettings } from "@/media/settings";
+import { GraceSetting } from "@/media/types";
+import { createLogger } from "@/utils/log";
+import { requireAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -73,12 +73,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
-  if (!isAdmin(interaction)) {
+  if (!(await requireAdmin(interaction))) {
     log.warn("permission denied", { guildId, userId });
-    await interaction.reply({
-      content: "❌ You're not allowed to run this.",
-      flags: MessageFlags.Ephemeral,
-    });
     return;
   }
 

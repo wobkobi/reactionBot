@@ -2,15 +2,15 @@
 
 /**
  * @file Generic per-guild count store, keyed by a store filename. Powers the
- * swear, slur and called-names trackers, which all share the same shape:
+ * swear and slur trackers, which share the same shape:
  * {
  *   "users":  { "<userId>": { "<word>": count, ... }, ... },
  *   "totals": { "<word>": count, ... }
  * }
  */
 
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("tracking/store");
 
@@ -178,7 +178,7 @@ export function getTopWords(
 
 /**
  * Builds a leaderboard of users by their count of one specific word (e.g. who
- * gets called "bender" the most).
+ * says "wanker" the most).
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param word - The word to rank users by (lowercased).

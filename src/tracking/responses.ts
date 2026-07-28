@@ -8,14 +8,14 @@
  * still read as a slur-only pool when no responses.json exists.
  */
 
-import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm.js";
-import { countMatches } from "@/tracking/detect.js";
-import { getUserTotal } from "@/tracking/store.js";
-import { SLURS, SWEARS } from "@/tracking/trackers.js";
-import { CompiledWords } from "@/tracking/words.js";
-import { loadData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
-import { recordReply } from "@/utils/replyStore.js";
+import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
+import { countMatches } from "@/tracking/detect";
+import { getUserTotal } from "@/tracking/store";
+import { SLURS, SWEARS } from "@/tracking/trackers";
+import { CompiledWords } from "@/tracking/words";
+import { loadData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
+import { recordReply } from "@/utils/replyStore";
 import { Message } from "discord.js";
 
 const log = createLogger("tracking/responses");
@@ -236,9 +236,8 @@ export async function respondToMessage(
       startCalm(message.guildId, auto.ms, auto.messages);
     }
 
-    // {count}: running author total for author-attributed tracks, else the
-    // hits in this message (called is target-attributed; react-only types
-    // have no store at all).
+    // {count}: running author total for tracked types, else the hits in this
+    // message (react-only types have no store at all).
     const track = compiled.def.track;
     const storeFile =
       track === "swears" ? SWEARS.storeFile : track === "slurs" ? SLURS.storeFile : null;

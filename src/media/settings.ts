@@ -4,9 +4,9 @@
  * @file Loads and resolves per-guild media settings.
  */
 
-import { ApprovalPlan, GraceSetting, MediaSettings } from "@/media/types.js";
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { ApprovalPlan, GraceSetting, MediaSettings } from "@/media/types";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("media/settings");
 

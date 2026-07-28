@@ -1,78 +1,90 @@
 // src/media/repostActions.ts
 
-// Author-only Edit/Delete buttons on moved messages. Button and modal
-// interactions are resolved against the persisted repost records, not
-// in-memory collectors, so they keep working indefinitely and across bot
-// restarts.
+// Author-only edit/delete of moved messages, reached by right-clicking either
+// the moved post or the pointer stub (Apps > Edit post / Delete post) and
+// resolved against the persisted repost records, not in-memory collectors, so
+// they keep working indefinitely and across bot restarts. The Edit/Delete
+// buttons moved messages used to carry are no longer attached, but messages
+// posted while they were still get their clicks handled here.
 
-import { appendDeletionLog } from "@/media/audit.js";
-import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
-import { createLogger } from "@/utils/log.js";
+import { appendDeletionLog } from "@/media/audit";
+import { findRepostForMessage, removeRepost, RepostRecord, saveRepost } from "@/media/repostStore";
+import { createLogger } from "@/utils/log";
 import {
   ActionRowBuilder,
-  ButtonBuilder,
   ButtonInteraction,
-  ButtonStyle,
   GuildTextBasedChannel,
   Message,
+  MessageContextMenuCommandInteraction,
   MessageFlags,
   ModalBuilder,
   ModalSubmitInteraction,
+  RepliableInteraction,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
 
 const log = createLogger("media/repostActions");
 
-/** Custom ID of the Edit button on a moved message. */
+/** Custom ID of the Edit button on messages moved before the buttons were dropped. */
 export const EDIT_BUTTON_ID = "repost:edit";
-/** Custom ID of the Delete button on a moved message. */
+/** Custom ID of the Delete button on messages moved before the buttons were dropped. */
 export const DELETE_BUTTON_ID = "repost:delete";
-/** Custom ID of the edit modal and its text input. */
-export const EDIT_MODAL_ID = "repost:editmodal";
+/**
+ * Prefix of the edit modal's custom ID; the moved message ID is appended. The
+ * modal can be opened from a context menu, where the submit interaction is not
+ * attached to a message, so the target has to be carried in the ID itself.
+ */
+export const EDIT_MODAL_PREFIX = "repost:editmodal:";
+/** Custom ID of the text input inside the edit modal. */
+export const EDIT_INPUT_ID = "repost:editinput";
 
 /** Discord's message content cap, minus headroom for the mention prefix. */
 const EDIT_MAX_LENGTH = 1_900;
 
-/** Shown when a message carries the buttons but has no persisted record. */
-const NO_RECORD_MESSAGE = "⚠️ This post has no stored record, so it can't be changed.";
+/** Shown when the target message has no persisted record. */
+const NO_RECORD_MESSAGE =
+  "⚠️ This isn't a moved post, or its record is gone - it can't be changed.";
 
 /**
- * Refuses someone who is not the original poster, naming the author so the
- * clicker knows whose post it is. Mentions are suppressed: the author should
- * not be pinged by a stranger's failed click.
- * @param interaction - The button or modal interaction to refuse.
- * @param authorId - The original poster, the only user allowed to act.
- * @returns A promise that resolves once the refusal is sent.
+ * Sends an ephemeral notice on any repliable interaction.
+ * @param interaction - The interaction to answer.
+ * @param content - The message to show.
+ * @returns A promise that resolves once the notice is sent.
  */
-async function refuseNonAuthor(
-  interaction: ButtonInteraction | ModalSubmitInteraction,
-  authorId: string,
-): Promise<void> {
+async function notify(interaction: RepliableInteraction, content: string): Promise<void> {
   await interaction.reply({
-    content: `Only <@${authorId}> can edit or delete this post.`,
+    content,
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
   });
 }
 
 /**
- * Builds the Edit/Delete button row attached to every moved message.
- * @returns An action row with the two author-only buttons.
+ * Resolves the repost the interaction targets and checks the caller owns it,
+ * answering with the reason when either fails.
+ * @param interaction - The interaction to authorise and, on failure, answer.
+ * @param guildId - Guild the interaction came from.
+ * @param messageId - The moved message or its pointer stub.
+ * @returns The moved message ID and record, or `null` when refused.
  */
-export function buildRepostButtons(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(EDIT_BUTTON_ID)
-      .setLabel("Edit")
-      .setEmoji("✏️")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(DELETE_BUTTON_ID)
-      .setLabel("Delete")
-      .setEmoji("🗑️")
-      .setStyle(ButtonStyle.Danger),
-  );
+async function resolveOwnedRepost(
+  interaction: RepliableInteraction,
+  guildId: string,
+  messageId: string,
+): Promise<{ movedMessageId: string; record: RepostRecord } | null> {
+  const found = findRepostForMessage(guildId, messageId);
+  if (!found) {
+    await notify(interaction, NO_RECORD_MESSAGE);
+    return null;
+  }
+  if (interaction.user.id !== found.record.authorId) {
+    // Name the author so the caller knows whose post it is, without pinging
+    // them for a stranger's failed attempt.
+    await notify(interaction, `Only <@${found.record.authorId}> can edit or delete this post.`);
+    return null;
+  }
+  return found;
 }
 
 /**
@@ -115,114 +127,197 @@ function splitMovedContent(content: string): { prefix: string; text: string } {
 }
 
 /**
- * Handles clicks on the Edit/Delete buttons of a moved message. Anyone other
- * than the original poster gets an ephemeral refusal.
+ * Fetches a moved message from the channel its record names.
+ * @param interaction - Any interaction, used for its client channel cache.
+ * @param record - The stored record naming the repost channel.
+ * @param movedMessageId - ID of the moved message to fetch.
+ * @returns The message, or `null` when it is gone or unreachable.
+ */
+async function fetchMoved(
+  interaction: RepliableInteraction,
+  record: RepostRecord,
+  movedMessageId: string,
+): Promise<Message | null> {
+  const channel = interaction.client.channels.cache.get(record.repostChannelId) as
+    GuildTextBasedChannel | undefined;
+  return (await channel?.messages.fetch(movedMessageId).catch(() => null)) ?? null;
+}
+
+/**
+ * Deletes a moved post and its pointer stub, and records the deletion.
+ * @param interaction - The interaction that asked for the delete.
+ * @param guildId - Guild the post lives in.
+ * @param movedMessageId - ID of the moved message.
+ * @param record - Its stored record.
+ * @returns A promise that resolves once the deletion is complete.
+ */
+async function deleteRepost(
+  interaction: RepliableInteraction,
+  guildId: string,
+  movedMessageId: string,
+  record: RepostRecord,
+): Promise<void> {
+  // Remove the record and audit BEFORE deleting: our own delete fires the
+  // messageDelete cleanup handler, which must not find the record and
+  // double-process it.
+  removeRepost(guildId, movedMessageId);
+  appendDeletionLog(guildId, {
+    originalMessageId: record.originalMessageId,
+    originalChannelId: record.sourceChannelId,
+    repostMessageId: movedMessageId,
+    repostChannelId: record.repostChannelId,
+    stubMessageId: record.stubMessageId,
+    deletedAt: new Date().toISOString(),
+  });
+
+  const moved = await fetchMoved(interaction, record, movedMessageId);
+  await moved?.delete().catch(() => {});
+
+  if (record.stubMessageId) {
+    const channel = interaction.client.channels.cache.get(record.sourceChannelId) as
+      GuildTextBasedChannel | undefined;
+    const stub = await channel?.messages.fetch(record.stubMessageId).catch(() => null);
+    await stub?.delete().catch(() => {});
+  }
+
+  log.info("author deleted repost", { guildId, movedId: movedMessageId });
+}
+
+/**
+ * Opens the edit modal, seeded with the moved message's current text. The
+ * moved message ID rides in the modal's custom ID so the submit handler knows
+ * what to rewrite.
+ * @param interaction - The interaction to show the modal on.
+ * @param movedMessageId - ID of the moved message being edited.
+ * @param currentText - Text to prefill, already stripped of the prefix line.
+ * @returns A promise that resolves once the modal is shown.
+ */
+async function showEditModal(
+  interaction: ButtonInteraction | MessageContextMenuCommandInteraction,
+  movedMessageId: string,
+  currentText: string,
+): Promise<void> {
+  const input = new TextInputBuilder()
+    .setCustomId(EDIT_INPUT_ID)
+    .setLabel("Message")
+    .setStyle(TextInputStyle.Paragraph)
+    .setValue(currentText.slice(0, EDIT_MAX_LENGTH))
+    .setMaxLength(EDIT_MAX_LENGTH)
+    .setRequired(true);
+  const modal = new ModalBuilder()
+    .setCustomId(`${EDIT_MODAL_PREFIX}${movedMessageId}`)
+    .setTitle("Edit your post")
+    .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+  await interaction.showModal(modal);
+}
+
+/**
+ * Handles the "Delete post" context-menu command: removes the moved post and
+ * its stub, for the original author only.
+ * @param interaction - The context-menu interaction.
+ * @returns A promise that resolves once the delete is handled.
+ */
+export async function handleDeletePostCommand(
+  interaction: MessageContextMenuCommandInteraction,
+): Promise<void> {
+  if (!interaction.inGuild()) return;
+  const owned = await resolveOwnedRepost(
+    interaction,
+    interaction.guildId,
+    interaction.targetMessage.id,
+  );
+  if (!owned) return;
+
+  // Acknowledge before deleting: the caller may have right-clicked the very
+  // message being removed, and an unanswered interaction shows as failed.
+  await notify(interaction, "🗑️ Deleted.");
+  await deleteRepost(interaction, interaction.guildId, owned.movedMessageId, owned.record);
+}
+
+/**
+ * Handles the "Edit post" context-menu command: opens the edit modal for the
+ * original author only.
+ * @param interaction - The context-menu interaction.
+ * @returns A promise that resolves once the modal is shown or the refusal sent.
+ */
+export async function handleEditPostCommand(
+  interaction: MessageContextMenuCommandInteraction,
+): Promise<void> {
+  if (!interaction.inGuild()) return;
+  const owned = await resolveOwnedRepost(
+    interaction,
+    interaction.guildId,
+    interaction.targetMessage.id,
+  );
+  if (!owned) return;
+
+  // Right-clicking the stub gives us the stub's text, not the post's, so the
+  // moved message is fetched for the prefill either way.
+  const moved = await fetchMoved(interaction, owned.record, owned.movedMessageId);
+  if (!moved) {
+    await notify(interaction, "⚠️ That post is gone, so there's nothing to edit.");
+    return;
+  }
+  await showEditModal(interaction, owned.movedMessageId, splitMovedContent(moved.content).text);
+}
+
+/**
+ * Handles clicks on the Edit/Delete buttons carried by messages moved before
+ * those buttons were dropped. Same rules as the context-menu commands.
  * @param interaction - The button interaction.
  * @returns A promise that resolves once the click is fully handled.
  */
 export async function handleRepostButton(interaction: ButtonInteraction): Promise<void> {
   if (!interaction.inGuild()) return;
-
-  const record = getRepost(interaction.guildId, interaction.message.id);
-  if (!record) {
-    await interaction.reply({
-      content: NO_RECORD_MESSAGE,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-  if (interaction.user.id !== record.authorId) {
-    await refuseNonAuthor(interaction, record.authorId);
-    return;
-  }
+  const owned = await resolveOwnedRepost(interaction, interaction.guildId, interaction.message.id);
+  if (!owned) return;
 
   if (interaction.customId === DELETE_BUTTON_ID) {
-    // Remove the record and audit BEFORE deleting: our own delete fires the
-    // messageDelete cleanup handler, which must not find the record and
-    // double-process it.
-    removeRepost(interaction.guildId, interaction.message.id);
-    appendDeletionLog(interaction.guildId, {
-      originalMessageId: record.originalMessageId,
-      originalChannelId: record.sourceChannelId,
-      repostMessageId: interaction.message.id,
-      repostChannelId: record.repostChannelId,
-      stubMessageId: record.stubMessageId,
-      deletedAt: new Date().toISOString(),
-    });
-
-    // Acknowledge first: deleting the message the button lives on would
-    // otherwise leave the interaction unanswered ("interaction failed").
-    await interaction.deferUpdate();
-    await interaction.message.delete().catch(() => {});
-
-    if (record.stubMessageId) {
-      const channel = interaction.client.channels.cache.get(record.sourceChannelId) as
-        GuildTextBasedChannel | undefined;
-      const stub = await channel?.messages.fetch(record.stubMessageId).catch(() => null);
-      if (stub) await stub.delete().catch(() => {});
-    }
-
-    log.info("author deleted repost", {
-      guildId: interaction.guildId,
-      movedId: interaction.message.id,
-    });
+    await notify(interaction, "🗑️ Deleted.");
+    await deleteRepost(interaction, interaction.guildId, owned.movedMessageId, owned.record);
     return;
   }
-
   if (interaction.customId === EDIT_BUTTON_ID) {
-    const input = new TextInputBuilder()
-      .setCustomId(EDIT_MODAL_ID)
-      .setLabel("Message")
-      .setStyle(TextInputStyle.Paragraph)
-      .setValue(splitMovedContent(interaction.message.content).text.slice(0, EDIT_MAX_LENGTH))
-      .setMaxLength(EDIT_MAX_LENGTH)
-      .setRequired(true);
-    const modal = new ModalBuilder()
-      .setCustomId(EDIT_MODAL_ID)
-      .setTitle("Edit your post")
-      .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
-    await interaction.showModal(modal);
+    await showEditModal(
+      interaction,
+      owned.movedMessageId,
+      splitMovedContent(interaction.message.content).text,
+    );
   }
 }
 
 /**
  * Handles the edit modal submit: rewrites the moved message with the new text
- * while keeping the mention prefix (still without pinging).
+ * while keeping the mention prefix (still without pinging). The target is read
+ * back out of the modal's custom ID, since a modal opened from a context menu
+ * carries no message of its own.
  * @param interaction - The modal submit interaction.
  * @returns A promise that resolves once the message is updated.
  */
 export async function handleRepostEditModal(interaction: ModalSubmitInteraction): Promise<void> {
-  if (!interaction.inGuild() || !interaction.isFromMessage()) return;
+  if (!interaction.inGuild()) return;
 
-  const record = getRepost(interaction.guildId, interaction.message.id);
-  if (!record) {
-    await interaction.reply({
-      content: NO_RECORD_MESSAGE,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-  if (interaction.user.id !== record.authorId) {
-    await refuseNonAuthor(interaction, record.authorId);
-    return;
-  }
+  const movedMessageId = interaction.customId.slice(EDIT_MODAL_PREFIX.length);
+  const owned = await resolveOwnedRepost(interaction, interaction.guildId, movedMessageId);
+  if (!owned) return;
 
-  const newText = interaction.fields.getTextInputValue(EDIT_MODAL_ID).trim();
+  const newText = interaction.fields.getTextInputValue(EDIT_INPUT_ID).trim();
   if (!newText) {
-    await interaction.reply({
-      content: "⚠️ The post can't be empty - use Delete instead.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await notify(interaction, "⚠️ The post can't be empty - use Delete post instead.");
     return;
   }
 
-  const { prefix } = splitMovedContent(interaction.message.content);
-  await interaction.update({
-    content: `${prefix}\n\n${newText}`,
-    allowedMentions: { parse: [] },
-  });
+  const moved = await fetchMoved(interaction, owned.record, owned.movedMessageId);
+  if (!moved) {
+    await notify(interaction, "⚠️ That post is gone, so there's nothing to edit.");
+    return;
+  }
+
+  const { prefix } = splitMovedContent(moved.content);
+  await moved.edit({ content: `${prefix}\n\n${newText}`, allowedMentions: { parse: [] } });
+  await notify(interaction, "✅ Updated.");
   log.info("author edited repost", {
     guildId: interaction.guildId,
-    movedId: interaction.message.id,
+    movedId: owned.movedMessageId,
   });
 }

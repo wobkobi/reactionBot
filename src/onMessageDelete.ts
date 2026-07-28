@@ -8,10 +8,10 @@
  * message and across restarts.
  */
 
-import { appendDeletionLog } from "@/media/audit.js";
-import { getRepost, removeRepost } from "@/media/repostStore.js";
-import { createLogger } from "@/utils/log.js";
-import { takeReplies } from "@/utils/replyStore.js";
+import { appendDeletionLog } from "@/media/audit";
+import { getRepost, removeRepost } from "@/media/repostStore";
+import { createLogger } from "@/utils/log";
+import { takeReplies } from "@/utils/replyStore";
 import { Message, PartialMessage } from "discord.js";
 
 const log = createLogger("core/onMessageDelete");
