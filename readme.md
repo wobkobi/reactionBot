@@ -26,8 +26,8 @@ per-server counters for swears, slurs, and name-calling.
   clean it in place (it stays in its channel). Functional params (`v=`, timestamps, share ids in
   paths) are never touched - see the conservative list in
   [src/media/cleanTracking.ts](src/media/cleanTracking.ts).
-- **Trackers**: per-guild counters for swears, slurs (with targeted-group breakdown), and insults
-  thrown at members, with leaderboard commands.
+- **Trackers**: per-guild counters for swears (insults included) and slurs (with targeted-group
+  breakdown), with leaderboard commands.
 - **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
   sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
   and keycap emojis (e.g. n-word hits spell "NWORD"; phrases with a repeated character are skipped).
@@ -94,14 +94,13 @@ owner, or the Manage Server permission. Everything else works for anyone, in any
 
 Each tracker is one command with subcommands:
 
-- `/swears count|top|words|nuke` - swear counters.
+- `/swears count|top|words|nuke` - swear counters (insults count as swears).
 - `/slurs count|top|words|groups|nuke` - slur counters and targeted-group breakdown.
-- `/called count|top|words|nuke` - who gets called names, and with what (`top` takes an optional
-  `word` to rank by one specific name).
 
-`count [user]` is a member's total, `top [limit]` is the people leaderboard (with each person's
-favourite word), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin
-only).
+`count [user]` is a member's total, `top [word] [limit]` is the people leaderboard (with each
+person's favourite word, or ranked by one specific word - it autocompletes from what has actually
+been said), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin only).
+Both trackers count against whoever said the word.
 
 ### Reply GIFs
 

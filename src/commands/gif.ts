@@ -8,8 +8,8 @@ import {
   loadGifConfig,
   removeGif,
   saveGifConfig,
-} from "@/tracking/gifs.js";
-import { isAdmin } from "@/utils/permissions.js";
+} from "@/tracking/gifs";
+import { isAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { randomUUID } from "crypto";
 import { InteractionContextType } from "discord-api-types/v10";

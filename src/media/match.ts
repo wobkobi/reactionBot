@@ -4,8 +4,8 @@
  * @file Detects supported media URLs inside message content.
  */
 
-import { stripTracking } from "@/media/cleanTracking.js";
-import { MediaMatch, ServiceKey } from "@/media/types.js";
+import { stripTracking } from "@/media/cleanTracking";
+import { MediaMatch, ServiceKey } from "@/media/types";
 import {
   BLUESKY_REGEX,
   INSTAGRAM_REGEX,
@@ -19,8 +19,8 @@ import {
   TUMBLR_REGEX,
   TUMBLR_SUB_REGEX,
   TWITTER_X_REGEX,
-} from "@/regex.js";
-import { createLogger } from "@/utils/log.js";
+} from "@/regex";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("media/match");
 /**

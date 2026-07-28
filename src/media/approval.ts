@@ -4,8 +4,8 @@
 // button set, returns which was clicked); requestApproval is the yes/no case
 // built on it. Only the intended author's clicks count.
 
-import { ApprovalOptions, GraceSetting } from "@/media/types.js";
-import { createLogger } from "@/utils/log.js";
+import { ApprovalOptions, GraceSetting } from "@/media/types";
+import { createLogger } from "@/utils/log";
 import {
   ActionRowBuilder,
   ButtonBuilder,

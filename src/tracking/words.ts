@@ -12,21 +12,20 @@
  *   "types": {
  *     "swear":   { "track": "swears" },
  *     "slur":    { "track": "slurs", "fuzzy": true },
- *     "insult":  { "track": "called" },
  *     "british": { "reaction": "🇬🇧", "pool": "slang", "fuzzy": true }
  *   },
  *   "words": {
  *     "british": ["cheeky", "bender"],
- *     "insult": ["bender"],
+ *     "swear": ["bender"],
  *     "slur": [{ "word": "...", "category": "black", "reaction": "nword" }]
  *   }
  * }
  * ```
  */
 
-import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect.js";
-import { dataFilePath } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect";
+import { dataFilePath } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 import fs from "fs";
 
 const log = createLogger("tracking/words");
@@ -35,7 +34,7 @@ const log = createLogger("tracking/words");
 export const WORDS_FILE = "words.json";
 
 /** The counters a type can feed. */
-export type TrackKey = "swears" | "slurs" | "called";
+export type TrackKey = "swears" | "slurs";
 
 /** Behaviour of one word type, defined once in the config's `types` map. */
 export interface TypeDef {
@@ -56,7 +55,7 @@ export type WordItem =
   | string
   | {
       word: string;
-      /** Category for the group breakdowns (e.g. /slurgroups). */
+      /** Category for the group breakdowns (`/slurs groups`). */
       category?: string;
       /** Overrides the type-default reaction for this entry only. */
       reaction?: string;
@@ -190,7 +189,7 @@ export function loadWords(guildId: string): CompiledWords {
 
   const types = cfg.types ?? {};
 
-  const trackItems: Record<TrackKey, CompileItem[]> = { swears: [], slurs: [], called: [] };
+  const trackItems: Record<TrackKey, CompileItem[]> = { swears: [], slurs: [] };
   const typeItems = new Map<string, CompileItem[]>();
   const reactionItems: CompileItem[] = [];
   const reactionSpecs = new Map<string, ReactionSpec[]>();
@@ -249,7 +248,6 @@ export function loadWords(guildId: string): CompiledWords {
     tracks: {
       swears: compileItems(trackItems.swears),
       slurs: compileItems(trackItems.slurs),
-      called: compileItems(trackItems.called),
     },
     typeLists,
     reactionList: compileItems(reactionItems),

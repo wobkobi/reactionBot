@@ -2,8 +2,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    // Bundler resolution so source imports can be written without the ".js"
+    // extension Node's ESM loader needs at runtime ("@/utils/log", not
+    // "@/utils/log.js"). Nothing bundles this: tsc-alias rewrites the "@/"
+    // aliases to relative paths after tsc and, with "resolveFullPaths" below,
+    // appends the real extension - so the emitted build/ still has the
+    // fully-specified imports Node requires. Every internal import goes
+    // through the alias, which is what makes that pass complete.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "rootDir": "./src",
     "outDir": "./build",
     "strict": true,
@@ -23,5 +30,11 @@
     }
   },
   "include": ["src"],
-  "exclude": ["build", "node_modules"]
+  "exclude": ["build", "node_modules"],
+  // Adds the file extension when rewriting the "@/" aliases, so the build
+  // output is valid Node ESM. Without it the emitted imports stay extensionless
+  // and node refuses them at runtime.
+  "tsc-alias": {
+    "resolveFullPaths": true
+  }
 }

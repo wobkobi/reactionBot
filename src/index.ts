@@ -5,10 +5,10 @@ import {
   EDIT_MODAL_ID,
   handleRepostButton,
   handleRepostEditModal,
-} from "@/media/repostActions.js";
-import { onMessage, onMessageEdit } from "@/onMessage.js";
-import { onMessageDelete } from "@/onMessageDelete.js";
-import { createLogger } from "@/utils/log.js";
+} from "@/media/repostActions";
+import { onMessage, onMessageEdit } from "@/onMessage";
+import { onMessageDelete } from "@/onMessageDelete";
+import { createLogger } from "@/utils/log";
 import { REST } from "@discordjs/rest";
 import { Routes } from "discord-api-types/v10";
 import {

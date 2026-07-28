@@ -2,15 +2,15 @@
 
 /**
  * @file Orchestrates per-message processing.
- * - Records swear/slur/called-names stats in the background.
+ * - Records swear/slur stats in the background.
  * - Delegates media-link detection & relocation to the media workflow.
  *   (See src/media/workflow.ts and submodules.)
  */
 
-import { matchAny } from "@/media/match.js";
-import { handleMediaMessage } from "@/media/workflow.js";
-import { trackMessage } from "@/tracking/track.js";
-import { createLogger } from "@/utils/log.js";
+import { matchAny } from "@/media/match";
+import { handleMediaMessage } from "@/media/workflow";
+import { trackMessage } from "@/tracking/track";
+import { createLogger } from "@/utils/log";
 import { Message, PartialMessage } from "discord.js";
 
 const log = createLogger("core/onMessage");
@@ -19,8 +19,7 @@ const log = createLogger("core/onMessage");
  *
  * Behaviour:
  * - Ignores DMs and bot authors.
- * - Starts swear/slur/called-names tracking (best-effort; errors are logged
- *   and swallowed).
+ * - Starts swear/slur tracking (best-effort; errors are logged and swallowed).
  * - Invokes the media workflow, which matches supported links, rewrites them
  *   to embeddable frontends, asks for approval, reposts with a pointer, and
  *   sets up 🗑️ reactions and the deletion audit.

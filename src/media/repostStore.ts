@@ -5,8 +5,8 @@
  * Keyed by the moved (repost) message ID within each guild's reposts.json.
  */
 
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("media/repostStore");
 

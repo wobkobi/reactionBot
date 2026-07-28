@@ -5,9 +5,9 @@
 // in-memory collectors, so they keep working indefinitely and across bot
 // restarts.
 
-import { appendDeletionLog } from "@/media/audit.js";
-import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
-import { createLogger } from "@/utils/log.js";
+import { appendDeletionLog } from "@/media/audit";
+import { getRepost, removeRepost, saveRepost } from "@/media/repostStore";
+import { createLogger } from "@/utils/log";
 import {
   ActionRowBuilder,
   ButtonBuilder,

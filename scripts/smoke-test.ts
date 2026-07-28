@@ -16,14 +16,16 @@
  *   1  one or more checks failed
  */
 
-import { resolveGrace } from "@/commands/setdelay.js";
-import { buildCopyMessage, stripTracking } from "@/media/cleanTracking.js";
-import { matchAny } from "@/media/match.js";
-import { buildMovedContent, buildPointerContent } from "@/media/repost.js";
-import { buildRepostButtons, DELETE_BUTTON_ID, EDIT_BUTTON_ID } from "@/media/repostActions.js";
-import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
-import { buildTransformedUrl, rewriteContent } from "@/media/transform.js";
-import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect.js";
+import { resolveGrace } from "@/commands/setdelay";
+import { data as slursCommand } from "@/commands/slurs";
+import { buildCopyMessage, stripTracking } from "@/media/cleanTracking";
+import { matchAny } from "@/media/match";
+import { buildMovedContent, buildPointerContent } from "@/media/repost";
+import { buildRepostButtons, DELETE_BUTTON_ID, EDIT_BUTTON_ID } from "@/media/repostActions";
+import { getRepost, removeRepost, saveRepost } from "@/media/repostStore";
+import { buildTransformedUrl, rewriteContent } from "@/media/transform";
+import { trackerCommand } from "@/tracking/commands";
+import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect";
 import {
   addGif,
   GifResult,
@@ -33,19 +35,19 @@ import {
   MAX_PER_CATEGORY,
   RawResponsesFile,
   removeGif,
-} from "@/tracking/gifs.js";
+} from "@/tracking/gifs";
 import {
   chooseReply,
   fillPlaceholders,
   poolFor,
   RESPONSE_COOLDOWN_MS,
   RESPONSE_SPAM_THRESHOLD,
-} from "@/tracking/responses.js";
-import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store.js";
-import { phraseToEmojis, resolveReactions } from "@/tracking/track.js";
-import { CALLED } from "@/tracking/trackers.js";
-import { loadWords, parseJsonc } from "@/tracking/words.js";
-import { recordReply, takeReplies } from "@/utils/replyStore.js";
+} from "@/tracking/responses";
+import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
+import { phraseToEmojis, resolveReactions } from "@/tracking/track";
+import { SLURS, SWEARS } from "@/tracking/trackers";
+import { loadWords, parseJsonc } from "@/tracking/words";
+import { recordReply, takeReplies } from "@/utils/replyStore";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -120,6 +122,38 @@ async function checkCommandsLoad(): Promise<void> {
     const ok = typeof mod.data?.toJSON === "function" && typeof mod.execute === "function";
     check("commands", `${file} exports data + execute`, ok);
   }
+  checkTrackerCommands();
+}
+
+/**
+ * Verifies both tracker commands come out of the shared builder with the same
+ * core subcommands, an autocompleting `word` option on `top`, and whatever they
+ * add of their own (`/slurs groups`).
+ */
+function checkTrackerCommands(): void {
+  for (const tracker of [SWEARS, SLURS]) {
+    const json = trackerCommand(tracker).toJSON();
+    const subs = json.options ?? [];
+    check(
+      "commands",
+      `/${tracker.name} builds the shared subcommands`,
+      json.name === tracker.name &&
+        ["count", "top", "words", "nuke"].every((n) => subs.some((s) => s.name === n)),
+    );
+    const top = subs.find((s) => s.name === "top");
+    const word = top && "options" in top ? top.options?.find((o) => o.name === "word") : undefined;
+    check(
+      "commands",
+      `/${tracker.name} top autocompletes its word option`,
+      Boolean(word && "autocomplete" in word && word.autocomplete),
+    );
+  }
+  const slurSubs = slursCommand.toJSON().options ?? [];
+  check(
+    "commands",
+    "/slurs keeps its own groups subcommand",
+    slurSubs.some((s) => s.name === "groups"),
+  );
 }
 
 /**
@@ -321,20 +355,18 @@ function writeSmokeWords(): void {
     types: {
       swear: { track: "swears" },
       slur: { track: "slurs", fuzzy: true },
-      insult: { track: "called" },
       girls: { reaction: "💅", pool: "slang", fuzzy: true },
       british: { reaction: "🇬🇧", pool: "slang", fuzzy: true },
       llama: { reaction: "🦙", fuzzy: true, triggerEmoji: "🦙" },
     },
     words: {
       // Simple entries: plain strings.
-      swear: ["fuck", "shitshow"],
+      swear: ["fuck", "shitshow", "bender", "wanker"],
       // Advanced entries (benign stand-in for a slur with a spell-out
       // reaction), mixed with a simple one in the same list.
       slur: [{ word: "duck", category: "waterfowl", reaction: "nword" }, "goose"],
-      insult: ["bender", "wanker"],
       girls: ["slay", "the girls are", "the girls arent"],
-      // bender appears under two types on purpose (insult + british react).
+      // bender appears under two types on purpose (swear + british react).
       british: ["bender", "cheeky", "cant be arsed"],
       llama: ["llama"],
     },
@@ -404,6 +436,16 @@ function checkReactions(): void {
   );
   check("reactions", "bold-broken word folds: sl**ay**", hits("sl**ay**"));
   check("reactions", "spoilered word folds: ||slay||", hits("||slay||"));
+  check(
+    "reactions",
+    "trailing '!' stays punctuation: 'Slay!!' still matches",
+    hits("Slay!!") && hits("slay! queen"),
+  );
+  check(
+    "reactions",
+    "word-internal '!' still de-leets: 'the g!rls are'",
+    hits("the g!rls are fighting"),
+  );
 
   // Reaction specs: type defaults, pools, and word-level overrides.
   const slaySpecs = words.reactionSpecs.get("slay") ?? [];
@@ -473,7 +515,8 @@ function checkGrace(): void {
 
 /**
  * Verifies swear detection through the unified config: swear-typed words
- * compile into the swears track and hit in a sample sentence.
+ * compile into the swears track and hit in a sample sentence. Insults feed the
+ * same counter, so they are checked here too.
  */
 function checkSwears(): void {
   writeSmokeWords();
@@ -481,25 +524,22 @@ function checkSwears(): void {
   check("swears", "swear track compiles from words.json", list.phrases.length > 0);
   const counts = countMatches("oh fuck this, what a shitshow", list);
   check("swears", "detects swears in a sentence", counts.size === 2);
+  const insults = countMatches("you absolute bender and wanker", list);
+  check(
+    "swears",
+    "insults count as swears",
+    insults.get("bender") === 1 && insults.get("wanker") === 1,
+  );
 }
 
 /**
- * Verifies the slur and called-names trackers: the insults list detects words,
- * the slurs list parses, and the generic store round-trips totals (under a
- * throwaway guild that is cleaned up afterwards).
+ * Verifies the shared detection primitives and the slur tracker: phrases,
+ * boundaries, fuzzy patterns, category roll-up, and a generic store round-trip
+ * (under a throwaway guild that is cleaned up afterwards).
  */
 function checkTrackers(): void {
   writeSmokeWords();
   const words = loadWords(SMOKE_GUILD);
-  const insults = words.tracks.called;
-  check("trackers", "called track compiles from words.json", insults.phrases.length > 0);
-
-  const counts = countMatches("you absolute bender and wanker", insults);
-  check(
-    "trackers",
-    "detects insults in a sentence",
-    counts.get("bender") === 1 && counts.get("wanker") === 1,
-  );
   // Multi-word phrases and word boundaries (benign words; the slur list relies
   // on both for entries like "porch monkey" without matching inside words).
   check(
@@ -570,16 +610,16 @@ function checkTrackers(): void {
 
   const guild = "__smoketest__";
   try {
-    incrementCounts(guild, CALLED.storeFile, "u1", new Map([["bender", 2]]));
+    incrementCounts(guild, SWEARS.storeFile, "u1", new Map([["bender", 2]]));
     check(
       "trackers",
       "store records a user total",
-      getUserTotal(guild, CALLED.storeFile, "u1") === 2,
+      getUserTotal(guild, SWEARS.storeFile, "u1") === 2,
     );
     check(
       "trackers",
       "store records a word total",
-      getTopWords(guild, CALLED.storeFile)[0]?.word === "bender",
+      getTopWords(guild, SWEARS.storeFile)[0]?.word === "bender",
     );
   } finally {
     rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });

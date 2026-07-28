@@ -1,71 +1,39 @@
 // src/commands/slurs.ts
 
 import {
+  autocompleteWord,
   replyCategoryBreakdown,
   replyReset,
   replyTopUsers,
   replyTopWords,
   replyUserTotal,
-} from "@/tracking/commands.js";
-import { SLURS } from "@/tracking/trackers.js";
-import { requireAdmin } from "@/utils/permissions.js";
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction } from "discord.js";
+  trackerCommand,
+} from "@/tracking/commands";
+import { SLURS } from "@/tracking/trackers";
+import { requireAdmin } from "@/utils/permissions";
+import { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 
-/** Slash command definition for `/slurs` and its subcommands. */
-export const data = new SlashCommandBuilder()
-  .setName("slurs")
-  .setDescription("Slur tracking")
-  .addSubcommand((sub) =>
-    sub
-      .setName("count")
-      .setDescription("Show how many slurs a member has said")
-      .addUserOption((opt) =>
-        opt.setName("user").setDescription("Member to look up (defaults to you)"),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("top")
-      .setDescription("Show top members by slurs said")
-      .addIntegerOption((opt) =>
-        opt
-          .setName("limit")
-          .setDescription("How many to show (1-25)")
-          .setMinValue(1)
-          .setMaxValue(25),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("words")
-      .setDescription("Show the most-used slurs in this server")
-      .addIntegerOption((opt) =>
-        opt
-          .setName("limit")
-          .setDescription("How many to show (1-25)")
-          .setMinValue(1)
-          .setMaxValue(25),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("groups")
-      .setDescription("Show which groups someone's slurs target most (or server-wide)")
-      .addUserOption((opt) =>
-        opt.setName("user").setDescription("Member to break down (defaults to the whole server)"),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("nuke")
-      .setDescription("Reset slur stats for this server (or one member) - admin only")
-      .addUserOption((opt) =>
-        opt.setName("user").setDescription("Reset only this member (defaults to the whole server)"),
-      ),
-  )
-  .setContexts(InteractionContextType.Guild);
+/**
+ * Slash command definition for `/slurs`: the shared tracker subcommands plus
+ * `groups`, the targeted-group breakdown only slurs carry categories for.
+ */
+export const data = trackerCommand(SLURS).addSubcommand((sub) =>
+  sub
+    .setName("groups")
+    .setDescription("Show which groups someone's slurs target most (or server-wide)")
+    .addUserOption((opt) =>
+      opt.setName("user").setDescription("Member to break down (defaults to the whole server)"),
+    ),
+);
+
+/**
+ * Autocompletes the `word` option of `/slurs top`.
+ * @param interaction - The autocomplete interaction context.
+ * @returns A promise that resolves when the suggestions are sent.
+ */
+export async function autocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  await autocompleteWord(interaction, SLURS);
+}
 
 /**
  * Executes `/slurs`: routes to the count, top, words, groups, or nuke
@@ -76,13 +44,13 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   switch (interaction.options.getSubcommand()) {
     case "count":
-      await replyUserTotal(interaction, SLURS, { verbPast: "said", noun: "slur" });
+      await replyUserTotal(interaction, SLURS);
       return;
     case "top":
-      await replyTopUsers(interaction, SLURS, { title: "Slur offenders" });
+      await replyTopUsers(interaction, SLURS);
       return;
     case "words":
-      await replyTopWords(interaction, SLURS, "Most-used slurs");
+      await replyTopWords(interaction, SLURS);
       return;
     case "groups":
       await replyCategoryBreakdown(interaction, SLURS);

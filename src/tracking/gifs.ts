@@ -5,10 +5,10 @@
 // the whole parsed file, so they are covered by the smoke test and so unknown
 // top-level keys (notably _comment) survive an edit.
 
-import { RESPONSES_FILE, ResponseReply } from "@/tracking/responses.js";
-import { loadWords } from "@/tracking/words.js";
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { RESPONSES_FILE, ResponseReply } from "@/tracking/responses";
+import { loadWords } from "@/tracking/words";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("tracking/gifs");
 

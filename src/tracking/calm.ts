@@ -8,8 +8,8 @@
 // auto-calm limits are per-guild settings (/calmdown auto). Persisted so a
 // restart doesn't cut the window short.
 
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("tracking/calm");
 

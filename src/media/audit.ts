@@ -1,6 +1,6 @@
 // src/media/audit.ts
-import { loadData, saveData } from "@/utils/file.js";
-import { createLogger } from "@/utils/log.js";
+import { loadData, saveData } from "@/utils/file";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("media/audit");
 export interface DeletionLogEntry {

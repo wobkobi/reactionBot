@@ -1,7 +1,7 @@
 // src/media/repost.ts
-import { buildRepostButtons } from "@/media/repostActions.js";
-import { RepostOutcome } from "@/media/types.js";
-import { createLogger } from "@/utils/log.js";
+import { buildRepostButtons } from "@/media/repostActions";
+import { RepostOutcome } from "@/media/types";
+import { createLogger } from "@/utils/log";
 import { GuildTextBasedChannel, Message, TextChannel } from "discord.js";
 
 const log = createLogger("media/repost");

@@ -5,9 +5,9 @@
  * and rewrites the message content.
  */
 
-import { stripTracking } from "@/media/cleanTracking.js";
-import { MediaMatch, RewriteResult } from "@/media/types.js";
-import { createLogger } from "@/utils/log.js";
+import { stripTracking } from "@/media/cleanTracking";
+import { MediaMatch, RewriteResult } from "@/media/types";
+import { createLogger } from "@/utils/log";
 
 const log = createLogger("media/transform");
 
