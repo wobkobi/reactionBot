@@ -92,19 +92,20 @@ export async function replyTopUsers(
           favourite: r.favourite,
         }));
 
-    const lines = await Promise.all(
-      ranked.map(async (r, i) => {
-        const user = await interaction.client.users.fetch(r.userId).catch(() => null);
-        const favourite = r.favourite ? ` (favourite: ${r.favourite})` : "";
-        return `**${i + 1}.** ${user?.tag ?? r.userId} - **${r.n}**${favourite}`;
-      }),
-    );
+    // Mentions rather than tags: Discord resolves <@id> client-side, so the
+    // name always renders current with no per-user fetch. Members who left
+    // still show as an unresolved mention rather than a bare ID.
+    const lines = ranked.map((r, i) => {
+      const favourite = r.favourite ? ` (favourite: ${r.favourite})` : "";
+      return `**${i + 1}.** <@${r.userId}> - **${r.n}**${favourite}`;
+    });
 
     const embed = new EmbedBuilder()
       .setTitle(word ? `${opts.title} (${word})` : opts.title)
       .setDescription(lines.join("\n") || "No data yet.");
     // Public on purpose: leaderboards are for the whole channel to see.
-    await interaction.reply({ embeds: [embed] });
+    // Empty allowedMentions so the ranked members render without being pinged.
+    await interaction.reply({ embeds: [embed], allowedMentions: { parse: [] } });
   } catch (err) {
     log.error("failed to build user leaderboard", {
       storeFile: tracker.storeFile,

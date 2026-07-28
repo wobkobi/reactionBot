@@ -88,11 +88,15 @@ spelled out in part - the bot logs a warning naming the value.
   is the template; a `responses.json` in `data/<guildId>/` overrides it per
   server). The legacy `slur_responses.json` is still read as a slur-only pool
   when no `responses.json` exists.
+
+  Entries added through `/gif` also carry `id`, `addedBy` (Discord ID) and
+  `addedAt` (ISO timestamp), and always land in this global file. The `id` is
+  what `/gif remove` looks up, so hand-written entries - which have none - can
+  only be changed by editing the file.
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
 - `<guildId>/calm.json` - the calm-mode window (managed by the bot and
   `/calmdown`).
-- `<guildId>/allowed.json` - users granted bot-admin via `/allow`.
 - `<guildId>/*_counts.json` - tracker counters (managed by the bot).
 - `<guildId>/reposts.json` + `deleted_links.json` - moved-message records and
   the deletion audit (managed by the bot).

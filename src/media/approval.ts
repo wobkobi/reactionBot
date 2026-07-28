@@ -1,10 +1,8 @@
 // src/media/approval.ts
-/**
- * @file Generic approval prompt with grace handling.
- * - Shows Yes/No buttons to the intended author
- * - Respects grace: "instant" | "disabled" | number (ms)
- * - Optionally auto-deletes the prompt on resolve/timeout
- */
+
+// Button prompts with grace handling. requestChoice is the generic core (any
+// button set, returns which was clicked); requestApproval is the yes/no case
+// built on it. Only the intended author's clicks count.
 
 import { ApprovalOptions, GraceSetting } from "@/media/types.js";
 import { createLogger } from "@/utils/log.js";
@@ -20,42 +18,68 @@ import {
 
 const log = createLogger("media/approval");
 
+/** One button in a {@link requestChoice} prompt. */
+export interface ChoiceButton {
+  /** Custom ID, unique within this prompt; returned as the choice. */
+  id: string;
+  /** Text shown on the button. */
+  label: string;
+  /** Optional emoji shown before the label. */
+  emoji?: string;
+  /** Discord button styling. */
+  style: ButtonStyle;
+}
+
+/** Outcome of a {@link requestChoice} prompt. */
+export interface ChoiceOutcome {
+  /** The clicked button's id, or null on timeout or send failure. */
+  choice: string | null;
+  /**
+   * The click interaction, so callers can answer the clicker privately. Null
+   * when nothing was clicked. Already acknowledged by the collector, so use
+   * `followUp` rather than `reply`.
+   */
+  interaction: ButtonInteraction | null;
+}
+
 /**
- * Request in-channel approval from a user via Yes/No buttons.
- * - Only `author` clicks are accepted.
- * - Resolves `true` on "Yes"; `false` on "No" or timeout.
- * - `grace: "instant"` returns `true` without sending UI. `"disabled"` waits indefinitely.
- * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`, else clears buttons.
- * @param channel Target channel for the prompt.
- * @param author Allowed responder.
- * @param [opts] Prompt and behaviour controls.
- * @param [opts.prompt] Custom text. Default: `"{author}, proceed?"`.
- * @param [opts.grace] Timeout in ms or special modes.
- * @param [opts.autoDelete] Delete prompt on end. Default: true unless grace is "disabled".
- * @returns Approval result.
+ * Ask `author` to pick one of `buttons` in `channel`.
+ * - Only `author` clicks are accepted; everyone else's are ignored.
+ * - `grace: "instant"` resolves to `opts.instantChoice` without showing UI.
+ *   `"disabled"` waits indefinitely.
+ * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`,
+ *   else strips the buttons so it cannot be clicked later.
+ * @param channel - Target channel for the prompt.
+ * @param author - The only user whose clicks count.
+ * @param buttons - The choices to offer, in display order.
+ * @param [opts] - Prompt and behaviour controls.
+ * @param [opts.instantChoice] - Choice returned when `grace` is `"instant"`.
+ * @returns The chosen button id and the click interaction.
  */
-export async function requestApproval(
+export async function requestChoice(
   channel: GuildTextBasedChannel,
   author: User,
-  opts: ApprovalOptions = {},
-): Promise<boolean> {
+  buttons: ChoiceButton[],
+  opts: ApprovalOptions & { instantChoice?: string } = {},
+): Promise<ChoiceOutcome> {
   const promptText = opts.prompt ?? `${author}, proceed?`;
   const grace: GraceSetting = opts.grace ?? 10_000; // ms default
   const autoDelete = opts.autoDelete ?? grace !== "disabled";
 
-  // Instant path: approve without showing UI
+  // Instant path: resolve without showing UI
   if (grace === "instant") {
-    log.debug("instant approval", { channelId: channel.id, userId: author.id });
-    return true;
+    log.debug("instant choice", { channelId: channel.id, userId: author.id });
+    return { choice: opts.instantChoice ?? null, interaction: null };
   }
 
-  // Compose buttons
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("yes").setLabel("Yes").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("no").setLabel("No").setStyle(ButtonStyle.Danger),
+    buttons.map((b) => {
+      const button = new ButtonBuilder().setCustomId(b.id).setLabel(b.label).setStyle(b.style);
+      if (b.emoji) button.setEmoji(b.emoji);
+      return button;
+    }),
   );
 
-  // Send prompt
   const msg = await channel
     .send({
       content: promptText,
@@ -64,11 +88,11 @@ export async function requestApproval(
     })
     .catch(() => null);
   if (!msg) {
-    log.warn("failed to send approval prompt", {
+    log.warn("failed to send choice prompt", {
       channelId: channel.id,
       userId: author.id,
     });
-    return false;
+    return { choice: null, interaction: null };
   }
 
   // Collector config
@@ -79,18 +103,21 @@ export async function requestApproval(
         ? undefined
         : 10_000;
 
-  let approved = false;
+  const ids = new Set(buttons.map((b) => b.id));
+  let choice: string | null = null;
+  let clicked: ButtonInteraction | null = null;
 
   const collector = msg.createMessageComponentCollector({
     componentType: ComponentType.Button,
     max: 1,
     time,
-    filter: (i: ButtonInteraction) => i.user.id === author.id, // only author can decide
+    filter: (i: ButtonInteraction) => i.user.id === author.id && ids.has(i.customId),
   });
 
   collector.on("collect", async (i: ButtonInteraction) => {
-    approved = i.customId === "yes";
-    log.debug("approval click", { userId: i.user.id, approved });
+    choice = i.customId;
+    clicked = i;
+    log.debug("choice click", { userId: i.user.id, choice: i.customId });
     await i.update({ components: [] }).catch(() => {});
   });
 
@@ -104,7 +131,33 @@ export async function requestApproval(
         await msg.edit({ components: [] }).catch(() => {});
         log.debug("prompt buttons cleared", { messageId: msg.id });
       }
-      resolve(approved);
+      resolve({ choice, interaction: clicked });
     });
   });
+}
+
+/**
+ * Request in-channel approval from a user via Yes/No buttons. Thin wrapper
+ * over {@link requestChoice}: resolves `true` on "Yes", `false` on "No" or
+ * timeout, and `true` immediately when `grace` is `"instant"`.
+ * @param channel - Target channel for the prompt.
+ * @param author - Allowed responder.
+ * @param [opts] - Prompt and behaviour controls.
+ * @returns Approval result.
+ */
+export async function requestApproval(
+  channel: GuildTextBasedChannel,
+  author: User,
+  opts: ApprovalOptions = {},
+): Promise<boolean> {
+  const { choice } = await requestChoice(
+    channel,
+    author,
+    [
+      { id: "yes", label: "Yes", style: ButtonStyle.Success },
+      { id: "no", label: "No", style: ButtonStyle.Danger },
+    ],
+    { ...opts, instantChoice: "yes" },
+  );
+  return choice === "yes";
 }
