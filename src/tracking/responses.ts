@@ -24,8 +24,25 @@ const log = createLogger("tracking/responses");
  * A reply entry: a plain string (a "generic" reply used for every word of the
  * type), or `{ content, categories }` listing which word categories it applies
  * to. Use "generic" in `categories` to also include it for every word.
+ *
+ * Entries added through `/gif` also carry `id`, `addedBy` and `addedAt`.
+ * Hand-written entries have none, which is what keeps them out of reach of
+ * `/gif remove`.
  */
-export type ResponseReply = string | { content: string; categories?: string[] };
+export type ResponseReply =
+  | string
+  | {
+      /** The GIF link or text to reply with. */
+      content: string;
+      /** Word categories this reply applies to; "generic" means all of them. */
+      categories?: string[];
+      /** Short unique id, present only on entries added through `/gif`. */
+      id?: string;
+      /** Discord ID of whoever added it through `/gif`. */
+      addedBy?: string;
+      /** ISO timestamp of when it was added through `/gif`. */
+      addedAt?: string;
+    };
 
 /** Reply config for one word type. */
 export interface TypeResponses {

@@ -76,15 +76,13 @@ Rebuild (`npm run build`) before `pm2 restart reactionbot` after pulling changes
 
 ### Media
 
-Admin commands (settings, `/allow`/`/disallow`, and the nukes) require the guild owner, the bot
-owner, a user granted via `allowed.json`, or the Manage Server permission. Everything else works for
-anyone, in any channel.
+Admin commands (settings and the nukes) require the bot owner (the `YOUR_ID` env var), the guild
+owner, or the Manage Server permission. Everything else works for anyone, in any channel.
 
 - `/setmediachannel` - set which text channel media links get reposted into.
 - `/setdelay instant` - move links straight away without asking.
 - `/setdelay seconds seconds:<1-300>` - give the poster that long to hit Yes or No.
 - `/setdelay disabled` - always ask, and wait forever for an answer.
-- `/allow`, `/disallow` - grant or revoke bot-admin privileges (the allowed list).
 - `/calmdown start [minutes]`, `/calmdown stop` - pause the configured GIF/text replies (default 30
   minutes); reactions and counting keep going. Also kicks in automatically after a spam-escalation
   reply fires (5 hits in 30s across all users, sent once per episode), so a flood gets one "enough"
@@ -104,6 +102,20 @@ Each tracker is one command with subcommands:
 `count [user]` is a member's total, `top [limit]` is the people leaderboard (with each person's
 favourite word), `words [limit]` is the most-used words, and `nuke [user]` resets stats (admin
 only).
+
+### Reply GIFs
+
+`/gif` manages the GIFs the bot replies with when it catches a slur. Adding is open to everyone - no
+admin rights needed - and a new GIF is live from the next message, with no restart.
+
+- `/gif add category:<category> url:<link>` - add a GIF. `category` autocompletes from the slur
+  categories in `words.json`, plus `generic` for one that fires on any slur. Up to 25 per category.
+- `/gif list [category]` - show what is in the pool and who added each entry.
+- `/gif remove entry:<gif>` - remove one you added; admins can remove anyone's.
+
+Entries added this way are shared across every server the bot is in, since they are written to
+`data/global/responses.json`. The hand-written entries in that file carry no id, so `/gif remove`
+cannot reach them - edit the JSON to change those.
 
 ## Development
 

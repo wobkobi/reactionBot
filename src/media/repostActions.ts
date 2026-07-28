@@ -1,11 +1,9 @@
 // src/media/repostActions.ts
 
-/**
- * @file Author-only Edit/Delete buttons on moved messages.
- * Button and modal interactions are resolved against the persisted repost
- * records (see {@link getRepost}), not in-memory collectors, so they keep
- * working indefinitely and across bot restarts.
- */
+// Author-only Edit/Delete buttons on moved messages. Button and modal
+// interactions are resolved against the persisted repost records, not
+// in-memory collectors, so they keep working indefinitely and across bot
+// restarts.
 
 import { appendDeletionLog } from "@/media/audit.js";
 import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
@@ -35,6 +33,28 @@ export const EDIT_MODAL_ID = "repost:editmodal";
 
 /** Discord's message content cap, minus headroom for the mention prefix. */
 const EDIT_MAX_LENGTH = 1_900;
+
+/** Shown when a message carries the buttons but has no persisted record. */
+const NO_RECORD_MESSAGE = "⚠️ This post has no stored record, so it can't be changed.";
+
+/**
+ * Refuses someone who is not the original poster, naming the author so the
+ * clicker knows whose post it is. Mentions are suppressed: the author should
+ * not be pinged by a stranger's failed click.
+ * @param interaction - The button or modal interaction to refuse.
+ * @param authorId - The original poster, the only user allowed to act.
+ * @returns A promise that resolves once the refusal is sent.
+ */
+async function refuseNonAuthor(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  authorId: string,
+): Promise<void> {
+  await interaction.reply({
+    content: `Only <@${authorId}> can edit or delete this post.`,
+    flags: MessageFlags.Ephemeral,
+    allowedMentions: { parse: [] },
+  });
+}
 
 /**
  * Builds the Edit/Delete button row attached to every moved message.
@@ -106,16 +126,13 @@ export async function handleRepostButton(interaction: ButtonInteraction): Promis
   const record = getRepost(interaction.guildId, interaction.message.id);
   if (!record) {
     await interaction.reply({
-      content: "⚠️ This post has no stored record, so it can't be changed.",
+      content: NO_RECORD_MESSAGE,
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
   if (interaction.user.id !== record.authorId) {
-    await interaction.reply({
-      content: "Only the original poster can do that.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await refuseNonAuthor(interaction, record.authorId);
     return;
   }
 
@@ -178,11 +195,15 @@ export async function handleRepostEditModal(interaction: ModalSubmitInteraction)
   if (!interaction.inGuild() || !interaction.isFromMessage()) return;
 
   const record = getRepost(interaction.guildId, interaction.message.id);
-  if (!record || interaction.user.id !== record.authorId) {
+  if (!record) {
     await interaction.reply({
-      content: "Only the original poster can do that.",
+      content: NO_RECORD_MESSAGE,
       flags: MessageFlags.Ephemeral,
     });
+    return;
+  }
+  if (interaction.user.id !== record.authorId) {
+    await refuseNonAuthor(interaction, record.authorId);
     return;
   }
 

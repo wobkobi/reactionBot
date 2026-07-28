@@ -27,20 +27,33 @@ export const FRONTENDS = {
 } as const;
 
 /**
+ * Per-poster Twitter/X frontend overrides, keyed by Discord user ID. Anyone
+ * not listed gets {@link FRONTENDS}.twitter. cunnyx.com is an FxEmbed mirror,
+ * so an override only swaps the domain, not the embed behaviour.
+ */
+const TWITTER_FRONTEND_OVERRIDES: Record<string, string> = {
+  "229791342547566592": "cunnyx.com",
+};
+
+/**
  * Builds the transformed URL for a given platform match.
  * @param match - The {@link MediaMatch} describing the platform and captures.
+ * @param [authorId] - Discord ID of the poster, used to apply
+ * {@link TWITTER_FRONTEND_OVERRIDES}. Omit for the default frontends.
  * @returns A transformed URL suitable for reposting.
  */
-export function buildTransformedUrl(match: MediaMatch): string {
+export function buildTransformedUrl(match: MediaMatch, authorId?: string): string {
   const [a, b] = match.captures;
   switch (match.which) {
     case "tiktok-short":
-      // a = "vt" | "vm" short host, b = id; "d." = direct embed
-      return `https://d.${a}.${FRONTENDS.tiktok}/${b}`;
+      // b = short id. fxTikTok resolves a bare short id on its own "d." host,
+      // and the vt/vm subdomain must be dropped rather than kept: nesting it
+      // (d.vt.tnktok.com) is two levels deep and does not resolve.
+      return `https://d.${FRONTENDS.tiktok}/${b}`;
     case "tiktok-full":
       return `https://d.${FRONTENDS.tiktok}/${a}`;
     case "twitter":
-      return `https://${FRONTENDS.twitter}/${a}`;
+      return `https://${(authorId && TWITTER_FRONTEND_OVERRIDES[authorId]) || FRONTENDS.twitter}/${a}`;
     case "instagram":
       return `https://${FRONTENDS.instagram}/${a}`;
     case "reddit-comments":
@@ -71,10 +84,16 @@ export function buildTransformedUrl(match: MediaMatch): string {
  * with its transformed counterpart.
  * @param content - Original message content.
  * @param match - The platform match result.
+ * @param [authorId] - Discord ID of the poster, passed through to
+ * {@link buildTransformedUrl} for per-poster frontend overrides.
  * @returns A {@link RewriteResult} containing the new URL and full rewritten text.
  */
-export function rewriteContent(content: string, match: MediaMatch): RewriteResult {
-  const newLink = buildTransformedUrl(match);
+export function rewriteContent(
+  content: string,
+  match: MediaMatch,
+  authorId?: string,
+): RewriteResult {
+  const newLink = buildTransformedUrl(match, authorId);
   let rewrittenText: string;
   if (match.literal) {
     // Tracking matches carry the exact URL - replace it as a plain string.

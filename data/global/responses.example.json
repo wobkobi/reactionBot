@@ -1,0 +1,24 @@
+{
+  "_comment": "Template for data/global/responses.json - replies sent when words of a type (from words.json 'types') are detected. Keys under 'types' are type names (slur, swear, insult, british, ...). Each 'responses' entry is a plain string (a 'generic' reply used for every word of the type) or { content, categories } tagging which word categories it applies to (include 'generic' to also use it everywhere). The pool for a hit = all generic replies + every reply tagged a matched category, then one is picked at random. content can be a GIF/link or text; {user} (author mention) and {count} are substituted - {count} is the author's running total for swears/slurs, otherwise the hits in the message. 'spam' (optional) is sent instead when a user spams that type in quick succession, and then the bot goes calm for a while (no replies; reactions continue). Replies are rate-limited per user per type, and at most one reply is sent per message. Copy this to responses.json and edit; a responses.json in data/<guildId>/ overrides it per server. If absent, the legacy slur_responses.json is still read as a slur-only pool.",
+  "types": {
+    "slur": {
+      "responses": [
+        "🚨 {user} said a slur. That's slur #{count} for them. Shame.",
+        "https://tenor.com/view/a-generic-reaction-gif",
+        { "content": "https://tenor.com/view/black-category-gif", "categories": ["black"] },
+        { "content": "https://tenor.com/view/shared-gif", "categories": ["black", "LGBT"] },
+        {
+          "content": "https://tenor.com/view/added-via-the-gif-command",
+          "categories": ["jewish"],
+          "id": "a1b2c3d4",
+          "addedBy": "123456789012345678",
+          "addedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ],
+      "spam": "https://tenor.com/view/thats-enough-gif"
+    },
+    "swear": {
+      "responses": ["That's swear #{count} for {user}."]
+    }
+  }
+}

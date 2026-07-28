@@ -1,20 +1,30 @@
 // src/media/workflow.ts
 
-/**
- * @file Orchestrates media-link handling for a single message.
- * Splits responsibilities across match/transform/settings/approval/repost/audit.
- */
+// Orchestrates media-link handling for a single message. Splits
+// responsibilities across match/transform/settings/approval/repost/audit.
 
-import { requestApproval } from "@/media/approval.js";
+import { ChoiceButton, requestApproval, requestChoice } from "@/media/approval.js";
+import { buildCopyMessage } from "@/media/cleanTracking.js";
 import { matchAny } from "@/media/match.js";
 import { repostWithOptionalStub } from "@/media/repost.js";
 import { registerRepostActions } from "@/media/repostActions.js";
 import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings.js";
 import { rewriteContent } from "@/media/transform.js";
 import { createLogger } from "@/utils/log.js";
-import { GuildTextBasedChannel, Message } from "discord.js";
+import { ButtonStyle, GuildTextBasedChannel, Message, MessageFlags } from "discord.js";
 
 const log = createLogger("media/workflow");
+
+/**
+ * Buttons on the tracking-clean prompt. "Copy" hands the poster the cleaned
+ * link privately and leaves their message alone; "Repost" is the move-and-
+ * rewrite path shared with media links.
+ */
+const CLEAN_BUTTONS: ChoiceButton[] = [
+  { id: "repost", label: "Repost", emoji: "♻️", style: ButtonStyle.Primary },
+  { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
+  { id: "no", label: "No", style: ButtonStyle.Danger },
+];
 
 /**
  * Handles a message: detect media links, get approval, and repost/notify.
@@ -48,15 +58,39 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   if (match.which === "pre-embedded" && sameChannel) return;
 
   // Prepare rewrite
-  const rewrite = rewriteContent(message.content, match);
+  const rewrite = rewriteContent(message.content, match, message.author.id);
 
   // Build approval plan (handles same-channel overrides)
   const plan = resolveApprovalPlan(settings.grace, sameChannel);
   if (isTrackingClean) plan.promptText = "Clean the tracking junk out of your link?";
 
-  // Auto-approve or ask
+  // Auto-approve or ask. Tracking cleans offer a third option: hand the poster
+  // the cleaned link privately and leave their message untouched. They always
+  // prompt, since the same-channel plan never auto-approves.
   let approved = plan.autoApprove;
-  if (!approved) {
+  if (isTrackingClean) {
+    const { choice, interaction } = await requestChoice(source, message.author, CLEAN_BUTTONS, {
+      prompt: plan.promptText,
+      grace: plan.timeoutMs ?? 15_000,
+      autoDelete: true,
+    });
+    if (choice === "copy") {
+      // followUp, not reply: the collector already acknowledged the click.
+      await interaction
+        ?.followUp({
+          content: buildCopyMessage(rewrite.newLink),
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch((err: unknown) => {
+          log.warn("failed to hand over cleaned link", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      log.info("poster copied cleaned link", { guildId: message.guildId!, from: source.id });
+      return;
+    }
+    approved = choice === "repost";
+  } else if (!approved) {
     approved = await requestApproval(source, message.author, {
       prompt: plan.promptText,
       grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),

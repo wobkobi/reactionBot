@@ -1,10 +1,8 @@
 // src/media/cleanTracking.ts
 
-/**
- * @file Strips known tracking parameters from URLs. Deliberately
- * conservative: only unambiguous tracker keys are removed, so functional
- * params (YouTube's v/t, Reddit's share ids, Amazon paths) survive.
- */
+// Strips known tracking parameters from URLs. Deliberately conservative: only
+// unambiguous tracker keys are removed, so functional params (YouTube's v/t,
+// Reddit's share ids, Amazon paths) survive.
 
 /** Exact query-param names that are always tracking. */
 const TRACKING_PARAMS = new Set([
@@ -64,4 +62,15 @@ export function stripTracking(url: string): string | null {
   let out = parsed.toString();
   if (out.endsWith("?")) out = out.slice(0, -1);
   return out;
+}
+
+/**
+ * Builds the private reply handing the poster their cleaned link. The URL sits
+ * in a fenced block so Discord renders no embed and mobile clients show a copy
+ * button.
+ * @param cleanUrl - The URL with tracking parameters removed.
+ * @returns The message content to send.
+ */
+export function buildCopyMessage(cleanUrl: string): string {
+  return `Here's your link without the tracking junk:\n\`\`\`\n${cleanUrl}\n\`\`\``;
 }

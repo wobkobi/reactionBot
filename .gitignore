@@ -59,6 +59,6 @@ yarn-error.log*
 !/data/global/
 /data/global/*
 # words.json (the real word config, contains the slur list) and
-# slur_responses.json (your own replies) stay local; data/readme.md and the
-# .example file document the shapes.
-!/data/global/slur_responses.example.json
+# responses.json (your own replies, plus the legacy slur_responses.json) stay
+# local; data/readme.md and the .example file document the shapes.
+!/data/global/responses.example.json

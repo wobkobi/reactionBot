@@ -17,13 +17,23 @@
  */
 
 import { resolveGrace } from "@/commands/setdelay.js";
-import { stripTracking } from "@/media/cleanTracking.js";
+import { buildCopyMessage, stripTracking } from "@/media/cleanTracking.js";
 import { matchAny } from "@/media/match.js";
 import { buildMovedContent, buildPointerContent } from "@/media/repost.js";
 import { buildRepostButtons, DELETE_BUTTON_ID, EDIT_BUTTON_ID } from "@/media/repostActions.js";
 import { getRepost, removeRepost, saveRepost } from "@/media/repostStore.js";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform.js";
 import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect.js";
+import {
+  addGif,
+  GifResult,
+  isValidGifUrl,
+  listCategories,
+  listGifs,
+  MAX_PER_CATEGORY,
+  RawResponsesFile,
+  removeGif,
+} from "@/tracking/gifs.js";
 import {
   chooseReply,
   fillPlaceholders,
@@ -124,7 +134,8 @@ function checkLinkTransforms(): void {
     ["https://www.instagram.com/reel/AbC", "https://toinstagram.com/reel/AbC"],
     ["https://www.instagram.com/reels/AbC", "https://toinstagram.com/reels/AbC"],
     ["https://www.tiktok.com/@u/video/123", "https://d.tnktok.com/@u/video/123"],
-    ["https://vm.tiktok.com/AbC123", "https://d.vm.tnktok.com/AbC123"],
+    ["https://vm.tiktok.com/AbC123", "https://d.tnktok.com/AbC123"],
+    ["https://vt.tiktok.com/ZSXow1G3u", "https://d.tnktok.com/ZSXow1G3u"],
     ["https://www.reddit.com/r/x/comments/abc/t", "https://vxreddit.com/r/x/comments/abc/t"],
     ["https://www.reddit.com/r/x/s/Ab12", "https://vxreddit.com/r/x/s/Ab12"],
     ["https://redd.it/abc1", "https://vxreddit.com/abc1"],
@@ -142,6 +153,17 @@ function checkLinkTransforms(): void {
     check("transforms", `${input} -> ${expected}`, got === expected);
   }
 
+  // Per-poster frontend override: one user's X links route to the cunnyx
+  // mirror, every other poster keeps the default.
+  const xLink = matchAny("https://x.com/u/status/1");
+  check(
+    "transforms",
+    "overridden poster's x.com link -> cunnyx.com, others unchanged",
+    xLink !== null &&
+      buildTransformedUrl(xLink, "229791342547566592") === "https://cunnyx.com/u/status/1" &&
+      buildTransformedUrl(xLink, "1") === "https://fixupx.com/u/status/1",
+  );
+
   // Links already on a fixer frontend: matched as pre-embedded by path shape
   // (any domain, even mirrors we have never heard of) or by the short-form
   // domain list, and kept unchanged so they get moved without rewriting.
@@ -155,7 +177,7 @@ function checkLinkTransforms(): void {
     "https://vxreddit.com/r/x/comments/abc",
     "https://viewthreads.com/@u/post/ID1",
     "https://d.tnktok.com/@u/video/123",
-    "https://d.vm.tnktok.com/AbC123",
+    "https://d.tnktok.com/AbC123",
   ];
   for (const input of preEmbedded) {
     const m = matchAny(input);
@@ -223,6 +245,15 @@ function checkRepostContent(): void {
     "repost",
     "source pointer links to the moved message",
     pointer === `<@1> SENT SLOP ${movedUrl}`,
+  );
+
+  // The copy hand-off fences the URL so Discord renders no embed and mobile
+  // shows a copy button.
+  const clean = "https://example.com/x?v=1";
+  check(
+    "repost",
+    "copy hand-off fences the cleaned link",
+    buildCopyMessage(clean).includes(`\`\`\`\n${clean}\n\`\`\``),
   );
 }
 
@@ -603,6 +634,115 @@ function checkSlurResponses(): void {
   );
 }
 
+/**
+ * Verifies the /gif rules: categories come from the word config, URLs are
+ * validated, and add/remove enforce ownership and the per-category cap while
+ * preserving the parts of responses.json the command does not own.
+ */
+function checkGifs(): void {
+  writeSmokeWords();
+  try {
+    // Derived from the slur words rather than hardcoded: the smoke config
+    // declares exactly one category. The real ten live in the gitignored
+    // global words.json, which CI does not have.
+    check(
+      "gifs",
+      "categories come from the word config, generic first",
+      listCategories(SMOKE_GUILD).join(",") === "generic,waterfowl",
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", SMOKE_GUILD), { recursive: true, force: true });
+  }
+
+  check("gifs", "accepts an https link", isValidGifUrl("https://tenor.com/view/x-gif-1"));
+  check("gifs", "rejects a non-url", !isValidGifUrl("notaurl"));
+  check("gifs", "rejects a non-http scheme", !isValidGifUrl("ftp://example.com/x.gif"));
+
+  const cats = ["generic", "waterfowl"];
+  // A hand-written entry and a sibling key, so the checks below prove neither
+  // is disturbed by an edit.
+  const base: RawResponsesFile = {
+    _comment: "keep me",
+    types: { slur: { responses: ["hand-written"], spam: "ENOUGH" } },
+  };
+  const add = (
+    raw: RawResponsesFile,
+    url: string,
+    id: string,
+    category = "waterfowl",
+    by = "u1",
+  ): GifResult =>
+    addGif({
+      raw,
+      category,
+      validCategories: cats,
+      url,
+      addedBy: by,
+      id,
+      addedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+  const added = add(base, "https://a.example/1.gif", "id1");
+  check(
+    "gifs",
+    "add appends a tagged entry",
+    added.ok && listGifs(added.config, "waterfowl").length === 1,
+  );
+  check(
+    "gifs",
+    "add preserves keys it does not own",
+    added.ok && added.config._comment === "keep me" && added.config.types?.slur?.spam === "ENOUGH",
+  );
+  check(
+    "gifs",
+    "add leaves the hand-written entry alone",
+    added.ok && listGifs(added.config).some((e) => e.content === "hand-written" && !e.id),
+  );
+  check(
+    "gifs",
+    "add rejects an unknown category",
+    !add(base, "https://a.example/1.gif", "x", "nope").ok,
+  );
+  check("gifs", "add rejects a bad url", !add(base, "notaurl", "id2").ok);
+  check(
+    "gifs",
+    "add rejects a duplicate in the same category",
+    added.ok && !add(added.config, "https://a.example/1.gif", "id3").ok,
+  );
+
+  // Fill the category to the cap, then confirm the next one is turned away.
+  let full: RawResponsesFile = base;
+  for (let i = 0; i < MAX_PER_CATEGORY; i++) {
+    const r = add(full, `https://a.example/${i}.gif`, `f${i}`);
+    if (!r.ok) break;
+    full = r.config;
+  }
+  check(
+    "gifs",
+    "add refuses once the category is full",
+    listGifs(full, "waterfowl").length === MAX_PER_CATEGORY &&
+      !add(full, "https://a.example/extra.gif", "over").ok,
+  );
+
+  const owned = added.ok ? added.config : base;
+  check("gifs", "remove refuses someone else's entry", !removeGif(owned, "id1", "u2", false).ok);
+  check("gifs", "admin removes someone else's entry", removeGif(owned, "id1", "u2", true).ok);
+  check("gifs", "remove refuses an unknown id", !removeGif(owned, "nosuch", "u1", true).ok);
+
+  const removed = removeGif(owned, "id1", "u1", false);
+  check(
+    "gifs",
+    "owner removes their own entry",
+    removed.ok && listGifs(removed.config, "waterfowl").length === 0,
+  );
+  // The curated entries have no id, so nothing the command does can reach them.
+  check(
+    "gifs",
+    "remove leaves the hand-written entry in place",
+    removed.ok && listGifs(removed.config).some((e) => e.content === "hand-written"),
+  );
+}
+
 /* --------------------------------------------------------------- reporting */
 
 /**
@@ -635,6 +775,7 @@ void (async () => {
     checkSwears();
     checkTrackers();
     checkSlurResponses();
+    checkGifs();
 
     printTable();
 
