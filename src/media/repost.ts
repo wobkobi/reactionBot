@@ -18,14 +18,35 @@ export function buildMovedContent(authorMention: string, rewrittenText: string):
 }
 
 /**
+ * Collect a message's user mentions, in order and deduped. The digit after the
+ * optional "!" (legacy nickname form) keeps role and channel tokens out.
+ * @param content Raw message content.
+ * @param excludeId Discord ID to skip, normally the poster's own.
+ * @returns Mention strings, e.g. ["<@123>"].
+ */
+export function collectMentions(content: string, excludeId?: string): string[] {
+  const ids = new Set<string>();
+  for (const [, id] of content.matchAll(/<@!?(\d+)>/g)) {
+    if (id !== excludeId) ids.add(id);
+  }
+  return [...ids].map((id) => `<@${id}>`);
+}
+
+/**
  * Build the pointer left in the source channel, linking to the moved message
- * for quick access.
+ * for quick access and naming anyone the original tagged.
  * @param authorMention Mention string, e.g. "<@123>".
+ * @param mentions Mentions from the original, empty when it tagged nobody.
  * @param movedUrl Jump URL of the moved message.
  * @returns The content to post in the source channel.
  */
-export function buildPointerContent(authorMention: string, movedUrl: string): string {
-  return `${authorMention} SENT SLOP ${movedUrl}`;
+export function buildPointerContent(
+  authorMention: string,
+  mentions: string[],
+  movedUrl: string,
+): string {
+  const targets = mentions.length > 0 ? ` TO ${mentions.join(" ")}` : "";
+  return `${authorMention} SENT SLOP${targets} ${movedUrl}`;
 }
 
 /**
@@ -52,6 +73,8 @@ export async function repostWithOptionalStub(
   // links stay valid after deletion, long enough to re-upload the files with
   // the moved message so images/videos survive the move.
   const files = [...original.attachments.values()].map((a) => a.url);
+
+  const mentions = collectMentions(original.content, original.author.id);
 
   await original.delete().catch(() => {});
   log.debug("deleted original", { originalId: original.id });
@@ -89,7 +112,7 @@ export async function repostWithOptionalStub(
   let stub: Message<true> | undefined;
   if (withStub && source.id !== target.id) {
     stub = await source.send({
-      content: buildPointerContent(authorMention, moved.url),
+      content: buildPointerContent(authorMention, mentions, moved.url),
       allowedMentions: { parse: [] },
     });
     log.debug("posted pointer", { stubId: stub.id, sourceId: source.id });

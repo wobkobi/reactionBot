@@ -1,11 +1,9 @@
 // src/media/repostActions.ts
 
-// Author-only edit/delete of moved messages, reached by right-clicking either
-// the moved post or the pointer stub (Apps > Edit post / Delete post) and
-// resolved against the persisted repost records, not in-memory collectors, so
-// they keep working indefinitely and across bot restarts. The Edit/Delete
-// buttons moved messages used to carry are no longer attached, but messages
-// posted while they were still get their clicks handled here.
+// Author-only edit/delete of moved messages, reached by right-clicking the post
+// or its pointer stub (Apps > Edit post / Delete post). Resolved against the
+// persisted repost records, not in-memory collectors, so they keep working
+// across restarts. Older posts still carrying a button row are handled here too.
 
 import { appendDeletionLog } from "@/media/audit";
 import { findRepostForMessage, removeRepost, RepostRecord, saveRepost } from "@/media/repostStore";

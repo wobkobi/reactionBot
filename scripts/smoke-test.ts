@@ -1,20 +1,10 @@
 // scripts/smoke-test.ts
 
-/**
- * @file smoke-test.ts
- * @description No-Discord smoke test for reactionBot. Exercises the pure logic
- * that would otherwise need a live bot - command loading, link matching and
- * transformation, repost content, and grace timing - then prints a results
- * table. Runs in pre-push and CI and needs no bot token. Grows as features land.
- *
- * Usage:
- *   npx tsx scripts/smoke-test.ts            # run all checks
- *   npx tsx scripts/smoke-test.ts --verbose  # also echo every check as it runs
- *
- * Exit codes:
- *   0  all checks passed
- *   1  one or more checks failed
- */
+// No-Discord smoke test: exercises the logic that would otherwise need a live
+// bot - command loading, link matching and rewriting, repost content, grace
+// timing - then prints a results table. Runs in pre-push and CI, no token.
+//
+//   npx tsx scripts/smoke-test.ts [--verbose]   # --verbose echoes every check
 
 import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
@@ -22,7 +12,7 @@ import { resolveGrace } from "@/commands/setdelay";
 import { data as slursCommand } from "@/commands/slurs";
 import { buildCopyMessage, stripTracking } from "@/media/cleanTracking";
 import { matchAny } from "@/media/match";
-import { buildMovedContent, buildPointerContent } from "@/media/repost";
+import { buildMovedContent, buildPointerContent, collectMentions } from "@/media/repost";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
 import { trackerCommand } from "@/tracking/commands";
@@ -265,7 +255,7 @@ function checkLinkTransforms(): void {
 /**
  * Verifies the repost content builders: the moved message carries the
  * transformed link (so it embeds), and the source pointer links to the moved
- * message for quick access.
+ * message for quick access, naming anyone the original tagged.
  */
 function checkRepostContent(): void {
   const rewritten = "look https://vxinstagram.com/reel/x";
@@ -276,11 +266,33 @@ function checkRepostContent(): void {
     moved === `from <@1>\n\n${rewritten}`,
   );
   const movedUrl = "https://discord.com/channels/1/2/3";
-  const pointer = buildPointerContent("<@1>", movedUrl);
+  const pointer = buildPointerContent("<@1>", [], movedUrl);
   check(
     "repost",
     "source pointer links to the moved message",
     pointer === `<@1> SENT SLOP ${movedUrl}`,
+  );
+  check(
+    "repost",
+    "source pointer names anyone the original tagged",
+    buildPointerContent("<@1>", ["<@2>"], movedUrl) === `<@1> SENT SLOP TO <@2> ${movedUrl}`,
+  );
+  check(
+    "repost",
+    "several tagged users all make the pointer",
+    buildPointerContent("<@1>", ["<@2>", "<@3>"], movedUrl) ===
+      `<@1> SENT SLOP TO <@2> <@3> ${movedUrl}`,
+  );
+
+  check(
+    "repost",
+    "mentions are collected in order, deduped, without the poster",
+    collectMentions("hey <@3> and <@!2> and <@3> and me <@1>", "1").join(" ") === "<@3> <@2>",
+  );
+  check(
+    "repost",
+    "role and channel tokens are not treated as mentions",
+    collectMentions("<@&99> over in <#88> look <@2>", "1").join(" ") === "<@2>",
   );
 
   // The copy hand-off fences the URL so Discord renders no embed and mobile

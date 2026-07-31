@@ -11,10 +11,11 @@ per-server counters for swears, slurs, and name-calling.
 - **Media link relocation**: detect link > Yes/No approval prompt for the author (configurable
   grace, including instant auto-move) > delete the original > repost the rewritten link in the media
   channel > leave a pointer "tail" in the source channel. The full message text and any attachments
-  are carried over, and mentions render without pinging. The author can change a moved post by
-  right-clicking it - or its tail - and picking **Apps > Edit post** (a popup pre-filled with the
-  text) or **Apps > Delete post** (removes the post and its tail together). Records are persisted,
-  so both keep working after bot restarts. Links edited into an existing message are caught too.
+  are carried over, and anyone the message tagged is named on the tail too ("SENT SLOP TO ...") -
+  mentions render without pinging. The author can change a moved post by right-clicking it - or its
+  tail - and picking **Apps > Edit post** (a popup pre-filled with the text) or **Apps > Delete
+  post** (removes the post and its tail together). Records are persisted, so both keep working after
+  bot restarts. Links edited into an existing message are caught too.
 - **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
   `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
 - **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
@@ -60,17 +61,6 @@ to the working directory. All word behaviour (trackers + reactions) lives in one
 `data/global/words.json` - see [data/readme.md](data/readme.md) for the full format, a template, and
 how to add words. It's gitignored (it contains the slur list), so copy your own file in on a fresh
 deploy.
-
-## Running under pm2
-
-```sh
-npm ci
-npm run build
-pm2 start ecosystem.config.cjs
-pm2 save
-```
-
-Rebuild (`npm run build`) before `pm2 restart reactionbot` after pulling changes.
 
 ## Commands
 
@@ -127,8 +117,8 @@ cannot reach them - edit the JSON to change those.
 ## Development
 
 - Set `DEV_GUILD_ID` in `.env` to restrict a dev instance to one test server - it ignores messages
-  and commands everywhere else. Only honoured under `npm run dev`; production runs (`npm start`,
-  pm2) serve every guild regardless.
+  and commands everywhere else. Only honoured under `npm run dev`; production runs (`npm start`)
+  serve every guild regardless.
 - `npm run lint` - ESLint (flat config, type-aware) with autofix.
 - `npm run format` - Prettier.
 - `npm run smoke` - offline smoke test of the media pipeline.
