@@ -42,7 +42,7 @@ const CLIENT_ID = process.env.CLIENT_ID!;
 
 // While developing, DEV_GUILD_ID restricts the bot to one server so a dev
 // instance never reacts in the guilds the real bot serves. Honoured only when
-// launched via `npm run dev` - production runs (npm start, pm2, plain node)
+// launched via `npm run dev` - production runs (npm start, plain node)
 // serve every guild even with the variable set in .env.
 const DEV_GUILD_ID =
   process.env.npm_lifecycle_event === "dev" ? process.env.DEV_GUILD_ID : undefined;

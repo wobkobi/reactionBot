@@ -1,27 +1,9 @@
 // src/tracking/words.ts
 
-/**
- * @file The single word-list config: data/global/words.json (a per-guild
- * words.json overrides it wholesale). Types define behaviour once - which
- * counter they feed, their default reaction, competition pool, matching mode -
- * and the words are listed per type. An entry-level `reaction` overrides the
- * type default. A word may appear under several types.
- *
- * ```json
- * {
- *   "types": {
- *     "swear":   { "track": "swears" },
- *     "slur":    { "track": "slurs", "fuzzy": true },
- *     "british": { "reaction": "🇬🇧", "pool": "slang", "fuzzy": true }
- *   },
- *   "words": {
- *     "british": ["cheeky", "bender"],
- *     "swear": ["bender"],
- *     "slur": [{ "word": "...", "category": "black", "reaction": "nword" }]
- *   }
- * }
- * ```
- */
+// The single word-list config: data/global/words.json (a per-guild words.json
+// overrides it wholesale). Types define behaviour once - counter, reaction,
+// competition pool, matching mode - and words are listed per type, so one word
+// can sit under several. Format and template: data/readme.md.
 
 import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect";
 import { dataFilePath } from "@/utils/file";

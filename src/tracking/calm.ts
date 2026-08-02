@@ -1,12 +1,9 @@
 // src/tracking/calm.ts
 
-// Calm mode: a per-guild window during which configured replies are
-// suppressed while emoji reactions and stat tracking carry on. Started
-// manually via /calmdown (time-based) or automatically after the spam
-// escalation fires (ends after a time limit OR a number of guild messages,
-// whichever comes first, so a busy channel gets replies back sooner). The
-// auto-calm limits are per-guild settings (/calmdown auto). Persisted so a
-// restart doesn't cut the window short.
+// Calm mode: a per-guild window where replies are suppressed while reactions
+// and stat tracking carry on. Started by /calmdown or by a spam escalation, and
+// ended by a time limit OR a message count - whichever comes first, so a busy
+// channel gets replies back sooner. Persisted, so a restart won't cut it short.
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";

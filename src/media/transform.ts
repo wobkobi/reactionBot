@@ -1,9 +1,6 @@
 // src/media/transform.ts
 
-/**
- * @file Transforms matched platform URLs to privacy-friendly frontends
- * and rewrites the message content.
- */
+// Rewrites matched platform URLs to embed-friendly frontends.
 
 import { stripTracking } from "@/media/cleanTracking";
 import { MediaMatch, RewriteResult } from "@/media/types";
