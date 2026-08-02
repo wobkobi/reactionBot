@@ -10,7 +10,8 @@ import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
 import { resolveGrace } from "@/commands/setdelay";
 import { data as slursCommand } from "@/commands/slurs";
-import { buildCopyMessage, stripTracking } from "@/media/cleanTracking";
+import { stripTracking } from "@/media/cleanTracking";
+import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
 import { buildMovedContent, buildPointerContent, collectMentions } from "@/media/repost";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
@@ -236,11 +237,19 @@ function checkLinkTransforms(): void {
     "returns null when nothing to strip",
     stripTracking("https://example.com/p?id=7") === null,
   );
-  const tracked = matchAny("look https://example.com/article?utm_source=news&si=abc123");
+  // Short, widely-reused keys are left alone: a site can legitimately mean
+  // something functional by them, and a wrong strip breaks the link.
+  check(
+    "tracking",
+    "generic keys are not treated as trackers",
+    stripTracking("https://example.com/p?si=1&ref_url=2&share_id=3&spm=4") === null,
+  );
+  const tracked = matchAny("look https://example.com/article?utm_source=news&fbclid=abc123&id=7");
   check(
     "tracking",
     "tracked link matches as 'tracking' with the cleaned URL",
-    tracked?.which === "tracking" && buildTransformedUrl(tracked) === "https://example.com/article",
+    tracked?.which === "tracking" &&
+      buildTransformedUrl(tracked) === "https://example.com/article?id=7",
   );
   const socialTail = matchAny("https://x.com/u/status/1?s=20&t=trackme");
   check(
@@ -300,8 +309,8 @@ function checkRepostContent(): void {
   const clean = "https://example.com/x?v=1";
   check(
     "repost",
-    "copy hand-off fences the cleaned link",
-    buildCopyMessage(clean).includes(`\`\`\`\n${clean}\n\`\`\``),
+    "copy hand-off fences the link under its lead line",
+    buildCopyMessage(clean, "Here you go:") === `Here you go:\n\`\`\`\n${clean}\n\`\`\``,
   );
 }
 

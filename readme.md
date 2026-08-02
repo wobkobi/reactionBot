@@ -8,14 +8,15 @@ per-server counters for swears, slurs, and name-calling.
 
 ## Features
 
-- **Media link relocation**: detect link > Yes/No approval prompt for the author (configurable
-  grace, including instant auto-move) > delete the original > repost the rewritten link in the media
-  channel > leave a pointer "tail" in the source channel. The full message text and any attachments
-  are carried over, and anyone the message tagged is named on the tail too ("SENT SLOP TO ...") -
-  mentions render without pinging. The author can change a moved post by right-clicking it - or its
-  tail - and picking **Apps > Edit post** (a popup pre-filled with the text) or **Apps > Delete
-  post** (removes the post and its tail together). Records are persisted, so both keep working after
-  bot restarts. Links edited into an existing message are caught too.
+- **Media link relocation**: detect link > Yes/Copy/No prompt for the author (configurable grace,
+  including instant auto-move) > delete the original > repost the rewritten link in the media
+  channel > leave a pointer "tail" in the source channel. **Copy** is the quiet way out: the author
+  gets the embeddable link privately and their message is left exactly where it is. The full message
+  text and any attachments are carried over, and anyone the message tagged is named on the tail too
+  ("SENT SLOP TO ...") - mentions render without pinging. The author can change a moved post by
+  right-clicking it - or its tail - and picking **Apps > Edit post** (a popup pre-filled with the
+  text) or **Apps > Delete post** (removes the post and its tail together). Records are persisted,
+  so both keep working after bot restarts. Links edited into an existing message are caught too.
 - **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
   `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
 - **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
@@ -23,9 +24,9 @@ per-server counters for swears, slurs, and name-calling.
   moved to the media channel as-is, without rewriting (see `PRE_EMBEDDED_REGEX` in
   [src/regex.ts](src/regex.ts)).
 - **Tracking-junk cleaning**: social links get their `?utm_...`/`fbclid`-style tails dropped
-  automatically during the rewrite; any other link carrying known trackers gets a Yes/No prompt to
-  clean it in place (it stays in its channel). Functional params (`v=`, timestamps, share ids in
-  paths) are never touched - see the conservative list in
+  automatically during the rewrite; any other link carrying known trackers gets a Repost/Copy/No
+  prompt to clean it in place (it stays in its channel). Functional params (`v=`, timestamps, share
+  ids in paths) are never touched - see the conservative list in
   [src/media/cleanTracking.ts](src/media/cleanTracking.ts).
 - **Trackers**: per-guild counters for swears (insults included) and slurs (with targeted-group
   breakdown), with leaderboard commands.
