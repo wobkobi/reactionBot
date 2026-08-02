@@ -10,7 +10,8 @@ import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
 import { resolveGrace } from "@/commands/setdelay";
 import { data as slursCommand } from "@/commands/slurs";
-import { buildCopyMessage, stripTracking } from "@/media/cleanTracking";
+import { stripTracking } from "@/media/cleanTracking";
+import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
 import { buildMovedContent, buildPointerContent, collectMentions } from "@/media/repost";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
@@ -300,8 +301,8 @@ function checkRepostContent(): void {
   const clean = "https://example.com/x?v=1";
   check(
     "repost",
-    "copy hand-off fences the cleaned link",
-    buildCopyMessage(clean).includes(`\`\`\`\n${clean}\n\`\`\``),
+    "copy hand-off fences the link under its lead line",
+    buildCopyMessage(clean, "Here you go:") === `Here you go:\n\`\`\`\n${clean}\n\`\`\``,
   );
 }
 

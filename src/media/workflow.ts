@@ -3,28 +3,73 @@
 // Orchestrates media-link handling for a single message. Splits
 // responsibilities across match/transform/settings/approval/repost/audit.
 
-import { ChoiceButton, requestApproval, requestChoice } from "@/media/approval";
-import { buildCopyMessage } from "@/media/cleanTracking";
+import { ChoiceButton, requestChoice } from "@/media/approval";
+import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
 import { repostWithOptionalStub } from "@/media/repost";
 import { registerRepostActions } from "@/media/repostActions";
 import { loadSettings, resolveApprovalPlan, resolveTargetChannelId } from "@/media/settings";
 import { rewriteContent } from "@/media/transform";
 import { createLogger } from "@/utils/log";
-import { ButtonStyle, GuildTextBasedChannel, Message, MessageFlags } from "discord.js";
+import {
+  ButtonInteraction,
+  ButtonStyle,
+  GuildTextBasedChannel,
+  Message,
+  MessageFlags,
+} from "discord.js";
 
 const log = createLogger("media/workflow");
 
 /**
- * Buttons on the tracking-clean prompt. "Copy" hands the poster the cleaned
- * link privately and leaves their message alone; "Repost" is the move-and-
- * rewrite path shared with media links.
+ * Buttons on the tracking-clean prompt. "Repost" is the move-and-rewrite path
+ * shared with media links.
  */
 const CLEAN_BUTTONS: ChoiceButton[] = [
-  { id: "repost", label: "Repost", emoji: "♻️", style: ButtonStyle.Primary },
+  { id: "yes", label: "Repost", emoji: "♻️", style: ButtonStyle.Primary },
   { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
   { id: "no", label: "No", style: ButtonStyle.Danger },
 ];
+
+/** Buttons on the media prompt, both when moving channels and rewriting in place. */
+const MEDIA_BUTTONS: ChoiceButton[] = [
+  { id: "yes", label: "Yes", style: ButtonStyle.Success },
+  { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
+  { id: "no", label: "No", style: ButtonStyle.Danger },
+];
+
+/** Line above the copied link, naming what the bot did to it. */
+const COPY_LEAD = {
+  tracking: "Here's your link without the tracking junk:",
+  media: "Here's your embeddable link:",
+} as const;
+
+/**
+ * Hands the clicker their rewritten link privately, leaving their message
+ * untouched. A failure here is logged rather than thrown: the poster's message
+ * is already in the state they asked for.
+ * @param interaction - The "Copy" click, already acknowledged by the collector.
+ * @param link - The rewritten link to hand over.
+ * @param lead - Line shown above it, from {@link COPY_LEAD}.
+ * @returns A promise that resolves once the reply is sent or the failure logged.
+ */
+async function handOverLink(
+  interaction: ButtonInteraction | null,
+  link: string,
+  lead: string,
+): Promise<void> {
+  // followUp, not reply: the collector already acknowledged the click.
+  await interaction
+    ?.followUp({
+      content: buildCopyMessage(link, lead),
+      flags: MessageFlags.Ephemeral,
+    })
+    .catch((err: unknown) => {
+      log.warn("failed to hand over link", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
 
 /**
  * Handles a message: detect media links, get approval, and repost/notify.
@@ -64,38 +109,35 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   const plan = resolveApprovalPlan(settings.grace, sameChannel);
   if (isTrackingClean) plan.promptText = "Clean the tracking junk out of your link?";
 
-  // Auto-approve or ask. Tracking cleans offer a third option: hand the poster
-  // the cleaned link privately and leave their message untouched. They always
-  // prompt, since the same-channel plan never auto-approves.
+  // Auto-approve or ask. Every prompt offers a third option: hand the poster
+  // the rewritten link privately and leave their message untouched. Tracking
+  // cleans always prompt, since the same-channel plan never auto-approves.
   let approved = plan.autoApprove;
-  if (isTrackingClean) {
-    const { choice, interaction } = await requestChoice(source, message.author, CLEAN_BUTTONS, {
-      prompt: plan.promptText,
-      grace: plan.timeoutMs ?? 15_000,
-      autoDelete: true,
-    });
+  if (!approved) {
+    const { choice, interaction } = await requestChoice(
+      source,
+      message.author,
+      isTrackingClean ? CLEAN_BUTTONS : MEDIA_BUTTONS,
+      {
+        prompt: plan.promptText,
+        grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),
+        autoDelete: !plan.persistIndefinitely,
+      },
+    );
     if (choice === "copy") {
-      // followUp, not reply: the collector already acknowledged the click.
-      await interaction
-        ?.followUp({
-          content: buildCopyMessage(rewrite.newLink),
-          flags: MessageFlags.Ephemeral,
-        })
-        .catch((err: unknown) => {
-          log.warn("failed to hand over cleaned link", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      log.info("poster copied cleaned link", { guildId: message.guildId!, from: source.id });
+      await handOverLink(
+        interaction,
+        rewrite.newLink,
+        isTrackingClean ? COPY_LEAD.tracking : COPY_LEAD.media,
+      );
+      log.info("poster copied link", {
+        guildId: message.guildId!,
+        from: source.id,
+        which: match.which,
+      });
       return;
     }
-    approved = choice === "repost";
-  } else if (!approved) {
-    approved = await requestApproval(source, message.author, {
-      prompt: plan.promptText,
-      grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),
-      autoDelete: !plan.persistIndefinitely,
-    });
+    approved = choice === "yes";
   }
 
   log.debug("approval result", { approved, sameChannel, targetId });

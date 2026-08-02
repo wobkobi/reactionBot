@@ -1,8 +1,7 @@
 // src/media/approval.ts
 
-// Button prompts with grace handling. requestChoice is the generic core (any
-// button set, returns which was clicked); requestApproval is the yes/no case
-// built on it. Only the intended author's clicks count.
+// Button prompts with grace handling: requestChoice takes any button set and
+// returns which one was clicked. Only the intended author's clicks count.
 
 import { ApprovalOptions, GraceSetting } from "@/media/types";
 import { createLogger } from "@/utils/log";
@@ -134,30 +133,4 @@ export async function requestChoice(
       resolve({ choice, interaction: clicked });
     });
   });
-}
-
-/**
- * Request in-channel approval from a user via Yes/No buttons. Thin wrapper
- * over {@link requestChoice}: resolves `true` on "Yes", `false` on "No" or
- * timeout, and `true` immediately when `grace` is `"instant"`.
- * @param channel - Target channel for the prompt.
- * @param author - Allowed responder.
- * @param [opts] - Prompt and behaviour controls.
- * @returns Approval result.
- */
-export async function requestApproval(
-  channel: GuildTextBasedChannel,
-  author: User,
-  opts: ApprovalOptions = {},
-): Promise<boolean> {
-  const { choice } = await requestChoice(
-    channel,
-    author,
-    [
-      { id: "yes", label: "Yes", style: ButtonStyle.Success },
-      { id: "no", label: "No", style: ButtonStyle.Danger },
-    ],
-    { ...opts, instantChoice: "yes" },
-  );
-  return choice === "yes";
 }
