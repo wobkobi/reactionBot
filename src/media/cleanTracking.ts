@@ -23,13 +23,8 @@ const TRACKING_PARAMS = new Set([
   "vero_id",
   "igsh",
   "igshid",
-  "si",
-  "spm",
-  "ref_src",
-  "ref_url",
   "cmpid",
   "s_cid",
-  "share_id",
 ]);
 
 /** Param-name prefixes that are always tracking (utm_source, _hsenc, ...). */
