@@ -12,6 +12,7 @@ import {
   ButtonStyle,
   ComponentType,
   GuildTextBasedChannel,
+  MessageFlags,
   User,
 } from "discord.js";
 
@@ -33,12 +34,28 @@ export interface ChoiceButton {
 export interface ChoiceOutcome {
   /** The clicked button's id, or null on timeout or send failure. */
   choice: string | null;
-  /**
-   * The click interaction, so callers can answer the clicker privately. Null
-   * when nothing was clicked. Already acknowledged by the collector, so use
-   * `followUp` rather than `reply`.
-   */
-  interaction: ButtonInteraction | null;
+}
+
+/**
+ * Acknowledges a click: a private reply when the button has one to give, else
+ * clears the prompt's buttons. Replies rather than updates - `update` makes the
+ * prompt this interaction's original response, which the cleanup then deletes,
+ * dropping any later `followUp` against it.
+ * @param i - The click to acknowledge.
+ * @param [privateReply] - Ephemeral text for this button, if it has any.
+ * @returns A promise that resolves once the response is sent or logged.
+ */
+async function answerClick(i: ButtonInteraction, privateReply?: string): Promise<void> {
+  if (privateReply === undefined) {
+    await i.update({ components: [] }).catch(() => {});
+    return;
+  }
+  await i.reply({ content: privateReply, flags: MessageFlags.Ephemeral }).catch((err: unknown) => {
+    log.warn("failed to answer click privately", {
+      choice: i.customId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 /**
@@ -46,6 +63,7 @@ export interface ChoiceOutcome {
  * - Only `author` clicks are accepted; everyone else's are ignored.
  * - `grace: "instant"` resolves to `opts.instantChoice` without showing UI.
  *   `"disabled"` waits indefinitely.
+ * - A button in `opts.privateReplies` answers the clicker ephemerally.
  * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`,
  *   else strips the buttons so it cannot be clicked later.
  * @param channel - Target channel for the prompt.
@@ -53,7 +71,7 @@ export interface ChoiceOutcome {
  * @param buttons - The choices to offer, in display order.
  * @param [opts] - Prompt and behaviour controls.
  * @param [opts.instantChoice] - Choice returned when `grace` is `"instant"`.
- * @returns The chosen button id and the click interaction.
+ * @returns The chosen button id.
  */
 export async function requestChoice(
   channel: GuildTextBasedChannel,
@@ -68,7 +86,7 @@ export async function requestChoice(
   // Instant path: resolve without showing UI
   if (grace === "instant") {
     log.debug("instant choice", { channelId: channel.id, userId: author.id });
-    return { choice: opts.instantChoice ?? null, interaction: null };
+    return { choice: opts.instantChoice ?? null };
   }
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -91,7 +109,7 @@ export async function requestChoice(
       channelId: channel.id,
       userId: author.id,
     });
-    return { choice: null, interaction: null };
+    return { choice: null };
   }
 
   // Collector config
@@ -104,7 +122,9 @@ export async function requestChoice(
 
   const ids = new Set(buttons.map((b) => b.id));
   let choice: string | null = null;
-  let clicked: ButtonInteraction | null = null;
+  // "end" fires without waiting on "collect", so cleanup would race the click's
+  // response. Park it here for "end" to await.
+  let answered: Promise<void> = Promise.resolve();
 
   const collector = msg.createMessageComponentCollector({
     componentType: ComponentType.Button,
@@ -113,15 +133,15 @@ export async function requestChoice(
     filter: (i: ButtonInteraction) => i.user.id === author.id && ids.has(i.customId),
   });
 
-  collector.on("collect", async (i: ButtonInteraction) => {
+  collector.on("collect", (i: ButtonInteraction) => {
     choice = i.customId;
-    clicked = i;
     log.debug("choice click", { userId: i.user.id, choice: i.customId });
-    await i.update({ components: [] }).catch(() => {});
+    answered = answerClick(i, opts.privateReplies?.[i.customId]);
   });
 
   return new Promise((resolve) => {
     collector.on("end", async () => {
+      await answered;
       if (autoDelete && grace !== "disabled") {
         await msg.delete().catch(() => {});
         log.debug("prompt deleted", { messageId: msg.id });
@@ -130,7 +150,7 @@ export async function requestChoice(
         await msg.edit({ components: [] }).catch(() => {});
         log.debug("prompt buttons cleared", { messageId: msg.id });
       }
-      resolve({ choice, interaction: clicked });
+      resolve({ choice });
     });
   });
 }

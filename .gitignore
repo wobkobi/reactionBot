@@ -62,3 +62,4 @@ yarn-error.log*
 # responses.json (your own replies, plus the legacy slur_responses.json) stay
 # local; data/readme.md and the .example file document the shapes.
 !/data/global/responses.example.json
+docs/

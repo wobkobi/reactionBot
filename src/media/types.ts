@@ -96,4 +96,10 @@ export interface ApprovalOptions {
    * Default: `true` unless `grace === "disabled"`, in which case the message is left visible.
    */
   autoDelete?: boolean;
+
+  /**
+   * Ephemeral text answering a click, keyed by button id. Listed buttons reply
+   * privately instead of editing the prompt, so the reply survives `autoDelete`.
+   */
+  privateReplies?: Record<string, string>;
 }
