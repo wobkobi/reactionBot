@@ -12,6 +12,19 @@ import {
 const BOT_OWNER_ID = process.env.YOUR_ID;
 
 /**
+ * Subcommands that need admin on commands that are otherwise open to everyone,
+ * keyed by command name. Discord filters its picker per command rather than
+ * per subcommand, so these cannot be hidden the way a fully-admin command is;
+ * `/help` marks them instead. Keep in step with the {@link requireAdmin} calls
+ * in the command modules - a fully-admin command belongs in its builder's
+ * default permissions, not here.
+ */
+export const ADMIN_SUBCOMMANDS: Record<string, string[]> = {
+  slurs: ["nuke"],
+  swears: ["nuke"],
+};
+
+/**
  * Checks whether the invoker may run admin commands (settings, nukes).
  * Allowed: the bot owner ({@link BOT_OWNER_ID}), the guild owner, or a member
  * with Manage Server (Administrator implies it). Runtime check rather than

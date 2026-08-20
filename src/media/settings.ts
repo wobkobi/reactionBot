@@ -1,10 +1,10 @@
 // src/media/settings.ts
 
-/**
- * @file Loads and resolves per-guild media settings.
- */
+// Loads per-guild media settings and resolves them, together with a member's
+// own preference, into the plan for one message.
 
-import { ApprovalPlan, GraceSetting, MediaSettings } from "@/media/types";
+import { clampPref, resolveLimits } from "@/media/prefs";
+import { ApprovalPlan, GraceSetting, MediaSettings, MemberPref } from "@/media/types";
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 
@@ -76,6 +76,7 @@ export function resolveApprovalPlan(
       autoApprove: false,
       timeoutMs: 15_000,
       persistIndefinitely: false,
+      approveOnTimeout: false,
       promptText: "Rewrite your link here with an embeddable version?",
     };
     log.debug("approval plan (same channel)", { plan });
@@ -89,6 +90,7 @@ export function resolveApprovalPlan(
       autoApprove: true,
       timeoutMs: undefined,
       persistIndefinitely: false,
+      approveOnTimeout: false,
       promptText: "Move your media link to the media channel?",
     };
   } else if (g === "disabled") {
@@ -96,6 +98,7 @@ export function resolveApprovalPlan(
       autoApprove: false,
       timeoutMs: undefined,
       persistIndefinitely: true,
+      approveOnTimeout: false,
       promptText: "Move your media link to the media channel?",
     };
   } else {
@@ -104,9 +107,56 @@ export function resolveApprovalPlan(
       autoApprove: false,
       timeoutMs: ms,
       persistIndefinitely: false,
+      approveOnTimeout: false,
       promptText: "Move your media link to the media channel?",
     };
   }
   log.debug("approval plan", { sameChannel, grace: g, plan });
   return plan;
+}
+
+/**
+ * Resolves the plan for one message: a member's own preference when it
+ * applies, otherwise the guild `/setdelay` default. Member preferences govern
+ * cross-channel moves only, so a same-channel rewrite never consults one.
+ * @param settings - Stored guild settings.
+ * @param pref - The poster's stored preference, if they have one.
+ * @param sameChannel - Whether the repost target is the source channel.
+ * @returns The {@link ApprovalPlan} to run, or `null` when the poster opted
+ * out of moves entirely and nothing should happen.
+ */
+export function resolvePlanFor(
+  settings: MediaSettings,
+  pref: MemberPref | undefined,
+  sameChannel: boolean,
+): ApprovalPlan | null {
+  const guildPlan = resolveApprovalPlan(settings.grace, sameChannel);
+  if (sameChannel) return guildPlan;
+
+  const effective = clampPref(pref, resolveLimits(settings));
+  if (!effective) return guildPlan;
+
+  log.debug("member preference applies", { mode: effective.mode, seconds: effective.seconds });
+  switch (effective.mode) {
+    case "never":
+      return null;
+    case "instant":
+      return { ...guildPlan, autoApprove: true, timeoutMs: undefined, persistIndefinitely: false };
+    case "countdown":
+      return {
+        autoApprove: false,
+        approveOnTimeout: true,
+        timeoutMs: (effective.seconds ?? 10) * 1000,
+        persistIndefinitely: false,
+        promptText: "Moving your media link to the media channel - hit Cancel to keep it here.",
+      };
+    case "ask":
+      return {
+        autoApprove: false,
+        approveOnTimeout: false,
+        timeoutMs: (effective.seconds ?? 10) * 1000,
+        persistIndefinitely: false,
+        promptText: "Move your media link to the media channel?",
+      };
+  }
 }

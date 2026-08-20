@@ -8,23 +8,19 @@ import {
 } from "@/media/repostActions";
 import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
+import type { CommandModule } from "@/types/discord";
 import { createLogger } from "@/utils/log";
-import { ContextMenuCommandBuilder } from "@discordjs/builders";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
-  AutocompleteInteraction,
-  ChatInputCommandInteraction,
   Client,
   Collection,
   GatewayIntentBits,
   Interaction,
   InteractionReplyOptions,
   Message,
-  MessageContextMenuCommandInteraction,
   MessageFlags,
   Partials,
-  SlashCommandBuilder,
 } from "discord.js";
 import * as dotenv from "dotenv";
 import { readdirSync } from "fs";
@@ -64,19 +60,6 @@ if (!BOT_TOKEN || !CLIENT_ID) {
   process.exit(1);
 }
 
-declare module "discord.js" {
-  interface Client {
-    commands: Collection<
-      string,
-      {
-        data: SlashCommandBuilder | ContextMenuCommandBuilder;
-        execute: (interaction: CommandInteractionOfAnyKind) => Promise<void>;
-        autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
-      }
-    >;
-  }
-}
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -92,16 +75,6 @@ const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Either kind of command Discord dispatches to `execute`: a slash command, or
-// a right-click entry on a message (Apps > Edit post / Delete post).
-type CommandInteractionOfAnyKind =
-  ChatInputCommandInteraction | MessageContextMenuCommandInteraction;
-
-interface CommandModule {
-  data: SlashCommandBuilder | ContextMenuCommandBuilder;
-  execute: (interaction: CommandInteractionOfAnyKind) => Promise<void>;
-  autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
-}
 type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
 
 {

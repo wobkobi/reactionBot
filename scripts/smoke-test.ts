@@ -6,16 +6,26 @@
 //
 //   npx tsx scripts/smoke-test.ts [--verbose]   # --verbose echoes every check
 
+import { data as calmDown } from "@/commands/calmdown";
 import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
-import { resolveGrace } from "@/commands/setdelay";
+import { buildHelpFields } from "@/commands/help";
+import { data as myDelay, resolvePref } from "@/commands/mydelay";
+import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
+import { data as setMediaChannel } from "@/commands/setmediachannel";
 import { data as slursCommand } from "@/commands/slurs";
+import { data as swearsCommand } from "@/commands/swears";
+import { isApproved } from "@/media/approval";
 import { stripTracking } from "@/media/cleanTracking";
 import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
+import { clampPref, clearPref, loadPref, savePref } from "@/media/prefs";
 import { buildMovedContent, buildPointerContent, collectMentions } from "@/media/repost";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
+import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
+import { MediaSettings } from "@/media/types";
+import { copyHintFor } from "@/media/workflow";
 import { trackerCommand } from "@/tracking/commands";
 import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect";
 import {
@@ -40,7 +50,8 @@ import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, parseJsonc } from "@/tracking/words";
 import { recordReply, takeReplies } from "@/utils/replyStore";
-import { ApplicationCommandType } from "discord-api-types/v10";
+import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
+import { PermissionFlagsBits } from "discord.js";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -835,6 +846,240 @@ function checkGifs(): void {
   );
 }
 
+/**
+ * Verifies per-member move preferences: how a stored choice resolves into an
+ * approval plan, how admin bounds clamp it on read, how silence is read under
+ * each mode, and that the store round-trips. Cross-channel moves only - the
+ * same-channel rewrite must ignore preferences entirely.
+ */
+function checkMemberPrefs(): void {
+  const guild = "__smoketest__";
+  const guildDefault: MediaSettings = { grace: 10_000 };
+
+  check(
+    "prefs",
+    "no stored preference leaves the guild default",
+    resolvePlanFor(guildDefault, undefined, false)?.timeoutMs === 10_000,
+  );
+  check(
+    "prefs",
+    "instant moves without prompting",
+    resolvePlanFor({ grace: "disabled" }, { mode: "instant" }, false)?.autoApprove === true,
+  );
+
+  const countdown = resolvePlanFor(guildDefault, { mode: "countdown", seconds: 30 }, false);
+  check(
+    "prefs",
+    "countdown counts silence as approval",
+    countdown?.autoApprove === false &&
+      countdown.approveOnTimeout === true &&
+      countdown.timeoutMs === 30_000,
+  );
+
+  const ask = resolvePlanFor(guildDefault, { mode: "ask", seconds: 15 }, false);
+  check(
+    "prefs",
+    "ask needs a click and never approves on timeout",
+    ask?.autoApprove === false && ask.approveOnTimeout === false && ask.timeoutMs === 15_000,
+  );
+
+  check(
+    "prefs",
+    "never skips the move entirely",
+    resolvePlanFor(guildDefault, { mode: "never" }, false) === null,
+  );
+
+  // Bounds are applied on read, so tightening them reaches preferences that
+  // were already saved under the looser limit.
+  check(
+    "prefs",
+    "seconds clamp to the admin maximum on read",
+    resolvePlanFor(
+      { grace: 10_000, personal: { enabled: true, maxSeconds: 60, allowNever: true } },
+      { mode: "countdown", seconds: 300 },
+      false,
+    )?.timeoutMs === 60_000,
+  );
+  check(
+    "prefs",
+    "never falls back to the guild default when it is not allowed",
+    resolvePlanFor(
+      { grace: 10_000, personal: { enabled: true, maxSeconds: 300, allowNever: false } },
+      { mode: "never" },
+      false,
+    )?.timeoutMs === 10_000,
+  );
+  check(
+    "prefs",
+    "personal preferences switched off ignores a stored preference",
+    resolvePlanFor(
+      { grace: 10_000, personal: { enabled: false, maxSeconds: 300, allowNever: true } },
+      { mode: "instant" },
+      false,
+    )?.autoApprove === false,
+  );
+  check(
+    "prefs",
+    "same-channel rewrites ignore member preferences",
+    resolvePlanFor(guildDefault, { mode: "instant" }, true)?.timeoutMs === 15_000,
+  );
+
+  // What /mydelay show reports: the preference after clamping, not the one
+  // that was typed.
+  check(
+    "prefs",
+    "clamping reports what is actually active",
+    clampPref({ mode: "ask", seconds: 300 }, { enabled: true, maxSeconds: 20, allowNever: true })
+      ?.seconds === 20 &&
+      clampPref({ mode: "never" }, { enabled: true, maxSeconds: 20, allowNever: false }) ===
+        undefined,
+  );
+
+  // A prompt that never reached the channel must not read as silent consent,
+  // or a failed send would move the link on its own.
+  const cd = resolvePlanFor(guildDefault, { mode: "countdown", seconds: 30 }, false)!;
+  check(
+    "prefs",
+    "countdown treats an unsent prompt as leave it",
+    isApproved(cd, { choice: null, prompted: false }) === false,
+  );
+  check(
+    "prefs",
+    "countdown moves when nobody cancels",
+    isApproved(cd, { choice: null, prompted: true }) === true,
+  );
+  check(
+    "prefs",
+    "countdown stops on cancel",
+    isApproved(cd, { choice: "no", prompted: true }) === false,
+  );
+  const asked = resolvePlanFor(guildDefault, { mode: "ask", seconds: 15 }, false)!;
+  check(
+    "prefs",
+    "ask approves only on yes",
+    isApproved(asked, { choice: null, prompted: true }) === false &&
+      isApproved(asked, { choice: "yes", prompted: true }) === true,
+  );
+
+  try {
+    savePref(guild, "u1", { mode: "countdown", seconds: 45 });
+    const loaded = loadPref(guild, "u1");
+    check(
+      "prefs",
+      "store round-trips a member preference",
+      loaded?.mode === "countdown" && loaded.seconds === 45,
+    );
+    clearPref(guild, "u1");
+    check("prefs", "store clears a member preference", loadPref(guild, "u1") === undefined);
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+
+  check(
+    "prefs",
+    "the copy hand-off carries a hint under the fenced link",
+    buildCopyMessage("https://example.com/x", "Here you go:", "-# hint").endsWith("```\n-# hint"),
+  );
+
+  check(
+    "prefs",
+    "a countdown choice keeps its seconds, instant carries none",
+    resolvePref("countdown", 45).seconds === 45 && resolvePref("instant").seconds === undefined,
+  );
+
+  // Every /setdelay personal option is optional, so an admin can tighten one
+  // bound without restating the others.
+  check(
+    "prefs",
+    "personal bounds change only what was supplied",
+    JSON.stringify(
+      mergePersonal(
+        { enabled: true, maxSeconds: 300, allowNever: true },
+        { enabled: null, maxSeconds: 60, allowNever: null },
+      ),
+    ) === JSON.stringify({ enabled: true, maxSeconds: 60, allowNever: true }),
+  );
+
+  // The hint promises control that /mydelay only has over cross-channel moves.
+  check(
+    "prefs",
+    "the /mydelay hint rides on cross-channel moves only",
+    copyHintFor(false, false)?.includes("/mydelay") === true &&
+      copyHintFor(true, false) === undefined &&
+      copyHintFor(false, true) === undefined,
+  );
+
+  const mine = myDelay.toJSON();
+  const subs = (mine.options ?? [])
+    .filter((o) => o.type === ApplicationCommandOptionType.Subcommand)
+    .map((o) => o.name);
+  check(
+    "prefs",
+    "/mydelay registers its subcommands",
+    mine.name === "mydelay" &&
+      ["instant", "countdown", "ask", "never", "show", "clear"].every((n) => subs.includes(n)),
+  );
+  check(
+    "prefs",
+    "/setdelay gains a personal subcommand",
+    (setDelay.toJSON().options ?? []).some(
+      (o) => o.type === ApplicationCommandOptionType.Subcommand && o.name === "personal",
+    ),
+  );
+}
+
+/**
+ * Verifies who sees what. Discord filters the slash-command picker on a
+ * command's default permissions, so the fully-admin commands carry Manage
+ * Server and the mixed ones (open leaderboards, admin nuke) must not - the
+ * filter is per command, not per subcommand. /help then has to agree with the
+ * picker, or it advertises commands a member cannot reach.
+ */
+function checkCommandVisibility(): void {
+  const manageGuild = String(PermissionFlagsBits.ManageGuild);
+  for (const [label, builder] of [
+    ["/setdelay", setDelay],
+    ["/setmediachannel", setMediaChannel],
+    ["/calmdown", calmDown],
+  ] as const) {
+    check(
+      "perms",
+      `${label} is hidden from members without Manage Server`,
+      builder.toJSON().default_member_permissions === manageGuild,
+    );
+  }
+  for (const [label, builder] of [
+    ["/mydelay", myDelay],
+    ["/swears", swearsCommand],
+    ["/slurs", slursCommand],
+  ] as const) {
+    const perms = builder.toJSON().default_member_permissions;
+    check("perms", `${label} stays in everyone's picker`, perms === null || perms === undefined);
+  }
+
+  const asMember = buildHelpFields([setDelay.toJSON(), myDelay.toJSON()], false);
+  const asAdmin = buildHelpFields([setDelay.toJSON(), myDelay.toJSON()], true);
+  check(
+    "perms",
+    "/help hides what the picker hides",
+    !asMember.some((f) => f.name === "/setdelay") && asMember.some((f) => f.name === "/mydelay"),
+  );
+  check(
+    "perms",
+    "/help still lists admin commands for an admin",
+    asAdmin.some((f) => f.name === "/setdelay"),
+  );
+
+  // A command the picker cannot filter has to say so line by line.
+  const swears = buildHelpFields([swearsCommand.toJSON()], false)[0].value.split(/\r?\n/);
+  check(
+    "perms",
+    "/help marks the admin subcommand of a shared command",
+    swears.some((line) => line.includes("nuke") && line.includes("🔒")) &&
+      swears.some((line) => line.includes("top") && !line.includes("🔒")),
+  );
+}
+
 /* --------------------------------------------------------------- reporting */
 
 /**
@@ -859,11 +1104,13 @@ void (async () => {
 
   try {
     await checkCommandsLoad();
+    checkCommandVisibility();
     checkLinkTransforms();
     checkRepostContent();
     checkRepostStore();
     checkReactions();
     checkGrace();
+    checkMemberPrefs();
     checkSwears();
     checkTrackers();
     checkSlurResponses();

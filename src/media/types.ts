@@ -1,8 +1,6 @@
 // src/media/types.ts
 
-/**
- * @file Shared types for the media workflow.
- */
+// Shared types for the media workflow.
 
 import { Message } from "discord.js";
 
@@ -30,11 +28,35 @@ export type ServiceKey =
  */
 export type GraceSetting = "instant" | "disabled" | number;
 
+/**
+ * How a member wants their own media links handled on a cross-channel move:
+ * - "instant": move it straight away, no prompt
+ * - "countdown": show a Cancel prompt, and move it when the time runs out
+ * - "ask": show a Yes/No prompt, and leave it put on silence
+ * - "never": leave it put, without prompting at all
+ */
+export type MemberMode = "instant" | "countdown" | "ask" | "never";
+
+/** A member's stored choice. `seconds` applies to countdown and ask only. */
+export interface MemberPref {
+  mode: MemberMode;
+  seconds?: number;
+}
+
+/** Guild-wide switch and bounds on what members may pick for themselves. */
+export interface PersonalLimits {
+  enabled: boolean;
+  maxSeconds: number;
+  allowNever: boolean;
+}
+
 /** Stored settings per guild. */
 export interface MediaSettings {
   /** Destination channel for reposts; if absent, use source channel. */
   channelId?: string;
   grace?: GraceSetting;
+  /** Bounds on member preferences; absent means the defaults in prefs.ts. */
+  personal?: PersonalLimits;
 }
 
 /** Result of matching a supported link inside content. */
@@ -65,6 +87,8 @@ export interface ApprovalPlan {
   timeoutMs?: number;
   persistIndefinitely: boolean;
   promptText: string;
+  /** Running out of time counts as approval. Set by countdown mode. */
+  approveOnTimeout: boolean;
 }
 
 /** Outcome of posting a repost + optional source-channel pointer. */
