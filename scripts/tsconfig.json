@@ -12,5 +12,7 @@
     "rootDir": "..",
     "noEmit": true
   },
-  "include": ["**/*.ts"]
+  // The ambient Client.commands declaration lives in src; without it the
+  // smoke test cannot see the command collection help.ts reads.
+  "include": ["**/*.ts", "../src/types/discord.d.ts"]
 }

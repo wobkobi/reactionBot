@@ -9,14 +9,15 @@ per-server counters for swears, slurs, and name-calling.
 ## Features
 
 - **Media link relocation**: detect link > Yes/Copy/No prompt for the author (configurable grace,
-  including instant auto-move) > delete the original > repost the rewritten link in the media
-  channel > leave a pointer "tail" in the source channel. **Copy** is the quiet way out: the author
-  gets the embeddable link privately and their message is left exactly where it is. The full message
-  text and any attachments are carried over, and anyone the message tagged is named on the tail too
-  ("SENT SLOP TO ...") - mentions render without pinging. The author can change a moved post by
-  right-clicking it - or its tail - and picking **Apps > Edit post** (a popup pre-filled with the
-  text) or **Apps > Delete post** (removes the post and its tail together). Records are persisted,
-  so both keep working after bot restarts. Links edited into an existing message are caught too.
+  including instant auto-move, and per-member overrides via `/mydelay`) > delete the original >
+  repost the rewritten link in the media channel > leave a pointer "tail" in the source channel.
+  **Copy** is the quiet way out: the author gets the embeddable link privately and their message is
+  left exactly where it is. The full message text and any attachments are carried over, and anyone
+  the message tagged is named on the tail too ("SENT SLOP TO ...") - mentions render without
+  pinging. The author can change a moved post by right-clicking it - or its tail - and picking
+  **Apps > Edit post** (a popup pre-filled with the text) or **Apps > Delete post** (removes the
+  post and its tail together). Records are persisted, so both keep working after bot restarts. Links
+  edited into an existing message are caught too.
 - **Embed-friendly rewrites**: URLs are swapped to frontends that actually embed in Discord (see
   `FRONTENDS` in [src/media/transform.ts](src/media/transform.ts)).
 - **Pre-fixed links move too**: links already on a fixer frontend (fxtwitter, cunnyx, ddinstagram,
@@ -70,16 +71,35 @@ deploy.
 Admin commands (settings and the nukes) require the bot owner (the `YOUR_ID` env var), the guild
 owner, or the Manage Server permission. Everything else works for anyone, in any channel.
 
+`/setdelay`, `/setmediachannel`, and `/calmdown` are registered with Manage Server as their default
+permission, so Discord keeps them out of the slash-command picker for everyone else and `/help`
+leaves them out to match. It is a default, not a lock - a server admin can grant them per role,
+member, or channel under Server Settings > Integrations, and the runtime check still applies either
+way. Two consequences worth knowing: the `YOUR_ID` owner grant cannot beat the picker, so in a
+server where the bot owner holds neither ownership nor Manage Server those commands are out of
+reach; and Discord filters per command rather than per subcommand, so commands that mix open and
+admin subcommands (`/slurs nuke`, `/swears nuke`) stay visible to everyone and are marked 🔒 in
+`/help` instead.
+
 - `/setmediachannel` - set which text channel media links get reposted into.
 - `/setdelay instant` - move links straight away without asking.
 - `/setdelay seconds seconds:<1-300>` - give the poster that long to hit Yes or No.
 - `/setdelay disabled` - always ask, and wait forever for an answer.
+- `/setdelay personal [enabled] [max-seconds] [allow-never]` - what members may set for themselves
+  with `/mydelay`. Every option is optional; only the ones you supply change. Defaults to on, up to
+  300s, opt-out allowed.
+- `/mydelay instant|countdown|ask|never|show|clear` - anyone, for their own links only. `instant`
+  moves yours straight away; `countdown seconds:<1-300>` moves yours when the timer runs out unless
+  you hit Cancel; `ask seconds:<1-300>` is the usual Yes/Copy/No prompt; `never` leaves yours alone
+  without prompting; `show` reports what is actually in force (admin bounds are applied when the
+  setting is read, so it is not always what you typed); `clear` drops yours. Governs moves to the
+  media channel only - same-channel rewrites and tracking cleans still ask.
 - `/calmdown start [minutes]`, `/calmdown stop` - pause the configured GIF/text replies (default 30
   minutes); reactions and counting keep going. Also kicks in automatically after a spam-escalation
   reply fires (5 hits in 30s across all users, sent once per episode), so a flood gets one "enough"
   and then quiet for 5 minutes or 20 messages, whichever comes first - tune per server with
   `/calmdown auto [minutes] [messages]`.
-- `/help` - list all commands.
+- `/help` - list the commands you can run, with 🔒 on admin-only subcommands.
 
 ### Right-click a moved post
 

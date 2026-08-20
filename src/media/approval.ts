@@ -3,7 +3,7 @@
 // Button prompts with grace handling: requestChoice takes any button set and
 // returns which one was clicked. Only the intended author's clicks count.
 
-import { ApprovalOptions, GraceSetting } from "@/media/types";
+import { ApprovalOptions, ApprovalPlan, GraceSetting } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import {
   ActionRowBuilder,
@@ -34,6 +34,26 @@ export interface ChoiceButton {
 export interface ChoiceOutcome {
   /** The clicked button's id, or null on timeout or send failure. */
   choice: string | null;
+  /**
+   * Whether the prompt reached the channel. False when the send failed, which
+   * a countdown must not read as consent - see {@link isApproved}.
+   */
+  prompted: boolean;
+}
+
+/**
+ * Reads a prompt's outcome against its plan. A countdown moves the link
+ * unless it was cancelled, so it needs the prompt to have actually been seen;
+ * every other plan needs an explicit yes. The "copy" choice never reaches
+ * here - the caller hands the link over and returns first.
+ * @param plan - The plan the prompt ran under.
+ * @param outcome - What {@link requestChoice} returned.
+ * @returns Whether to go ahead with the move.
+ */
+export function isApproved(plan: ApprovalPlan, outcome: ChoiceOutcome): boolean {
+  return plan.approveOnTimeout
+    ? outcome.prompted && outcome.choice !== "no"
+    : outcome.choice === "yes";
 }
 
 /**
@@ -86,7 +106,7 @@ export async function requestChoice(
   // Instant path: resolve without showing UI
   if (grace === "instant") {
     log.debug("instant choice", { channelId: channel.id, userId: author.id });
-    return { choice: opts.instantChoice ?? null };
+    return { choice: opts.instantChoice ?? null, prompted: false };
   }
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -109,7 +129,7 @@ export async function requestChoice(
       channelId: channel.id,
       userId: author.id,
     });
-    return { choice: null };
+    return { choice: null, prompted: false };
   }
 
   // Collector config
@@ -150,7 +170,7 @@ export async function requestChoice(
         await msg.edit({ components: [] }).catch(() => {});
         log.debug("prompt buttons cleared", { messageId: msg.id });
       }
-      resolve({ choice });
+      resolve({ choice, prompted: true });
     });
   });
 }
