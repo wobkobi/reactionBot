@@ -10,6 +10,7 @@ import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
 import type { CommandModule } from "@/types/discord";
 import { createLogger } from "@/utils/log";
+import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
@@ -177,6 +178,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     return;
   }
   if (interaction.isAutocomplete()) {
+    if (!gateAutocomplete(interaction)) {
+      await interaction.respond([]).catch(() => undefined);
+      return;
+    }
     const cmd = client.commands.get(interaction.commandName);
     await cmd?.autocomplete?.(interaction).catch((err) => {
       log.error("autocomplete failed", {
@@ -190,6 +195,14 @@ client.on("interactionCreate", async (interaction: Interaction) => {
   const cmd = client.commands.get(interaction.commandName);
   if (!cmd) return;
   try {
+    if (interaction.isChatInputCommand() && !(await gateCommand(interaction))) {
+      log.warn("command refused", {
+        command: interaction.commandName,
+        guildId: interaction.guildId,
+        userId: interaction.user.id,
+      });
+      return;
+    }
     await cmd.execute(interaction);
   } catch (err) {
     log.error("command execution error", {

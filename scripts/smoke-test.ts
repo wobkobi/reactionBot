@@ -20,7 +20,12 @@ import { stripTracking } from "@/media/cleanTracking";
 import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
 import { clampPref, clearPref, loadPref, savePref } from "@/media/prefs";
-import { buildMovedContent, buildPointerContent, collectMentions } from "@/media/repost";
+import {
+  buildMovedContent,
+  buildPointerContent,
+  collectMentions,
+  repostWithOptionalStub,
+} from "@/media/repost";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
 import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
@@ -49,9 +54,11 @@ import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, parseJsonc } from "@/tracking/words";
+import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
+import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
-import { PermissionFlagsBits } from "discord.js";
+import type { GuildTextBasedChannel, Message } from "discord.js";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -270,6 +277,27 @@ function checkLinkTransforms(): void {
       rewriteContent("https://x.com/u/status/1?s=20&t=trackme", socialTail).rewrittenText ===
         "https://fixupx.com/u/status/1",
   );
+
+  // "$&" and friends are substitution patterns to String.replace, and a URL
+  // path may hold them, so the rewritten link has to go in through a function
+  // rather than as a replacement string.
+  const dollarTracked = "https://example.com/a$&b?utm_source=x";
+  const dollarMatch = matchAny(dollarTracked);
+  check(
+    "tracking",
+    "a $ in a cleaned link is inserted literally",
+    dollarMatch !== null &&
+      rewriteContent(dollarTracked, dollarMatch).rewrittenText === "https://example.com/a$&b",
+  );
+  const dollarPost = "https://www.tumblr.com/blog/123/my$&slug";
+  const dollarPlatform = matchAny(dollarPost);
+  check(
+    "tracking",
+    "a $ in a platform link survives the rewrite",
+    dollarPlatform !== null &&
+      rewriteContent(dollarPost, dollarPlatform).rewrittenText ===
+        "https://tpmblr.com/blog/123/my$&slug",
+  );
 }
 
 /**
@@ -323,6 +351,148 @@ function checkRepostContent(): void {
     "copy hand-off fences the link under its lead line",
     buildCopyMessage(clean, "Here you go:") === `Here you go:\n\`\`\`\n${clean}\n\`\`\``,
   );
+}
+
+/**
+ * Builds the fakes {@link repostWithOptionalStub} touches, with a scripted send.
+ * @param send - Stands in for the target channel's send, resolving with a moved
+ * message or rejecting the way Discord would.
+ * @returns The fake original and channels, plus a reader for whether the
+ * original ended up deleted.
+ */
+function fakeMove(send: () => Promise<unknown>): {
+  original: Message<true>;
+  source: GuildTextBasedChannel;
+  target: GuildTextBasedChannel;
+  deleted: () => boolean;
+} {
+  let deleted = false;
+  const original = {
+    id: "orig1",
+    author: { id: "1" },
+    content: "look https://x.com/a/status/1",
+    attachments: new Map(),
+    delete: async () => {
+      deleted = true;
+      return original;
+    },
+  };
+  const source = { id: "c1", send: async () => ({ id: "stub1" }) };
+  const target = { id: "c2", send };
+  return {
+    original: original as unknown as Message<true>,
+    source: source as unknown as GuildTextBasedChannel,
+    target: target as unknown as GuildTextBasedChannel,
+    deleted: () => deleted,
+  };
+}
+
+/**
+ * Verifies the move's ordering. The poster's message is deleted for them, so a
+ * send that fails - the "from <@id>" prefix pushing a near-limit message past
+ * 2000 characters, a missing permission in the target - must leave it where it
+ * is rather than destroy it with nothing put back.
+ */
+async function checkRepostOrdering(): Promise<void> {
+  const failing = fakeMove(() => Promise.reject(new Error("Invalid Form Body: content too long")));
+  const refused = await repostWithOptionalStub(
+    failing.original,
+    "look https://fixupx.com/a/status/1",
+    failing.source,
+    failing.target,
+    true,
+  );
+  check("repost", "a failed post moves nothing", refused.moved === undefined);
+  check("repost", "a failed post leaves the original in place", !failing.deleted());
+
+  const working = fakeMove(() =>
+    Promise.resolve({ id: "moved1", url: "https://discord.com/channels/1/2/3" }),
+  );
+  const done = await repostWithOptionalStub(
+    working.original,
+    "look https://fixupx.com/a/status/1",
+    working.source,
+    working.target,
+    true,
+  );
+  check("repost", "a successful post returns the moved message", done.moved?.id === "moved1");
+  check("repost", "a successful post deletes the original", working.deleted());
+  check("repost", "a successful cross-channel post leaves a pointer", done.stub?.id === "stub1");
+}
+
+/**
+ * Builds the snowflake Discord would have minted at the given time.
+ * @param epochMs - When the message was posted, in epoch ms.
+ * @returns The message ID a post at that moment would carry.
+ */
+function snowflakeAt(epochMs: number): string {
+  return String(BigInt(epochMs - 1_420_070_400_000) << 22n);
+}
+
+/**
+ * Verifies the message-keyed stores prune themselves. An entry is only ever
+ * released when its own message is deleted, which for most never happens, so
+ * without an age rule both files grow for the life of the guild.
+ */
+function checkRetention(): void {
+  const now = Date.now();
+  const day = 24 * 60 * 60_000;
+
+  const minted = now - 5 * day;
+  check(
+    "retention",
+    "a snowflake reports the time it was minted",
+    snowflakeTime(snowflakeAt(minted)) === minted,
+  );
+  check("retention", "a non-snowflake has no readable age", snowflakeTime("m1") === null);
+
+  const fresh = snowflakeAt(now - day);
+  const stale = snowflakeAt(now - 100 * day);
+  const pruned = pruneByKeyAge({ [fresh]: 1, [stale]: 2, m1: 3 }, 90 * day, now);
+  check(
+    "retention",
+    "pruning drops what is past the window and keeps the rest",
+    pruned.dropped === 1 && pruned.kept[fresh] === 1 && pruned.kept[stale] === undefined,
+  );
+  check(
+    "retention",
+    "an entry with no readable age is kept",
+    pruned.kept.m1 === 3 && Object.keys(pruned.kept).length === 2,
+  );
+
+  const guild = "__smoketest__";
+  const record = {
+    authorId: "u1",
+    originalMessageId: "o1",
+    sourceChannelId: "c1",
+    repostChannelId: "c2",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const old = snowflakeAt(now - 200 * day);
+  const recent = snowflakeAt(now);
+  try {
+    saveRepost(guild, old, record);
+    saveRepost(guild, recent, record);
+    check(
+      "retention",
+      "saving a repost drops the expired records",
+      getRepost(guild, old) === undefined && getRepost(guild, recent) !== undefined,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+
+  try {
+    recordReply(guild, old, { channelId: "c1", messageId: "r1" });
+    recordReply(guild, recent, { channelId: "c1", messageId: "r2" });
+    check(
+      "retention",
+      "recording a reply drops the expired links",
+      takeReplies(guild, old).length === 0 && takeReplies(guild, recent).length === 1,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
 }
 
 /**
@@ -1029,54 +1199,72 @@ function checkMemberPrefs(): void {
 }
 
 /**
- * Verifies who sees what. Discord filters the slash-command picker on a
- * command's default permissions, so the fully-admin commands carry Manage
- * Server and the mixed ones (open leaderboards, admin nuke) must not - the
- * filter is per command, not per subcommand. /help then has to agree with the
- * picker, or it advertises commands a member cannot reach.
+ * Verifies who sees what. Discord applies a command's default permissions
+ * before dispatching it, which would shut the bot owner out of the very
+ * commands the owner grant exists for, so no builder carries them and every
+ * admin command is authorised at runtime instead. /help then has to do the
+ * hiding, or it advertises commands a member can only be refused.
  */
 function checkCommandVisibility(): void {
-  const manageGuild = String(PermissionFlagsBits.ManageGuild);
-  for (const [label, builder] of [
-    ["/setdelay", setDelay],
-    ["/setmediachannel", setMediaChannel],
-    ["/calmdown", calmDown],
-  ] as const) {
-    check(
-      "perms",
-      `${label} is hidden from members without Manage Server`,
-      builder.toJSON().default_member_permissions === manageGuild,
-    );
-  }
-  for (const [label, builder] of [
-    ["/mydelay", myDelay],
-    ["/swears", swearsCommand],
-    ["/slurs", slursCommand],
-  ] as const) {
-    const perms = builder.toJSON().default_member_permissions;
-    check("perms", `${label} stays in everyone's picker`, perms === null || perms === undefined);
-  }
+  const builders = [setDelay, setMediaChannel, calmDown, myDelay, swearsCommand, slursCommand];
+  // Registering any default permission would silently reinstate the gate the
+  // owner grant cannot beat, so this is the invariant the rest rests on.
+  check(
+    "perms",
+    "no command registers a default member permission",
+    builders.every((b) => {
+      const perms = b.toJSON().default_member_permissions;
+      return perms === null || perms === undefined;
+    }),
+  );
+
+  // A renamed command that keeps its requireAdmin call but drops out of
+  // ADMIN_COMMANDS is open to everyone, and nothing else would say so.
+  const names = new Set(builders.map((b) => b.toJSON().name));
+  check(
+    "perms",
+    "every ADMIN_COMMANDS entry names a real command",
+    ADMIN_COMMANDS.every((name) => names.has(name)),
+  );
+  check(
+    "perms",
+    "every ADMIN_SUBCOMMANDS key names a real command",
+    Object.keys(ADMIN_SUBCOMMANDS).every((name) => names.has(name)),
+  );
+
+  // The gate the dispatcher calls, on the cases it has to tell apart.
+  check("perms", "the gate catches a wholly admin command", needsAdmin("setdelay", "instant"));
+  check("perms", "the gate catches an admin subcommand", needsAdmin("swears", "nuke"));
+  check("perms", "the gate lets an open subcommand through", !needsAdmin("swears", "top"));
+  check("perms", "the gate lets an open command with no subcommand through", !needsAdmin("help"));
 
   const asMember = buildHelpFields([setDelay.toJSON(), myDelay.toJSON()], false);
   const asAdmin = buildHelpFields([setDelay.toJSON(), myDelay.toJSON()], true);
   check(
     "perms",
-    "/help hides what the picker hides",
+    "/help hides admin commands from a member",
     !asMember.some((f) => f.name === "/setdelay") && asMember.some((f) => f.name === "/mydelay"),
   );
   check(
     "perms",
-    "/help still lists admin commands for an admin",
-    asAdmin.some((f) => f.name === "/setdelay"),
+    "/help lists admin commands to an admin, marked",
+    asAdmin.some((f) => f.name === "/setdelay 🔒") && asAdmin.some((f) => f.name === "/mydelay"),
   );
 
-  // A command the picker cannot filter has to say so line by line.
-  const swears = buildHelpFields([swearsCommand.toJSON()], false)[0].value.split(/\r?\n/);
+  // A command open to everyone bar one subcommand is filtered line by line.
+  const swearsAsMember = buildHelpFields([swearsCommand.toJSON()], false)[0].value.split(/\r?\n/);
   check(
     "perms",
-    "/help marks the admin subcommand of a shared command",
-    swears.some((line) => line.includes("nuke") && line.includes("🔒")) &&
-      swears.some((line) => line.includes("top") && !line.includes("🔒")),
+    "/help drops the admin subcommand of a shared command for a member",
+    !swearsAsMember.some((line) => line.includes("nuke")) &&
+      swearsAsMember.some((line) => line.includes("top")),
+  );
+  const swearsAsAdmin = buildHelpFields([swearsCommand.toJSON()], true)[0].value.split(/\r?\n/);
+  check(
+    "perms",
+    "/help marks the admin subcommand of a shared command for an admin",
+    swearsAsAdmin.some((line) => line.includes("nuke") && line.includes("🔒")) &&
+      swearsAsAdmin.some((line) => line.includes("top") && !line.includes("🔒")),
   );
 }
 
@@ -1107,7 +1295,9 @@ void (async () => {
     checkCommandVisibility();
     checkLinkTransforms();
     checkRepostContent();
+    await checkRepostOrdering();
     checkRepostStore();
+    checkRetention();
     checkReactions();
     checkGrace();
     checkMemberPrefs();

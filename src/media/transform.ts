@@ -91,16 +91,20 @@ export function rewriteContent(
   authorId?: string,
 ): RewriteResult {
   const newLink = buildTransformedUrl(match, authorId);
+  // Inserted through a function, never as a replacement string: "$&", "$'" and
+  // "$1" are substitution patterns there, and the link carries whatever the
+  // poster's URL path held, so a "$" in it would rewrite to something else.
+  const insert = (): string => newLink;
   let rewrittenText: string;
   if (match.literal) {
     // Tracking matches carry the exact URL - replace it as a plain string.
-    rewrittenText = content.replace(match.literal, newLink);
+    rewrittenText = content.replace(match.literal, insert);
   } else {
     // Also consume any query/fragment trailing the matched URL - on social
     // links that tail is share-tracking junk (?s=20&t=...) which would
     // otherwise stay glued to the rewritten link.
     const consuming = new RegExp(`${match.regex.source}(?:[?#]\\S*)?`, match.regex.flags);
-    rewrittenText = content.replace(consuming, newLink);
+    rewrittenText = content.replace(consuming, insert);
   }
   log.debug("rewrote content", { which: match.which, newLink });
   return { newLink, rewrittenText };

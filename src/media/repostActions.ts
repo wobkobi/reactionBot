@@ -125,8 +125,24 @@ function splitMovedContent(content: string): { prefix: string; text: string } {
 }
 
 /**
+ * Resolves a channel by ID. Fetched rather than read off the cache: a thread
+ * that has since been archived drops out of it, and a cache miss here reads as
+ * "the post is gone" on a post that is still sitting there.
+ * @param interaction - Any interaction, used for its client.
+ * @param channelId - The channel to resolve.
+ * @returns The channel, or `null` when it is gone or unreachable.
+ */
+async function fetchTextChannel(
+  interaction: RepliableInteraction,
+  channelId: string,
+): Promise<GuildTextBasedChannel | null> {
+  const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
+  return channel?.isTextBased() ? (channel as GuildTextBasedChannel) : null;
+}
+
+/**
  * Fetches a moved message from the channel its record names.
- * @param interaction - Any interaction, used for its client channel cache.
+ * @param interaction - Any interaction, used for its client.
  * @param record - The stored record naming the repost channel.
  * @param movedMessageId - ID of the moved message to fetch.
  * @returns The message, or `null` when it is gone or unreachable.
@@ -136,8 +152,7 @@ async function fetchMoved(
   record: RepostRecord,
   movedMessageId: string,
 ): Promise<Message | null> {
-  const channel = interaction.client.channels.cache.get(record.repostChannelId) as
-    GuildTextBasedChannel | undefined;
+  const channel = await fetchTextChannel(interaction, record.repostChannelId);
   return (await channel?.messages.fetch(movedMessageId).catch(() => null)) ?? null;
 }
 
@@ -172,8 +187,7 @@ async function deleteRepost(
   await moved?.delete().catch(() => {});
 
   if (record.stubMessageId) {
-    const channel = interaction.client.channels.cache.get(record.sourceChannelId) as
-      GuildTextBasedChannel | undefined;
+    const channel = await fetchTextChannel(interaction, record.sourceChannelId);
     const stub = await channel?.messages.fetch(record.stubMessageId).catch(() => null);
     await stub?.delete().catch(() => {});
   }
@@ -311,8 +325,20 @@ export async function handleRepostEditModal(interaction: ModalSubmitInteraction)
     return;
   }
 
+  // An unanswered modal submit shows the author a bare "something went wrong",
+  // so a failed edit has to be reported rather than thrown past them.
   const { prefix } = splitMovedContent(moved.content);
-  await moved.edit({ content: `${prefix}\n\n${newText}`, allowedMentions: { parse: [] } });
+  try {
+    await moved.edit({ content: `${prefix}\n\n${newText}`, allowedMentions: { parse: [] } });
+  } catch (err) {
+    log.warn("failed to edit repost", {
+      guildId: interaction.guildId,
+      movedId: owned.movedMessageId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await notify(interaction, "⚠️ That edit wouldn't go through - the post is unchanged.");
+    return;
+  }
   await notify(interaction, "✅ Updated.");
   log.info("author edited repost", {
     guildId: interaction.guildId,

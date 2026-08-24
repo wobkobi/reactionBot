@@ -1,13 +1,14 @@
 // src/utils/replyStore.ts
 
 /**
- * @file Persists which bot replies are tied to which user message, so when
- * the trigger message is deleted the bot's replies can be deleted too - no
- * matter how old they are or how many restarts have happened since.
+ * @file Persists which bot replies are tied to which user message, so when the
+ * trigger message is deleted the bot's replies can be deleted too, across any
+ * number of restarts and up to {@link REPLY_RETENTION_MS} after the fact.
  */
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
+import { pruneByKeyAge, REPLY_RETENTION_MS } from "@/utils/retention";
 
 const log = createLogger("utils/replyStore");
 
@@ -30,8 +31,12 @@ type ReplyMap = Record<string, ReplyRef[]>;
  */
 export function recordReply(guildId: string, triggerMessageId: string, ref: ReplyRef): void {
   const map = loadData<ReplyMap>(guildId, REPLIES_FILE, { soft: true, defaultValue: {} });
-  map[triggerMessageId] = [...(map[triggerMessageId] ?? []), ref];
-  saveData(guildId, REPLIES_FILE, map);
+  // Pruned on write: an entry is only ever released when its trigger message
+  // is deleted, and most never are, so the map would grow without bound.
+  const { kept, dropped } = pruneByKeyAge(map, REPLY_RETENTION_MS);
+  kept[triggerMessageId] = [...(kept[triggerMessageId] ?? []), ref];
+  saveData(guildId, REPLIES_FILE, kept);
+  if (dropped > 0) log.info("pruned expired reply links", { guildId, dropped });
   log.debug("recorded reply", { guildId, triggerMessageId, replyId: ref.messageId });
 }
 

@@ -59,10 +59,12 @@ denied package gets installed but not linked into `node_modules/.bin` on npm 11.
 break the root `prepare` script that calls it.
 
 Per-guild data (settings, counters, audit logs) is stored as JSON under `data/<guildId>/`, relative
-to the working directory. All word behaviour (trackers + reactions) lives in one file,
-`data/global/words.json` - see [data/readme.md](data/readme.md) for the full format, a template, and
-how to add words. It's gitignored (it contains the slur list), so copy your own file in on a fresh
-deploy.
+to the working directory. The two message-keyed stores age out rather than growing forever: a moved
+post stays editable/deletable by its author for 90 days, and a bot reply stays linked to the message
+that triggered it for 30. Both are pruned on write, off the message ID's own timestamp. All word
+behaviour (trackers + reactions) lives in one file, `data/global/words.json` - see
+[data/readme.md](data/readme.md) for the full format, a template, and how to add words. It's
+gitignored (it contains the slur list), so copy your own file in on a fresh deploy.
 
 ## Commands
 
@@ -71,20 +73,18 @@ deploy.
 Admin commands (settings and the nukes) require the bot owner (the `YOUR_ID` env var), the guild
 owner, or the Manage Server permission. Everything else works for anyone, in any channel.
 
-`/setdelay`, `/setmediachannel`, and `/calmdown` are registered with Manage Server as their default
-permission, so Discord keeps them out of the slash-command picker for everyone else and `/help`
-leaves them out to match. It is a default, not a lock - a server admin can grant them per role,
-member, or channel under Server Settings > Integrations, and the runtime check still applies either
-way. Two consequences worth knowing: the `YOUR_ID` owner grant cannot beat the picker, so in a
-server where the bot owner holds neither ownership nor Manage Server those commands are out of
-reach; and Discord filters per command rather than per subcommand, so commands that mix open and
-admin subcommands (`/slurs nuke`, `/swears nuke`) stay visible to everyone and are marked 🔒 in
-`/help` instead.
+Nothing is registered with a default member permission. Discord applies those before dispatching an
+interaction, which would shut the bot owner out of the very commands the `YOUR_ID` grant exists for,
+so every admin command is authorised at runtime instead - once centrally, before dispatch, and again
+inside the command. The trade-off is that `/setdelay`, `/setmediachannel`, and `/calmdown` sit in
+everyone's slash-command picker; a member who runs one is refused. `/help` does the hiding Discord
+no longer does: a member sees neither those commands nor the admin subcommands of an otherwise open
+one (`/slurs nuke`, `/swears nuke`), and an admin sees both, marked 🔒.
 
 - `/setmediachannel` - set which text channel media links get reposted into.
 - `/setdelay instant` - move links straight away without asking.
 - `/setdelay seconds seconds:<1-300>` - give the poster that long to hit Yes or No.
-- `/setdelay disabled` - always ask, and wait forever for an answer.
+- `/setdelay disabled` - always ask, and leave the prompt up for a day (unanswered = left alone).
 - `/setdelay personal [enabled] [max-seconds] [allow-never]` - what members may set for themselves
   with `/mydelay`. Every option is optional; only the ones you supply change. Defaults to on, up to
   300s, opt-out allowed.
@@ -99,7 +99,7 @@ admin subcommands (`/slurs nuke`, `/swears nuke`) stay visible to everyone and a
   reply fires (5 hits in 30s across all users, sent once per episode), so a flood gets one "enough"
   and then quiet for 5 minutes or 20 messages, whichever comes first - tune per server with
   `/calmdown auto [minutes] [messages]`.
-- `/help` - list the commands you can run, with 🔒 on admin-only subcommands.
+- `/help` - list the commands you can run. An admin also sees the admin-only ones, marked 🔒.
 
 ### Right-click a moved post
 

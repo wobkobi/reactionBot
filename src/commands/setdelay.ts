@@ -7,7 +7,7 @@ import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 const log = createLogger("cmd/setdelay");
 
@@ -16,7 +16,7 @@ const log = createLogger("cmd/setdelay");
  * self-explanatory - no mode/value combination to get wrong:
  * - `/setdelay instant` - move links immediately, no prompt
  * - `/setdelay seconds seconds:<1-300>` - prompt that times out
- * - `/setdelay disabled` - prompt that waits forever
+ * - `/setdelay disabled` - prompt that stays up for a day
  *
  * `/setdelay personal` sits alongside them, governing what members may pick
  * for themselves with `/mydelay` rather than the default itself.
@@ -41,7 +41,7 @@ export const data = new SlashCommandBuilder()
       ),
   )
   .addSubcommand((sub) =>
-    sub.setName("disabled").setDescription("Always ask, and wait forever for an answer"),
+    sub.setName("disabled").setDescription("Always ask, and leave the prompt up for a day"),
   )
   .addSubcommand((sub) =>
     sub
@@ -61,7 +61,6 @@ export const data = new SlashCommandBuilder()
         opt.setName("allow-never").setDescription("Let members opt out of moves entirely"),
       ),
   )
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setContexts(InteractionContextType.Guild);
 
 /**
@@ -147,7 +146,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const confirmations: Record<"instant" | "seconds" | "disabled", string> = {
       instant: "✅ Links get moved straight away now, no prompt.",
       seconds: `✅ Posters get ${seconds}s to hit Yes or No before the prompt gives up.`,
-      disabled: "✅ Posters always get asked, and the prompt waits forever.",
+      disabled: "✅ Posters always get asked, and the prompt stays up for a day.",
     };
     await interaction.reply({ content: confirmations[mode], flags: MessageFlags.Ephemeral });
   } catch (err) {

@@ -5,13 +5,7 @@ import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import {
-  ChannelType,
-  ChatInputCommandInteraction,
-  MessageFlags,
-  PermissionFlagsBits,
-  TextChannel,
-} from "discord.js";
+import { ChannelType, ChatInputCommandInteraction, MessageFlags, TextChannel } from "discord.js";
 
 const log = createLogger("cmd/setmediachannel");
 
@@ -29,7 +23,6 @@ export const data = new SlashCommandBuilder()
       .addChannelTypes(ChannelType.GuildText)
       .setRequired(true),
   )
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setContexts(InteractionContextType.Guild);
 
 /**
@@ -49,12 +42,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
-  log.debug("invoked", { guildId, userId, targetChannelId: channel.id });
-
   if (!(await requireAdmin(interaction))) {
     log.warn("permission denied", { guildId, userId });
     return;
   }
+
+  log.debug("invoked", { guildId, userId, targetChannelId: channel.id });
 
   try {
     const settings = loadSettings(guildId);
