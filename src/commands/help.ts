@@ -1,6 +1,6 @@
 // src/commands/help.ts
 
-import { ADMIN_SUBCOMMANDS, isAdmin } from "@/utils/permissions";
+import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import {
   APIEmbedField,
@@ -21,11 +21,11 @@ export const data = new SlashCommandBuilder()
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Builds the embed fields listing commands. Commands carrying default
- * permissions are the ones Discord keeps out of a member's picker, so they are
- * left out here too for anyone who cannot run them - otherwise `/help`
- * advertises commands that are not there to be found. Commands that mix open
- * and admin subcommands stay listed, with the admin ones marked.
+ * Builds the embed fields listing commands. Discord filters nothing out of a
+ * member's picker any more, so this is the only place an admin-only command or
+ * subcommand gets hidden - otherwise `/help` advertises what will only refuse.
+ * A member sees neither an {@link ADMIN_COMMANDS} entry nor an
+ * {@link ADMIN_SUBCOMMANDS} line; an admin sees both, marked.
  * @param commands - The loaded commands, as Discord registered them.
  * @param admin - Whether the invoker may run admin commands.
  * @returns One field per command the invoker can see.
@@ -36,7 +36,8 @@ export function buildHelpFields(
 ): APIEmbedField[] {
   const fields: APIEmbedField[] = [];
   for (const json of commands) {
-    if (json.default_member_permissions && !admin) continue;
+    const adminOnly = ADMIN_COMMANDS.includes(json.name);
+    if (adminOnly && !admin) continue;
 
     // Right-click entries carry no description - Discord rejects one - and an
     // empty field value would be rejected too, so they get a fixed line saying
@@ -51,9 +52,14 @@ export function buildHelpFields(
     }
 
     const adminSubs = ADMIN_SUBCOMMANDS[json.name] ?? [];
-    const subs = ("options" in json ? (json.options ?? []) : []).filter(
+    const allSubs = ("options" in json ? (json.options ?? []) : []).filter(
       (o) => o.type === ApplicationCommandOptionType.Subcommand,
     );
+    const subs = admin ? allSubs : allSubs.filter((s) => !adminSubs.includes(s.name));
+    // Nothing left once the admin lines go: drop the command rather than fall
+    // through to the description, which would advertise it with no way in.
+    if (allSubs.length && !subs.length) continue;
+
     const value = subs.length
       ? subs
           .map((s) => {
@@ -62,7 +68,10 @@ export function buildHelpFields(
           })
           .join("\n")
       : ("description" in json ? json.description : "") || "-";
-    fields.push({ name: `/${json.name}`, value, inline: false });
+    // Only an admin ever sees this, and the mark tells them which of the
+    // commands listed a member would be refused on.
+    const name = adminOnly ? `/${json.name} ${ADMIN_MARK}` : `/${json.name}`;
+    fields.push({ name, value, inline: false });
   }
   return fields;
 }
@@ -80,8 +89,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const fields = buildHelpFields(commands, isAdmin(interaction));
 
   const embed = new EmbedBuilder().setTitle("Commands").setColor(0x5865f2).addFields(fields);
-  if (fields.some((f) => f.value.includes(ADMIN_MARK))) {
-    embed.setFooter({ text: `${ADMIN_MARK} needs Manage Server` });
+  if (fields.some((f) => f.name.includes(ADMIN_MARK) || f.value.includes(ADMIN_MARK))) {
+    embed.setFooter({ text: `${ADMIN_MARK} admin only - a member can't run this` });
   }
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }

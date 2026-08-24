@@ -18,6 +18,16 @@ import {
 
 const log = createLogger("media/approval");
 
+/**
+ * How long a `"disabled"` (no-timeout) prompt actually stays live. Each one
+ * holds a collector and an unresolved promise for its whole life, so "waits
+ * for an answer" cannot mean literally forever - an unanswered prompt would
+ * pin both until the process restarts. A day is far longer than anyone takes
+ * to answer, and a prompt still up after one is abandoned: the buttons come
+ * off and the link is left alone.
+ */
+export const INDEFINITE_PROMPT_MS = 24 * 60 * 60_000;
+
 /** One button in a {@link requestChoice} prompt. */
 export interface ChoiceButton {
   /** Custom ID, unique within this prompt; returned as the choice. */
@@ -82,7 +92,7 @@ async function answerClick(i: ButtonInteraction, privateReply?: string): Promise
  * Ask `author` to pick one of `buttons` in `channel`.
  * - Only `author` clicks are accepted; everyone else's are ignored.
  * - `grace: "instant"` resolves to `opts.instantChoice` without showing UI.
- *   `"disabled"` waits indefinitely.
+ *   `"disabled"` waits {@link INDEFINITE_PROMPT_MS} rather than on a grace.
  * - A button in `opts.privateReplies` answers the clicker ephemerally.
  * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`,
  *   else strips the buttons so it cannot be clicked later.
@@ -137,7 +147,7 @@ export async function requestChoice(
     typeof grace === "number" && Number.isFinite(grace) && grace >= 0
       ? grace
       : grace === "disabled"
-        ? undefined
+        ? INDEFINITE_PROMPT_MS
         : 10_000;
 
   const ids = new Set(buttons.map((b) => b.id));

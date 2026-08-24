@@ -50,15 +50,17 @@ export function buildPointerContent(
 }
 
 /**
- * Delete the original, post the embeddable rewrite in the target channel
- * (carrying over any attachments), and optionally leave a pointer back in the
- * source channel.
+ * Post the embeddable rewrite in the target channel (carrying over any
+ * attachments), delete the original, and optionally leave a pointer back in
+ * the source channel. In that order, so a failed post leaves the poster's
+ * message where it is rather than losing it.
  * @param original The original guild message to move.
  * @param rewrittenText The rewritten content where the first URL is the transformed (embeddable) link.
  * @param source Source channel.
  * @param target Target channel.
  * @param withStub When true and channels differ, leave a pointer in the source channel.
- * @returns The moved message, optional pointer, and link URL.
+ * @returns The moved message, optional pointer, and link URL; all empty when
+ * the post could not be made and nothing was moved.
  */
 export async function repostWithOptionalStub(
   original: Message<true>,
@@ -68,16 +70,8 @@ export async function repostWithOptionalStub(
   withStub: boolean,
 ): Promise<RepostOutcome> {
   const authorMention = `<@${original.author.id}>`;
-
-  // Capture attachment URLs before deleting the original: the signed CDN
-  // links stay valid after deletion, long enough to re-upload the files with
-  // the moved message so images/videos survive the move.
   const files = [...original.attachments.values()].map((a) => a.url);
-
   const mentions = collectMentions(original.content, original.author.id);
-
-  await original.delete().catch(() => {});
-  log.debug("deleted original", { originalId: original.id });
 
   // Post the rewrite (with the embeddable link) so Discord renders the embed.
   // Empty allowedMentions: the author's @ renders in the text without pinging.
@@ -88,34 +82,58 @@ export async function repostWithOptionalStub(
     allowedMentions: { parse: [] },
   } satisfies Parameters<TextChannel["send"]>[0];
 
-  let moved: Message<true>;
-  if (files.length === 0) {
-    moved = await (target as TextChannel).send(payload);
-  } else {
-    try {
-      moved = await (target as TextChannel).send({ ...payload, files });
-    } catch (err) {
-      // Re-upload can fail (e.g. a file over the bot's upload limit); fall
-      // back to appending the CDN links so nothing is silently lost.
-      log.warn("attachment re-upload failed, linking instead", {
-        count: files.length,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      moved = await (target as TextChannel).send({
-        ...payload,
-        content: `${payload.content}\n${files.join("\n")}`,
-      });
-    }
+  // The original is deleted only once the replacement is up. A send can fail
+  // for reasons the caller cannot rule out in advance - the prefix pushing a
+  // near-limit message past 2000 characters, a missing permission in the
+  // target - and deleting first would destroy the poster's message with
+  // nothing put back in its place.
+  let moved: Message<true> | undefined;
+  try {
+    moved = await (target as TextChannel).send(files.length ? { ...payload, files } : payload);
+  } catch (err) {
+    log.warn("repost send failed", {
+      targetId: target.id,
+      files: files.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  if (!moved && files.length) {
+    // Re-upload can fail on its own (e.g. a file over the bot's upload
+    // limit); fall back to appending the CDN links so nothing is lost.
+    moved = await (target as TextChannel)
+      .send({ ...payload, content: `${payload.content}\n${files.join("\n")}` })
+      .catch(() => undefined);
+  }
+  if (!moved) {
+    log.error("repost failed, original left in place", {
+      targetId: target.id,
+      originalId: original.id,
+    });
+    return {};
   }
   log.info("posted moved message", { movedId: moved.id, targetId: target.id });
 
+  await original.delete().catch(() => {});
+  log.debug("deleted original", { originalId: original.id });
+
+  // A pointer that will not send is cosmetic - the move itself has already
+  // happened, so it must not take the caller's registration down with it.
   let stub: Message<true> | undefined;
   if (withStub && source.id !== target.id) {
-    stub = await source.send({
-      content: buildPointerContent(authorMention, mentions, moved.url),
-      allowedMentions: { parse: [] },
-    });
-    log.debug("posted pointer", { stubId: stub.id, sourceId: source.id });
+    stub =
+      (await source
+        .send({
+          content: buildPointerContent(authorMention, mentions, moved.url),
+          allowedMentions: { parse: [] },
+        })
+        .catch((err: unknown) => {
+          log.warn("pointer send failed", {
+            sourceId: source.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        })) ?? undefined;
+    if (stub) log.debug("posted pointer", { stubId: stub.id, sourceId: source.id });
   }
 
   return { moved, stub, linkUrl: moved.url };

@@ -85,9 +85,14 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   const source = message.channel as GuildTextBasedChannel;
   // Tracking cleans are not media: the link stays in its channel, cleaned.
   const isTrackingClean = match.which === "tracking";
-  const target = isTrackingClean
-    ? source
-    : ((message.client.channels.cache.get(targetId) ?? source) as GuildTextBasedChannel);
+  // Fetched rather than read off the cache: an uncached media channel would
+  // fall back to the source and quietly turn a move into a same-channel
+  // rewrite, which is a different prompt and a different outcome.
+  const configured =
+    isTrackingClean || targetId === source.id
+      ? null
+      : await message.client.channels.fetch(targetId).catch(() => null);
+  const target = (configured as GuildTextBasedChannel | null) ?? source;
 
   const sameChannel = source.id === target.id;
 

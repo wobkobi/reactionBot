@@ -12,7 +12,7 @@ import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 const log = createLogger("cmd/calmdown");
 
@@ -52,7 +52,6 @@ export const data = new SlashCommandBuilder()
           .setMaxValue(1000),
       ),
   )
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setContexts(InteractionContextType.Guild);
 
 /**

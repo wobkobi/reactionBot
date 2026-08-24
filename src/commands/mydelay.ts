@@ -77,7 +77,7 @@ export function resolvePref(mode: MemberMode, seconds?: number | null): MemberPr
 function describeGuildDefault(grace: GraceSetting | undefined): string {
   const g = grace ?? 10_000;
   if (g === "instant") return "your links get moved straight away";
-  if (g === "disabled") return "you get asked, and the prompt waits forever";
+  if (g === "disabled") return "you get asked, and the prompt stays up for a day";
   return `you get ${Math.round((g as number) / 1000)}s to hit Yes before the prompt gives up`;
 }
 

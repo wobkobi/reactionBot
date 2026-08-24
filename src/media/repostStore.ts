@@ -7,6 +7,7 @@
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
+import { pruneByKeyAge, REPOST_RETENTION_MS } from "@/utils/retention";
 
 const log = createLogger("media/repostStore");
 
@@ -47,9 +48,13 @@ function loadMap(guildId: string): RepostMap {
  * @param record - The {@link RepostRecord} to persist.
  */
 export function saveRepost(guildId: string, movedMessageId: string, record: RepostRecord): void {
-  const map = loadMap(guildId);
-  map[movedMessageId] = record;
-  saveData(guildId, REPOSTS_FILE, map);
+  // Pruned on write: a record is only ever removed when its own post is, so
+  // without this the map grows for the life of the guild and every stub
+  // lookup scans the lot.
+  const { kept, dropped } = pruneByKeyAge(loadMap(guildId), REPOST_RETENTION_MS);
+  kept[movedMessageId] = record;
+  saveData(guildId, REPOSTS_FILE, kept);
+  if (dropped > 0) log.info("pruned expired repost records", { guildId, dropped });
   log.debug("saved repost record", { guildId, movedMessageId });
 }
 
@@ -74,9 +79,9 @@ export interface RepostLookup {
 /**
  * Resolves the repost a message belongs to, whether it is the moved message
  * itself or the pointer stub left behind in the source channel. The map is
- * keyed by moved-message ID, so the stub match is a scan - a guild holds one
- * record per moved link, which stays small enough not to warrant a second
- * index.
+ * keyed by moved-message ID, so the stub match is a scan - saves prune to
+ * {@link REPOST_RETENTION_MS}, which keeps it to one record per link moved in
+ * the window, too few to warrant a second index.
  * @param guildId - Discord guild ID.
  * @param messageId - ID of the message the user acted on.
  * @returns The {@link RepostLookup}, or `undefined` when the message is neither.
