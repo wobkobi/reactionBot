@@ -1,6 +1,7 @@
 // src/commands/help.ts
 
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import {
   APIEmbedField,
@@ -92,5 +93,5 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (fields.some((f) => f.name.includes(ADMIN_MARK) || f.value.includes(ADMIN_MARK))) {
     embed.setFooter({ text: `${ADMIN_MARK} admin only - a member can't run this` });
   }
-  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  await respond(interaction, { embeds: [embed], flags: MessageFlags.Ephemeral });
 }

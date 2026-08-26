@@ -127,7 +127,7 @@ async function replyWithCurrent(
       clamped ? ` Your ${stored?.seconds}s was clamped to what this server allows.` : ""
     }`;
   }
-  await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+  await respond(interaction, { content, flags: MessageFlags.Ephemeral });
 }
 
 /**
@@ -163,7 +163,7 @@ function confirmation(pref: MemberPref, limits: PersonalLimits): string {
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -182,7 +182,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     if (sub === "clear") {
       clearPref(guildId, userId);
-      await interaction.reply({
+      await respond(interaction, {
         content: `✅ Dropped. You're on the server default now: ${describeGuildDefault(settings.grace)}.`,
         flags: MessageFlags.Ephemeral,
       });
@@ -190,7 +190,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     }
 
     if (!limits.enabled) {
-      await interaction.reply({
+      await respond(interaction, {
         content: `❌ This server doesn't let members set their own delay. The server default applies: ${describeGuildDefault(settings.grace)}.`,
         flags: MessageFlags.Ephemeral,
       });
@@ -198,7 +198,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     }
 
     if (sub === "never" && !limits.allowNever) {
-      await interaction.reply({
+      await respond(interaction, {
         content: `❌ This server doesn't allow opting out of moves. The server default applies: ${describeGuildDefault(settings.grace)}.`,
         flags: MessageFlags.Ephemeral,
       });
@@ -211,7 +211,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     savePref(guildId, userId, pref);
     log.info("member preference updated", { guildId, userId, mode: pref.mode, seconds });
 
-    await interaction.reply({
+    await respond(interaction, {
       content: confirmation(pref, limits),
       flags: MessageFlags.Ephemeral,
     });

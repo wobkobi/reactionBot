@@ -5,6 +5,7 @@
 
 import { ApprovalOptions, ApprovalPlan, GraceSetting } from "@/media/types";
 import { createLogger } from "@/utils/log";
+import { respond } from "@/utils/respond";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -73,19 +74,14 @@ export function isApproved(plan: ApprovalPlan, outcome: ChoiceOutcome): boolean 
  * dropping any later `followUp` against it.
  * @param i - The click to acknowledge.
  * @param [privateReply] - Ephemeral text for this button, if it has any.
- * @returns A promise that resolves once the response is sent or logged.
+ * @returns A promise that resolves once the response is sent or dropped.
  */
 async function answerClick(i: ButtonInteraction, privateReply?: string): Promise<void> {
   if (privateReply === undefined) {
     await i.update({ components: [] }).catch(() => {});
     return;
   }
-  await i.reply({ content: privateReply, flags: MessageFlags.Ephemeral }).catch((err: unknown) => {
-    log.warn("failed to answer click privately", {
-      choice: i.customId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
+  await respond(i, { content: privateReply, flags: MessageFlags.Ephemeral });
 }
 
 /**

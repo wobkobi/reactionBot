@@ -35,7 +35,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -57,7 +57,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     log.info("media channel set", { guildId, channelId: channel.id, by: userId });
 
-    await interaction.reply({
+    await respond(interaction, {
       content: `✅ Media channel set to ${channel}`,
       flags: MessageFlags.Ephemeral,
     });

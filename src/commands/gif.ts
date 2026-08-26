@@ -11,6 +11,7 @@ import {
   saveGifConfig,
 } from "@/tracking/gifs";
 import { isAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { randomUUID } from "crypto";
 import { InteractionContextType } from "discord-api-types/v10";
@@ -144,12 +145,12 @@ async function executeAdd(interaction: ChatInputCommandInteraction): Promise<voi
     addedAt: new Date().toISOString(),
   });
   if (!result.ok) {
-    await interaction.reply({ content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
     return;
   }
 
   saveGifConfig(result.config);
-  await interaction.reply({
+  await respond(interaction, {
     content: `✅ Added to **${category}**. It's in the rotation from the next message on.`,
     flags: MessageFlags.Ephemeral,
   });
@@ -199,7 +200,7 @@ async function executeList(interaction: ChatInputCommandInteraction): Promise<vo
 
   // Ephemeral and unping-ing: managing the pool shouldn't spam the channel or
   // poke everyone who ever added a GIF.
-  await interaction.reply({
+  await respond(interaction, {
     embeds: [embed],
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
@@ -217,12 +218,12 @@ async function executeRemove(interaction: ChatInputCommandInteraction): Promise<
 
   const result = removeGif(loadGifConfig(), id, interaction.user.id, isAdmin(interaction));
   if (!result.ok) {
-    await interaction.reply({ content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
     return;
   }
 
   saveGifConfig(result.config);
-  await interaction.reply({ content: "✅ Removed.", flags: MessageFlags.Ephemeral });
+  await respond(interaction, { content: "✅ Removed.", flags: MessageFlags.Ephemeral });
 }
 
 /**
