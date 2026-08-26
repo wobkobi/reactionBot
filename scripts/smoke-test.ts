@@ -58,12 +58,14 @@ import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, parseJsonc, WORDS_FILE } from "@/tracking/words";
 import { dataFilePath } from "@/utils/file";
-import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, needsAdmin } from "@/utils/permissions";
+import { createLogger } from "@/utils/log";
+import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
 import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
+  type ChatInputCommandInteraction,
   type GuildTextBasedChannel,
   type InteractionReplyOptions,
   type Message,
@@ -1585,6 +1587,53 @@ function checkDeletionLogPruning(): void {
   );
 }
 
+/**
+ * Verifies the env-driven settings are read where they are used rather than
+ * captured at import. index.ts calls dotenv.config() in its body, and ESM
+ * evaluates every import before that body runs, so a captured value is read
+ * before .env has been loaded and the file can never set it. This test sets
+ * the variables after both modules were imported, which is the same ordering.
+ */
+function checkEnvTiming(): void {
+  const previousId = process.env.YOUR_ID;
+  const previousLevel = process.env.LOG_LEVEL;
+  try {
+    // A guild they do not own, without Manage Server: the owner grant is the
+    // only branch that can allow them.
+    const asOwner = {
+      inGuild: () => true,
+      user: { id: "424242424242424242" },
+      guild: { ownerId: "000000000000000000" },
+      memberPermissions: { has: () => false },
+    } as unknown as ChatInputCommandInteraction;
+
+    process.env.YOUR_ID = "424242424242424242";
+    check("env", "the bot-owner grant reads YOUR_ID where it is used", isAdmin(asOwner));
+    process.env.YOUR_ID = "999999999999999999";
+    check("env", "someone who is not the owner is still refused", !isAdmin(asOwner));
+    delete process.env.YOUR_ID;
+    check("env", "an unset YOUR_ID grants nobody", !isAdmin(asOwner));
+
+    process.env.LOG_LEVEL = "debug";
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (line: string): void => {
+      lines.push(line);
+    };
+    try {
+      createLogger("smoke").debug("visible");
+    } finally {
+      console.log = realLog;
+    }
+    check("env", "the log level reads LOG_LEVEL where it is used", lines.length === 1);
+  } finally {
+    if (previousId === undefined) delete process.env.YOUR_ID;
+    else process.env.YOUR_ID = previousId;
+    if (previousLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = previousLevel;
+  }
+}
+
 /* --------------------------------------------------------------- reporting */
 
 /**
@@ -1610,6 +1659,7 @@ void (async () => {
   try {
     await checkCommandsLoad();
     checkCommandVisibility();
+    checkEnvTiming();
     await checkInteractionResponses();
     await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();

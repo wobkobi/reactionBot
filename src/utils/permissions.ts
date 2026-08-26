@@ -8,9 +8,20 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 
-// Bot owner: always allowed to run admin commands in any guild. Set via the
-// YOUR_ID env var; when unset no user ID can match it, so nothing is granted.
-const BOT_OWNER_ID = process.env.YOUR_ID;
+/**
+ * The bot owner, always allowed to run admin commands in any guild, set via
+ * the YOUR_ID env var. When unset no user ID can match, so nothing is granted.
+ *
+ * Read at the point of use rather than captured in a module constant: index.ts
+ * imports this module, and ESM evaluates an imported module before the body of
+ * the one importing it, so a constant here would be read before
+ * `dotenv.config()` has populated the environment - leaving the grant
+ * permanently unset for anyone configuring it through .env.
+ * @returns The owner's Discord ID, or `undefined` when YOUR_ID is unset.
+ */
+function botOwnerId(): string | undefined {
+  return process.env.YOUR_ID || undefined;
+}
 
 /**
  * Commands that need admin from end to end. No builder carries default member
@@ -34,7 +45,7 @@ export const ADMIN_SUBCOMMANDS: Record<string, string[]> = {
 
 /**
  * Checks whether the invoker may run admin commands (settings, nukes).
- * Allowed: the bot owner ({@link BOT_OWNER_ID}), the guild owner, or a member
+ * Allowed: the bot owner ({@link botOwnerId}), the guild owner, or a member
  * with Manage Server (Administrator implies it). Runtime check rather than
  * Discord default permissions so the bot-owner grant works for members
  * without Manage Server - see {@link ADMIN_COMMANDS}.
@@ -50,7 +61,7 @@ export function isAdmin(
   if (!interaction.inGuild()) return false;
   const userId = interaction.user.id;
   return (
-    userId === BOT_OWNER_ID ||
+    userId === botOwnerId() ||
     userId === interaction.guild?.ownerId ||
     (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false)
   );

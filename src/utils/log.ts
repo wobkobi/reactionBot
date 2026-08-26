@@ -11,14 +11,38 @@ const LEVELS: Record<LogLevel, number> = {
   debug: 10,
 };
 
-// Env-driven defaults
-const ENV_LEVEL = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
-const ENV_FORMAT = (process.env.LOG_FORMAT?.toLowerCase() || "pretty") as "pretty" | "json";
-const MIN_LEVEL = LEVELS[ENV_LEVEL] ?? LEVELS.info;
+// Every setting below is read at the point of use rather than captured in a
+// module constant. This module is imported by nearly every other one, so a
+// constant here would be read before `dotenv.config()` runs in index.ts -
+// ESM evaluates imports before the importing module's body - and LOG_LEVEL,
+// LOG_FORMAT and NO_COLOR could never be set from .env at all.
 
-// Colourise pretty output only when writing to an interactive terminal, so log
-// files and CI output stay free of ANSI escape codes. Set NO_COLOR to disable.
-const USE_COLOUR = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+/**
+ * The lowest level that gets emitted, from LOG_LEVEL.
+ * @returns The level's numeric weight; "info" when LOG_LEVEL is unset or is
+ * not a level name.
+ */
+function minLevel(): number {
+  const level = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
+  return LEVELS[level] ?? LEVELS.info;
+}
+
+/**
+ * The output format, from LOG_FORMAT.
+ * @returns "json" when asked for, otherwise "pretty".
+ */
+function format(): "pretty" | "json" {
+  return process.env.LOG_FORMAT?.toLowerCase() === "json" ? "json" : "pretty";
+}
+
+/**
+ * Whether to colourise. Only when writing to an interactive terminal, so log
+ * files and CI output stay free of ANSI escape codes; NO_COLOR disables it.
+ * @returns `true` when output should carry ANSI escapes.
+ */
+function useColour(): boolean {
+  return Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+}
 
 /** ANSI SGR codes per level (31 = red, 33 = yellow, 32 = green, 90 = grey). */
 const LEVEL_COLOUR: Record<LogLevel, string> = {
@@ -38,7 +62,7 @@ const DIM = "2";
  * @returns The text, optionally wrapped in ANSI escapes.
  */
 function colour(code: string, text: string): string {
-  return USE_COLOUR ? `\x1b[${code}m${text}\x1b[0m` : text;
+  return useColour() ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
 
 /**
@@ -105,7 +129,7 @@ function writeJson(ns: string, level: LogLevel, msg: string, ctx?: Record<string
  * @returns True when the level meets the current minimum threshold.
  */
 function shouldLog(level: LogLevel): boolean {
-  return (LEVELS[level] ?? 0) >= MIN_LEVEL;
+  return (LEVELS[level] ?? 0) >= minLevel();
 }
 
 /**
@@ -117,7 +141,7 @@ function shouldLog(level: LogLevel): boolean {
  */
 function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
   if (!shouldLog(level)) return;
-  if (ENV_FORMAT === "json") {
+  if (format() === "json") {
     writeJson(ns, level, msg, ctx);
   } else {
     writePretty(ns, level, msg, ctx);
