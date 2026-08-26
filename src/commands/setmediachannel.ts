@@ -3,6 +3,7 @@
 import { loadSettings, saveSettings } from "@/media/settings";
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChannelType, ChatInputCommandInteraction, MessageFlags, TextChannel } from "discord.js";
@@ -34,7 +35,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -56,7 +57,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     log.info("media channel set", { guildId, channelId: channel.id, by: userId });
 
-    await interaction.reply({
+    await respond(interaction, {
       content: `✅ Media channel set to ${channel}`,
       flags: MessageFlags.Ephemeral,
     });
@@ -66,7 +67,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       userId,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });

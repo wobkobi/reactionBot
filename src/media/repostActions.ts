@@ -8,6 +8,7 @@
 import { appendDeletionLog } from "@/media/audit";
 import { findRepostForMessage, removeRepost, RepostRecord, saveRepost } from "@/media/repostStore";
 import { createLogger } from "@/utils/log";
+import { respond } from "@/utils/respond";
 import {
   ActionRowBuilder,
   ButtonInteraction,
@@ -45,13 +46,16 @@ const NO_RECORD_MESSAGE =
   "⚠️ This isn't a moved post, or its record is gone - it can't be changed.";
 
 /**
- * Sends an ephemeral notice on any repliable interaction.
+ * Sends an ephemeral notice on any repliable interaction, without throwing -
+ * see {@link respond}. A delete is acknowledged before it runs (the caller may
+ * have right-clicked the very message being removed), so a refused
+ * acknowledgement must not take the delete down with it.
  * @param interaction - The interaction to answer.
  * @param content - The message to show.
- * @returns A promise that resolves once the notice is sent.
+ * @returns A promise that resolves once the notice is sent or dropped.
  */
 async function notify(interaction: RepliableInteraction, content: string): Promise<void> {
-  await interaction.reply({
+  await respond(interaction, {
     content,
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },

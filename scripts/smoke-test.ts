@@ -9,6 +9,7 @@
 import { data as calmDown } from "@/commands/calmdown";
 import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
+import { buildListLines } from "@/commands/gif";
 import { buildHelpFields } from "@/commands/help";
 import { data as myDelay, resolvePref } from "@/commands/mydelay";
 import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
@@ -16,6 +17,7 @@ import { data as setMediaChannel } from "@/commands/setmediachannel";
 import { data as slursCommand } from "@/commands/slurs";
 import { data as swearsCommand } from "@/commands/swears";
 import { isApproved } from "@/media/approval";
+import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
 import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
@@ -26,6 +28,7 @@ import {
   collectMentions,
   repostWithOptionalStub,
 } from "@/media/repost";
+import { handleDeletePostCommand } from "@/media/repostActions";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
 import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
@@ -53,13 +56,22 @@ import {
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
-import { loadWords, parseJsonc } from "@/tracking/words";
+import { loadWords, parseJsonc, WORDS_FILE } from "@/tracking/words";
+import { dataFilePath } from "@/utils/file";
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
+import { respond } from "@/utils/respond";
 import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
-import type { GuildTextBasedChannel, Message } from "discord.js";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
+import {
+  type GuildTextBasedChannel,
+  type InteractionReplyOptions,
+  type Message,
+  type MessageContextMenuCommandInteraction,
+  MessageFlags,
+  type RepliableInteraction,
+} from "discord.js";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -1268,6 +1280,311 @@ function checkCommandVisibility(): void {
   );
 }
 
+/**
+ * Builds the error Discord returns when it refuses a response.
+ * @param code - The API error code (10062 for an interaction it no longer knows).
+ * @param message - The message Discord puts on it.
+ * @returns An error shaped like the one discord.js throws for a refused request.
+ */
+function discordError(code: number, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+/** A stand-in interaction, plus readers for what was done to it. */
+interface FakeInteraction {
+  interaction: RepliableInteraction;
+  /** Which response methods were called, in order. */
+  calls: () => string[];
+  /** The payload the last call carried. */
+  payload: () => InteractionReplyOptions | undefined;
+}
+
+/**
+ * Builds a fake repliable interaction with a scripted response.
+ * @param outcome - Stands in for Discord's answer: resolves for an interaction
+ * it still knows, rejects the way it refuses a dead one.
+ * @param state - Whether the interaction has already been answered or deferred.
+ * @param state.replied - It has been answered.
+ * @param state.deferred - It is showing a deferral.
+ * @returns The fake interaction and its readers.
+ */
+function fakeInteraction(
+  outcome: () => Promise<unknown>,
+  state: { replied?: boolean; deferred?: boolean } = {},
+): FakeInteraction {
+  const calls: string[] = [];
+  let payload: InteractionReplyOptions | undefined;
+  const record =
+    (name: string) =>
+    (sent: InteractionReplyOptions): Promise<unknown> => {
+      calls.push(name);
+      payload = sent;
+      return outcome();
+    };
+  const interaction = {
+    commandName: "setdelay",
+    createdTimestamp: Date.now() - 4_000,
+    deferred: state.deferred ?? false,
+    replied: state.replied ?? false,
+    isCommand: () => true,
+    isMessageComponent: () => false,
+    isModalSubmit: () => false,
+    reply: record("reply"),
+    followUp: record("followUp"),
+    editReply: record("editReply"),
+    // The webhook is the way back to an interaction acknowledged elsewhere, so
+    // it answers on its own rather than off the scripted outcome.
+    webhook: {
+      send: (sent: InteractionReplyOptions): Promise<unknown> => {
+        calls.push("webhook.send");
+        payload = sent;
+        return Promise.resolve({});
+      },
+    },
+  };
+  return {
+    interaction: interaction as unknown as RepliableInteraction,
+    calls: () => calls,
+    payload: () => payload,
+  };
+}
+
+/**
+ * Verifies a full GIF list still fits one embed. Discord refuses a
+ * description over 4096 characters outright, and the pool holds whatever
+ * links people added, so 25 long ones would take the whole command down.
+ */
+function checkGifListLength(): void {
+  const long = "https://media.tenor.com/" + "x".repeat(300) + ".gif";
+  const entries = Array.from({ length: 25 }, (_, i) => ({
+    content: long + i,
+    categories: ["generic"],
+    id: "id" + i,
+    addedBy: "123456789012345678",
+  }));
+
+  const lines = buildListLines(entries);
+  const description = lines.join("\n\n");
+  check("gifs", "a long list fits the embed description cap", description.length <= 4096);
+  check(
+    "gifs",
+    "a long list is cut short rather than refused",
+    lines.length > 0 && lines.length < entries.length,
+  );
+
+  const short = entries.slice(0, 3).map((e) => ({ ...e, content: "https://x.gif" }));
+  check("gifs", "a short list shows every entry", buildListLines(short).length === 3);
+}
+
+/**
+ * Verifies a delete survives an acknowledgement Discord will not take. The
+ * notice goes out before the delete - the caller may have right-clicked the
+ * very post being removed, and an unanswered interaction shows as failed - so
+ * a refused notice that threw would leave the post standing while telling the
+ * author it was gone.
+ * @returns A promise that resolves once the delete is checked.
+ */
+async function checkDeleteSurvivesRefusedNotice(): Promise<void> {
+  const guild = "__smoketest__";
+  try {
+    saveRepost(guild, "moved1", {
+      authorId: "u1",
+      originalMessageId: "o1",
+      sourceChannelId: "c1",
+      repostChannelId: "c2",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const interaction = {
+      inGuild: () => true,
+      guildId: guild,
+      user: { id: "u1" },
+      targetMessage: { id: "moved1" },
+      createdTimestamp: Date.now() - 4_000,
+      deferred: false,
+      replied: false,
+      isCommand: () => true,
+      commandName: "Delete post",
+      isMessageComponent: () => false,
+      isModalSubmit: () => false,
+      // Discord has forgotten the interaction, so every response is refused.
+      reply: () => Promise.reject(Object.assign(new Error("Unknown interaction"), { code: 10062 })),
+      webhook: {
+        send: () =>
+          Promise.reject(Object.assign(new Error("Unknown interaction"), { code: 10062 })),
+      },
+      // The moved message is gone from the cache; the delete has to carry on
+      // without it.
+      client: { channels: { fetch: () => Promise.reject(new Error("Unknown Channel")) } },
+    } as unknown as MessageContextMenuCommandInteraction;
+
+    let threw = false;
+    await handleDeletePostCommand(interaction).catch(() => {
+      threw = true;
+    });
+    check("interactions", "a refused notice does not throw out of the delete", !threw);
+    check(
+      "interactions",
+      "a refused notice still lets the delete run",
+      getRepost(guild, "moved1") === undefined,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
+}
+
+/**
+ * Verifies answering an interaction cannot throw, and that each state gets the
+ * response that actually reaches the user. A rejection escaping an async
+ * listener kills the bot: discord.js builds its client with captureRejections,
+ * so the rejection comes back as the client's "error" event, and with nothing
+ * listening Node takes the process down. Discord refusing a response is
+ * routine - an interaction can expire before the gateway delivers it - so it
+ * has to be logged and dropped instead.
+ *
+ * Every "does not throw" pair returns `true` from its catch, so the paired
+ * "nothing was sent" check cannot be satisfied by the throw it is meant to be
+ * independent of.
+ * @returns A promise that resolves once the responses are checked.
+ */
+async function checkInteractionResponses(): Promise<void> {
+  const expired = fakeInteraction(() => Promise.reject(discordError(10062, "Unknown interaction")));
+  let threw = false;
+  const sent = await respond(expired.interaction, { content: "⚠️ There was an error." }).catch(
+    () => {
+      threw = true;
+      return true;
+    },
+  );
+  check("interactions", "an expired interaction does not throw", !threw);
+  check("interactions", "an expired interaction reports nothing was sent", !threw && !sent);
+
+  // Nothing says a rejection is an Error, and reading a code off null throws.
+  const bare = fakeInteraction(() => Promise.reject(null as unknown as Error));
+  let bareThrew = false;
+  const bareSent = await respond(bare.interaction, { content: "hi" }).catch(() => {
+    bareThrew = true;
+    return true;
+  });
+  check("interactions", "a rejection with no error object does not throw", !bareThrew);
+  check(
+    "interactions",
+    "a rejection with no error object reports nothing sent",
+    !bareThrew && !bareSent,
+  );
+
+  // Acknowledged already - a reply whose response was lost and retried looks
+  // exactly like this - so the message still has somewhere to go.
+  const acknowledged = fakeInteraction(() =>
+    Promise.reject(discordError(40060, "Interaction has already been acknowledged")),
+  );
+  const acknowledgedSent = await respond(acknowledged.interaction, { content: "hi" });
+  check(
+    "interactions",
+    "an already-acknowledged interaction falls back to the webhook",
+    acknowledged.calls().includes("webhook.send"),
+  );
+  check("interactions", "the fallback follow-up counts as sent", acknowledgedSent);
+
+  // Editing the deferral is the only thing that clears the "thinking" state.
+  const deferred = fakeInteraction(() => Promise.resolve({}), { deferred: true });
+  await respond(deferred.interaction, { content: "hi", flags: MessageFlags.Ephemeral });
+  check(
+    "interactions",
+    "a deferred interaction is answered by editing the deferral",
+    deferred.calls()[0] === "editReply",
+  );
+  check(
+    "interactions",
+    "the edit drops the flag the deferral already fixed",
+    deferred.payload()?.flags === undefined,
+  );
+
+  const answered = fakeInteraction(
+    () => Promise.reject(discordError(50013, "Missing Permissions")),
+    { replied: true },
+  );
+  let answeredThrew = false;
+  const answeredSent = await respond(answered.interaction, { content: "hi" }).catch(() => {
+    answeredThrew = true;
+    return true;
+  });
+  check(
+    "interactions",
+    "an answered interaction gets a follow-up",
+    answered.calls()[0] === "followUp",
+  );
+  check("interactions", "a refused follow-up does not throw", !answeredThrew);
+  check(
+    "interactions",
+    "a refused follow-up reports nothing was sent",
+    !answeredThrew && !answeredSent,
+  );
+
+  const fresh = fakeInteraction(() => Promise.resolve({}));
+  const freshSent = await respond(fresh.interaction, { content: "hi" });
+  check("interactions", "an unanswered interaction gets a reply", fresh.calls()[0] === "reply");
+  check("interactions", "a sent response reports it went out", freshSent);
+}
+
+/**
+ * Verifies the compiled word config is reused between messages and still
+ * picks up an edit. Every message compiles this config, so it is cached; a
+ * cache that missed a hand edit would need a restart to take a new word.
+ */
+function checkWordsCache(): void {
+  writeSmokeWords();
+  const first = loadWords(SMOKE_GUILD);
+  check(
+    "trackers",
+    "the compiled config is reused while the files are unchanged",
+    loadWords(SMOKE_GUILD) === first,
+  );
+
+  const file = dataFilePath(SMOKE_GUILD, WORDS_FILE);
+  const edited = readFileSync(file, "utf-8").replace('"goose"', '"goose", "gander"');
+  writeFileSync(file, edited, "utf-8");
+  const after = loadWords(SMOKE_GUILD);
+  check("trackers", "an edited config is recompiled without a restart", after !== first);
+  check(
+    "trackers",
+    "the edited list is what gets matched",
+    countMatches("gander", after.tracks.slurs).size === 1,
+  );
+
+  writeSmokeWords();
+}
+
+/**
+ * Verifies the deletion audit log drops what has aged out. Every append
+ * rewrites the whole file, so an unpruned log makes each delete cost more
+ * than the last.
+ */
+function checkDeletionLogPruning(): void {
+  const at = (deletedAt: string): DeletionLogEntry => ({
+    originalMessageId: "o1",
+    originalChannelId: "c1",
+    repostMessageId: "m1",
+    repostChannelId: "c2",
+    deletedAt,
+  });
+  const now = Date.parse("2026-08-26T00:00:00.000Z");
+  const kept = pruneDeletionLog(
+    [at("2026-01-01T00:00:00.000Z"), at("2026-08-01T00:00:00.000Z"), at("whenever")],
+    now,
+  );
+  check("repost", "the audit log drops entries past the window", kept.length === 2);
+  check(
+    "repost",
+    "the audit log keeps a recent entry",
+    kept.some((e) => e.deletedAt === "2026-08-01T00:00:00.000Z"),
+  );
+  check(
+    "repost",
+    "the audit log keeps an entry it cannot date",
+    kept.some((e) => e.deletedAt === "whenever"),
+  );
+}
+
 /* --------------------------------------------------------------- reporting */
 
 /**
@@ -1293,18 +1610,23 @@ void (async () => {
   try {
     await checkCommandsLoad();
     checkCommandVisibility();
+    await checkInteractionResponses();
+    await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();
     checkRepostContent();
     await checkRepostOrdering();
     checkRepostStore();
+    checkDeletionLogPruning();
     checkRetention();
     checkReactions();
     checkGrace();
     checkMemberPrefs();
     checkSwears();
     checkTrackers();
+    checkWordsCache();
     checkSlurResponses();
     checkGifs();
+    checkGifListLength();
 
     printTable();
 

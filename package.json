@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "2.11.0",
+  "version": "2.11.1",
   "type": "module",
   "scripts": {
     "build": "node -e \"fs.rmSync('build',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
@@ -42,7 +42,7 @@
     "tsc-alias": "^1.9.2",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.68.0"
   },
   "engines": {
     "node": "24.x",

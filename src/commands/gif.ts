@@ -3,6 +3,7 @@
 import {
   addGif,
   GENERIC,
+  GifEntry,
   listCategories,
   listGifs,
   loadGifConfig,
@@ -10,6 +11,7 @@ import {
   saveGifConfig,
 } from "@/tracking/gifs";
 import { isAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { randomUUID } from "crypto";
 import { InteractionContextType } from "discord-api-types/v10";
@@ -66,6 +68,16 @@ const LABEL_URL_MAX = 60;
 
 /** Most entries shown by `/gif list` before it asks for a category filter. */
 const LIST_MAX = 25;
+
+/**
+ * Discord's cap on an embed description. A description over it is refused
+ * outright rather than truncated, and the pool holds whatever links people
+ * added, so the length is counted rather than assumed.
+ */
+const DESCRIPTION_MAX = 4096;
+
+/** Blank line between entries in the list. */
+const ENTRY_GAP = "\n\n";
 
 /**
  * Shortens text for an autocomplete label, which Discord caps at 100
@@ -133,15 +145,38 @@ async function executeAdd(interaction: ChatInputCommandInteraction): Promise<voi
     addedAt: new Date().toISOString(),
   });
   if (!result.ok) {
-    await interaction.reply({ content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
     return;
   }
 
   saveGifConfig(result.config);
-  await interaction.reply({
+  await respond(interaction, {
     content: `✅ Added to **${category}**. It's in the rotation from the next message on.`,
     flags: MessageFlags.Ephemeral,
   });
+}
+
+/**
+ * Renders the entries that fit one embed: at most {@link LIST_MAX} of them,
+ * and only as many as {@link DESCRIPTION_MAX} leaves room for - the pool holds
+ * links of any length, so 25 of them can overrun a description on their own.
+ * The caller reports whatever was left out, so stopping early is never silent.
+ * @param entries - The pool entries to render, in file order.
+ * @returns One line per entry shown, numbered from the top of the list.
+ */
+export function buildListLines(entries: GifEntry[]): string[] {
+  const lines: string[] = [];
+  let length = 0;
+  for (const [i, entry] of entries.slice(0, LIST_MAX).entries()) {
+    const tags = (entry.categories ?? [GENERIC]).join("/");
+    const who = entry.addedBy ? ` - added by <@${entry.addedBy}>` : "";
+    const line = `**${i + 1}.** \`${tags}\`${who}\n${entry.content}`;
+    const cost = line.length + (lines.length > 0 ? ENTRY_GAP.length : 0);
+    if (length + cost > DESCRIPTION_MAX) break;
+    lines.push(line);
+    length += cost;
+  }
+  return lines;
 }
 
 /**
@@ -152,25 +187,20 @@ async function executeAdd(interaction: ChatInputCommandInteraction): Promise<voi
 async function executeList(interaction: ChatInputCommandInteraction): Promise<void> {
   const category = interaction.options.getString("category")?.trim() || undefined;
   const entries = listGifs(loadGifConfig(), category);
-
-  const lines = entries.slice(0, LIST_MAX).map((e, i) => {
-    const tags = (e.categories ?? [GENERIC]).join("/");
-    const who = e.addedBy ? ` - added by <@${e.addedBy}>` : "";
-    return `**${i + 1}.** \`${tags}\`${who}\n${e.content}`;
-  });
+  const lines = buildListLines(entries);
 
   const embed = new EmbedBuilder()
     .setTitle(category ? `Reply GIFs (${category})` : "Reply GIFs")
-    .setDescription(lines.join("\n\n") || "Nothing here yet.");
-  if (entries.length > LIST_MAX) {
+    .setDescription(lines.join(ENTRY_GAP) || "Nothing here yet.");
+  if (lines.length < entries.length) {
     embed.setFooter({
-      text: `Showing ${LIST_MAX} of ${entries.length} - filter by category to see the rest.`,
+      text: `Showing ${lines.length} of ${entries.length} - filter by category to see the rest.`,
     });
   }
 
   // Ephemeral and unping-ing: managing the pool shouldn't spam the channel or
   // poke everyone who ever added a GIF.
-  await interaction.reply({
+  await respond(interaction, {
     embeds: [embed],
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
@@ -188,12 +218,12 @@ async function executeRemove(interaction: ChatInputCommandInteraction): Promise<
 
   const result = removeGif(loadGifConfig(), id, interaction.user.id, isAdmin(interaction));
   if (!result.ok) {
-    await interaction.reply({ content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: `⚠️ ${result.reason}`, flags: MessageFlags.Ephemeral });
     return;
   }
 
   saveGifConfig(result.config);
-  await interaction.reply({ content: "✅ Removed.", flags: MessageFlags.Ephemeral });
+  await respond(interaction, { content: "✅ Removed.", flags: MessageFlags.Ephemeral });
 }
 
 /**

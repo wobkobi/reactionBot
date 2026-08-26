@@ -22,13 +22,13 @@ import {
 import { Tracker } from "@/tracking/trackers";
 import { loadWords } from "@/tracking/words";
 import { createLogger } from "@/utils/log";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder, SlashCommandSubcommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
-  InteractionReplyOptions,
   MessageFlags,
 } from "discord.js";
 
@@ -106,30 +106,30 @@ export function trackerCommand(tracker: Tracker): SlashCommandBuilder {
  * Replies that the command must be used in a server. Every tracker command is
  * guild-only, so this cannot fire in practice - the `inGuild()` calls that
  * reach it are kept because they narrow `guildId` to a string for the store
- * calls below.
+ * calls below. Several callers sit outside their own try, so it answers
+ * through {@link respond} rather than throwing past them.
  * @param interaction - The command interaction.
- * @returns A promise that resolves once the reply is sent.
+ * @returns A promise that resolves once the reply is sent or dropped.
  */
 async function guildOnly(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.reply({
+  await respond(interaction, {
     content: "Use this command in a server.",
     flags: MessageFlags.Ephemeral,
   });
 }
 
 /**
- * Sends an ephemeral error, handling already-replied interactions.
+ * Sends an ephemeral error, following up when the command has already
+ * answered, and never throwing - see {@link respond}.
  * @param interaction - The command interaction.
  * @param content - The error message.
- * @returns A promise that resolves once the error is sent.
+ * @returns A promise that resolves once the error is sent or dropped.
  */
 async function replyError(
   interaction: ChatInputCommandInteraction,
   content: string,
 ): Promise<void> {
-  const reply: InteractionReplyOptions = { content, flags: MessageFlags.Ephemeral };
-  if (interaction.deferred || interaction.replied) await interaction.followUp(reply);
-  else await interaction.reply(reply);
+  await respond(interaction, { content, flags: MessageFlags.Ephemeral });
 }
 
 /**
@@ -189,7 +189,7 @@ export async function replyTopUsers(
     // Free-text safety net for anyone who bypasses the autocomplete: an unknown
     // word would only render an empty leaderboard, so say why instead.
     if (word && !recordedWords(guildId, tracker).includes(word)) {
-      await interaction.reply({
+      await respond(interaction, {
         content: `No one has ${tracker.verbPast} "${word}" here yet.`,
         flags: MessageFlags.Ephemeral,
       });
@@ -224,7 +224,7 @@ export async function replyTopUsers(
       .setDescription(lines.join("\n") || "No data yet.");
     // Public on purpose: leaderboards are for the whole channel to see.
     // Empty allowedMentions so the ranked members render without being pinged.
-    await interaction.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+    await respond(interaction, { embeds: [embed], allowedMentions: { parse: [] } });
   } catch (err) {
     log.error("failed to build user leaderboard", {
       storeFile: tracker.storeFile,
@@ -256,7 +256,7 @@ export async function replyTopWords(
       .setTitle(tracker.wordsTitle)
       .setDescription(lines.join("\n") || "No data yet.");
     // Public on purpose: leaderboards are for the whole channel to see.
-    await interaction.reply({ embeds: [embed] });
+    await respond(interaction, { embeds: [embed] });
   } catch (err) {
     log.error("failed to build word leaderboard", {
       storeFile: tracker.storeFile,
@@ -297,7 +297,7 @@ export async function replyCategoryBreakdown(
       .setTitle(title)
       .setDescription(lines.join("\n") || "No data yet.");
     // Public on purpose: breakdowns are for the whole channel to see.
-    await interaction.reply({ embeds: [embed] });
+    await respond(interaction, { embeds: [embed] });
   } catch (err) {
     log.error("failed to build category breakdown", {
       storeFile: tracker.storeFile,
@@ -329,7 +329,7 @@ export async function replyUserTotal(
     const subject = isSelf ? "You" : `${target}`;
     const has = isSelf ? "have" : "has";
     const noun = `${tracker.noun}${total === 1 ? "" : "s"}`;
-    await interaction.reply({
+    await respond(interaction, {
       content: `${subject} ${has} ${tracker.verbPast} **${total}** ${noun}.`,
       flags: MessageFlags.Ephemeral,
       allowedMentions: { parse: [] },
@@ -364,7 +364,7 @@ export async function replyReset(
     if (target) {
       resetUser(guildId, tracker.storeFile, target.id);
       log.info("reset user", { storeFile: tracker.storeFile, guildId, userId: target.id });
-      await interaction.reply({
+      await respond(interaction, {
         content: `✅ ${tracker.noun} stats reset for ${target}.`,
         flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
@@ -372,7 +372,7 @@ export async function replyReset(
     } else {
       resetGuild(guildId, tracker.storeFile);
       log.info("reset guild", { storeFile: tracker.storeFile, guildId });
-      await interaction.reply({
+      await respond(interaction, {
         content: `✅ ${tracker.noun} stats reset for the whole server.`,
         flags: MessageFlags.Ephemeral,
       });

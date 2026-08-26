@@ -5,6 +5,7 @@ import { loadSettings, saveSettings } from "@/media/settings";
 import { GraceSetting, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -114,7 +115,7 @@ export function resolveGrace(
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     log.warn("invoked outside guild", { userId: interaction.user.id });
-    await interaction.reply({ content: "Use in a server.", flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: "Use in a server.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -148,14 +149,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       seconds: `✅ Posters get ${seconds}s to hit Yes or No before the prompt gives up.`,
       disabled: "✅ Posters always get asked, and the prompt stays up for a day.",
     };
-    await interaction.reply({ content: confirmations[mode], flags: MessageFlags.Ephemeral });
+    await respond(interaction, { content: confirmations[mode], flags: MessageFlags.Ephemeral });
   } catch (err) {
     log.error("failed to update grace", {
       guildId,
       userId,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });
@@ -186,7 +187,7 @@ async function setPersonal(
 
     log.info("personal limits updated", { guildId, by: interaction.user.id, ...next });
 
-    await interaction.reply({
+    await respond(interaction, {
       content: next.enabled
         ? `✅ Members can set their own delay with \`/mydelay\`, up to ${next.maxSeconds}s${
             next.allowNever ? ", and can opt out entirely" : ", but cannot opt out entirely"
@@ -200,7 +201,7 @@ async function setPersonal(
       userId: interaction.user.id,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });
