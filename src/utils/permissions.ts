@@ -1,5 +1,6 @@
 // src/utils/permissions.ts
 
+import { respond } from "@/utils/respond";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
@@ -60,11 +61,12 @@ export function isAdmin(
  * when the invoker is not allowed.
  * @param interaction - The command interaction to authorise.
  * @returns `true` when the command may proceed, `false` when it was blocked
- * (a reply has already been sent).
+ * (the refusal has been sent, or dropped when the interaction was already
+ * gone - see {@link respond}).
  */
 export async function requireAdmin(interaction: ChatInputCommandInteraction): Promise<boolean> {
   if (isAdmin(interaction)) return true;
-  await interaction.reply({
+  await respond(interaction, {
     content: "❌ You're not allowed to run this.",
     flags: MessageFlags.Ephemeral,
   });
@@ -92,8 +94,8 @@ export function needsAdmin(command: string, subcommand?: string | null): boolean
  * and this is the gate that stops one - a command module's own
  * {@link requireAdmin} call is a second layer, not the only one.
  * @param interaction - The command interaction about to be dispatched.
- * @returns `true` when the command may run, `false` when it was refused (a
- * reply has already been sent).
+ * @returns `true` when the command may run, `false` when it was refused (see
+ * {@link requireAdmin} for what the caller was told).
  */
 export async function gateCommand(interaction: ChatInputCommandInteraction): Promise<boolean> {
   if (!needsAdmin(interaction.commandName, interaction.options.getSubcommand(false))) return true;

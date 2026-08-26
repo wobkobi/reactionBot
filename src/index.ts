@@ -11,6 +11,7 @@ import { onMessageDelete } from "@/onMessageDelete";
 import type { CommandModule } from "@/types/discord";
 import { createLogger } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
@@ -18,7 +19,6 @@ import {
   Collection,
   GatewayIntentBits,
   Interaction,
-  InteractionReplyOptions,
   Message,
   MessageFlags,
   Partials,
@@ -209,17 +209,39 @@ client.on("interactionCreate", async (interaction: Interaction) => {
       command: interaction.commandName,
       error: err instanceof Error ? err.message : String(err),
     });
-    const reply: InteractionReplyOptions = {
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
-    };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.followUp(reply);
-    } else {
-      await interaction.reply(reply);
-    }
+    });
   }
 });
+
+/**
+ * Logs a failure that would otherwise end the process. These handlers are the
+ * only record left of failures that used to crash with a full trace, so the
+ * stack is kept alongside the message.
+ * @param what - Where the failure came from.
+ * @param err - The error to record.
+ */
+const logSurvived = (what: string, err: unknown): void => {
+  log.error(what, {
+    error: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+};
+
+// discord.js builds the client with captureRejections, so a rejection from any
+// async listener above is re-emitted here instead of reaching Node. Without a
+// listener Node rethrows it and the bot dies over one refused request. Gateway
+// failures arrive on shardError; nothing else emits the client's own "error"
+// in a single-process bot.
+client.on("error", (err) => logSurvived("client error", err));
+client.on("shardError", (err) => logSurvived("shard error", err));
+
+// Capture only covers the client's own listeners. Message-component collectors
+// (the approval prompts) are plain emitters, so a rejection in one of their
+// handlers reaches Node, which ends the process on it by default.
+process.on("unhandledRejection", (reason) => logSurvived("unhandled rejection", reason));
 
 if (DEV_GUILD_ID) boot("Dev guard active: only serving one guild", { guild: DEV_GUILD_ID });
 boot("Starting login");

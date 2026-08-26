@@ -11,6 +11,13 @@ const DISCORD_EPOCH = 1_420_070_400_000;
 /** How long a moved post stays editable/deletable by its author. */
 export const REPOST_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
+/**
+ * How long a deletion stays in the audit log. Matched to
+ * {@link REPOST_RETENTION_MS}: past it the repost record is gone too, so the
+ * entry documents something nothing can act on any more.
+ */
+export const AUDIT_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
 /** How long a bot reply stays linked to the message that triggered it. */
 export const REPLY_RETENTION_MS = 30 * 24 * 60 * 60_000;
 

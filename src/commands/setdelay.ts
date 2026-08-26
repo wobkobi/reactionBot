@@ -5,6 +5,7 @@ import { loadSettings, saveSettings } from "@/media/settings";
 import { GraceSetting, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -155,7 +156,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       userId,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });
@@ -200,7 +201,7 @@ async function setPersonal(
       userId: interaction.user.id,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });

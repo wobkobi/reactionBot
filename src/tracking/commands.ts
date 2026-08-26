@@ -22,13 +22,13 @@ import {
 import { Tracker } from "@/tracking/trackers";
 import { loadWords } from "@/tracking/words";
 import { createLogger } from "@/utils/log";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder, SlashCommandSubcommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
-  InteractionReplyOptions,
   MessageFlags,
 } from "discord.js";
 
@@ -106,30 +106,30 @@ export function trackerCommand(tracker: Tracker): SlashCommandBuilder {
  * Replies that the command must be used in a server. Every tracker command is
  * guild-only, so this cannot fire in practice - the `inGuild()` calls that
  * reach it are kept because they narrow `guildId` to a string for the store
- * calls below.
+ * calls below. Several callers sit outside their own try, so it answers
+ * through {@link respond} rather than throwing past them.
  * @param interaction - The command interaction.
- * @returns A promise that resolves once the reply is sent.
+ * @returns A promise that resolves once the reply is sent or dropped.
  */
 async function guildOnly(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.reply({
+  await respond(interaction, {
     content: "Use this command in a server.",
     flags: MessageFlags.Ephemeral,
   });
 }
 
 /**
- * Sends an ephemeral error, handling already-replied interactions.
+ * Sends an ephemeral error, following up when the command has already
+ * answered, and never throwing - see {@link respond}.
  * @param interaction - The command interaction.
  * @param content - The error message.
- * @returns A promise that resolves once the error is sent.
+ * @returns A promise that resolves once the error is sent or dropped.
  */
 async function replyError(
   interaction: ChatInputCommandInteraction,
   content: string,
 ): Promise<void> {
-  const reply: InteractionReplyOptions = { content, flags: MessageFlags.Ephemeral };
-  if (interaction.deferred || interaction.replied) await interaction.followUp(reply);
-  else await interaction.reply(reply);
+  await respond(interaction, { content, flags: MessageFlags.Ephemeral });
 }
 
 /**

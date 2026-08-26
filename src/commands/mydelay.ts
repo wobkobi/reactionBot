@@ -4,6 +4,7 @@ import { clampPref, clearPref, loadPref, resolveLimits, savePref } from "@/media
 import { loadSettings } from "@/media/settings";
 import { GraceSetting, MemberMode, MemberPref, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
+import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
@@ -220,7 +221,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       userId,
       error: err instanceof Error ? err.message : String(err),
     });
-    await interaction.reply({
+    await respond(interaction, {
       content: "⚠️ There was an error.",
       flags: MessageFlags.Ephemeral,
     });
