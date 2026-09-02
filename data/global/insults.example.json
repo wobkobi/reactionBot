@@ -1,0 +1,16 @@
+{
+  "_comment": "Template for data/global/insults.json (or data/<guildId>/insults.json) - the comebacks fired at anyone who @s the bot. Only a direct mention counts: a role the bot holds, an @everyone and a reply's implicit ping are all ignored. 'insults' is the pool, one picked at random - each entry is text or a GIF/image link, which Discord embeds on its own; {user} is the author mention and {count} is how many times they have pinged the bot. 'spam' (optional) is sent instead when the bot is ping-spammed, and then it goes calm for a while (no replies; reactions continue). Comebacks are rate-limited per user, silenced during calm mode, and skipped when the message already earned a responses.json reply. There is no built-in pool: with no insults.json at either scope the bot takes the ping in silence, and an 'insults' array is what makes a file count, empty or not - an empty one turns comebacks off for that server rather than letting global answer for it.",
+  "insults": [
+    "{user} is a poopy head.",
+    "nice try, {user}, you big smelly.",
+    "{user} has cooties.",
+    "{user} eats crayons, and not even the good colours.",
+    "go and boil your head, {user}.",
+    "{user} is a doo-doo brain.",
+    "whatever, {user}, your bum's a face.",
+    "{user} smells like old cheese.",
+    "cry about it, {user}, you absolute wet sock.",
+    "that's ping #{count}, {user}, and you're still a butt-face."
+  ],
+  "spam": "okay {user}, that's enough. Go and play outside."
+}

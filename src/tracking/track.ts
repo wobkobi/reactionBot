@@ -1,13 +1,15 @@
 // src/tracking/track.ts
 
-/**
- * @file Per-message processing of the unified word config: records swears and
- * slurs, fires the per-type configured replies (responses.json), and adds the
- * configured emoji reactions - all driven by words.json (see {@link loadWords}).
- */
+// Per-message processing of the unified word config: records swears and
+// slurs, fires the per-type configured replies (responses.json) or a comeback
+// at anyone who mentions the bot (insults.json), asks which meaning was meant
+// where a word has an innocent one (definitions.json), and adds the configured
+// emoji reactions - all driven by words.json (see loadWords).
 
 import { noteMessage } from "@/tracking/calm";
+import { offerDefinition } from "@/tracking/definitions";
 import { countMatches } from "@/tracking/detect";
+import { respondToMention } from "@/tracking/mention";
 import { respondToMessage } from "@/tracking/responses";
 import { incrementCounts } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
@@ -110,7 +112,9 @@ async function reactWithValue(message: Message<true>, value: string): Promise<vo
 
 /**
  * Scans a guild message against the unified word config: records swears and
- * slurs against the author, fires the per-type configured replies, and adds
+ * slurs against the author, fires the per-type configured replies (or a
+ * comeback when the message mentions the bot and nothing else answered it),
+ * asks which meaning was meant where a word has an innocent one, and adds
  * configured reactions.
  * @param message - The message to scan. DMs and bot authors are ignored.
  * @returns A promise that resolves once tracking is complete or skipped.
@@ -140,8 +144,21 @@ export async function trackMessage(message: Message): Promise<void> {
   }
 
   // Configured replies (responses.json): at most one per message, after the
-  // stores are updated so {count} reflects this message.
-  await respondToMessage(message, words);
+  // stores are updated so {count} reflects this message. An @ at the bot earns
+  // a comeback only when nothing was said that already answered the message -
+  // "@bot you slur" gets one reply, not two.
+  const answered = await respondToMessage(message, words);
+  if (!answered) await respondToMention(message);
+
+  // The definition prompt is its own answer, not one of the above: a word can
+  // earn the shaming reply AND be asked which meaning it was. Not awaited -
+  // the prompt stays clickable for a minute, and the reactions below must not
+  // wait that long.
+  offerDefinition(message).catch((err: unknown) => {
+    log.warn("definition prompt failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   // Reactions from the config: matched words plus type emoji triggers.
   const reactionHits = countMatches(content, words.reactionList);

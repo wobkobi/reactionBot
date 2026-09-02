@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {
+      "words": ["faggot", "fag", "faggots", "fags"],
+      "prompt": "{user} homo or sticks?",
+      "options": [
+        {
+          "id": "homo",
+          "label": "Homo",
+          "emoji": "🏳️‍🌈",
+          "reply": "Thought so.\n**faggot** (ˈfæɡət) *noun* - an insulting word for a gay man. [US, informal, offensive]\n-# Collins COBUILD Advanced Learner's Dictionary"
+        },
+        {
+          "id": "sticks",
+          "label": "Sticks",
+          "emoji": "🪵",
+          "reply": "Fair enough, {user}.\n**faggot** (ˈfæɡət) *noun* - a bundle of sticks or twigs, esp when bound together and used as fuel.\n-# Collins English Dictionary. C14: from Old French, perhaps from Greek *phakelos*, bundle"
+        },
+        {
+          "id": "food",
+          "label": "The food",
+          "emoji": "🍽️",
+          "reply": "Enjoy your tea, {user}.\n**faggot** (ˈfæɡət) *noun* - a ball of chopped meat, usually pork liver, bound with herbs and bread and eaten fried.\n-# Collins English Dictionary"
+        }
+      ]
+    }
+  ]
+}
