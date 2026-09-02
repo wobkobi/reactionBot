@@ -6,7 +6,7 @@
 // can sit under several. Format and template: data/readme.md.
 
 import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect";
-import { dataFilePath } from "@/utils/file";
+import { configFingerprint, dataFilePath } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import fs from "fs";
 
@@ -156,26 +156,8 @@ function readWordsFile(guildId: string): WordsConfig | null {
   }
 }
 
-/** Compiled config per guild, keyed by the {@link fingerprint} it was built from. */
+/** Compiled config per guild, keyed by the {@link configFingerprint} it was built from. */
 const cache = new Map<string, { fingerprint: string; compiled: CompiledWords }>();
-
-/**
- * Fingerprints the files a guild's config is built from. words.json is
- * hand-edited, so the cache has to notice an edit without a restart; size is
- * taken alongside the timestamp because two writes can land in the same
- * millisecond. A missing file contributes "-", so adding a guild override
- * invalidates the cache the same way editing one does.
- * @param guildId - Discord guild ID.
- * @returns A string that changes whenever either file does.
- */
-function fingerprint(guildId: string): string {
-  return [guildId, "global"]
-    .map((scope) => {
-      const stat = fs.statSync(dataFilePath(scope, WORDS_FILE), { throwIfNoEntry: false });
-      return stat ? `${stat.mtimeMs}:${stat.size}` : "-";
-    })
-    .join("|");
-}
 
 /**
  * Loads and compiles the guild's word config (guild words.json wholesale
@@ -187,7 +169,7 @@ function fingerprint(guildId: string): string {
  * @returns The {@link CompiledWords} for matching and reacting.
  */
 export function loadWords(guildId: string): CompiledWords {
-  const current = fingerprint(guildId);
+  const current = configFingerprint(guildId, WORDS_FILE);
   const cached = cache.get(guildId);
   if (cached?.fingerprint === current) return cached.compiled;
   const compiled = compileWords(guildId);

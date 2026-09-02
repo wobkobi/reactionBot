@@ -180,15 +180,17 @@ export function chooseReply(
  * calm mode starts automatically. Best-effort.
  * @param message - The guild message to consider.
  * @param words - The compiled word config for this guild.
- * @returns A promise that resolves once any reply attempt completes.
+ * @returns A promise resolving to `true` once a reply has been spent on this
+ * message - including one Discord refused, since a second answer would only be
+ * refused the same way.
  */
 export async function respondToMessage(
   message: Message<true>,
   words: CompiledWords,
-): Promise<void> {
-  if (isCalm(message.guildId)) return;
+): Promise<boolean> {
+  if (isCalm(message.guildId)) return false;
   const content = message.content;
-  if (!content) return;
+  if (!content) return false;
 
   const config = loadResponses(message.guildId);
   const now = Date.now();
@@ -264,6 +266,7 @@ export async function respondToMessage(
     if (sent) {
       recordReply(message.guildId, message.id, { channelId: sent.channelId, messageId: sent.id });
     }
-    return;
+    return true;
   }
+  return false;
 }

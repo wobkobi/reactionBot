@@ -116,3 +116,23 @@ export function saveData<T>(guildId: string, fileName: string, data: T): void {
   fs.renameSync(tmpPath, filePath);
   log.debug("wrote json", { filePath });
 }
+
+/**
+ * Fingerprints the files a guild-scoped config resolves from: the guild's own
+ * file and the global one it falls back to. Hand-edited configs have to be
+ * picked up without a restart, so a cache keyed on this string reloads on any
+ * edit; size is taken alongside the timestamp because two writes can land in
+ * the same millisecond. A missing file contributes "-", so adding a guild
+ * override invalidates the cache the same way editing one does.
+ * @param guildId - Discord guild ID.
+ * @param fileName - Config file name, e.g. `"words.json"`.
+ * @returns A string that changes whenever either file does.
+ */
+export function configFingerprint(guildId: string, fileName: string): string {
+  return [guildId, "global"]
+    .map((scope) => {
+      const stat = fs.statSync(dataFilePath(scope, fileName), { throwIfNoEntry: false });
+      return stat ? `${stat.mtimeMs}:${stat.size}` : "-";
+    })
+    .join("|");
+}

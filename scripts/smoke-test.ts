@@ -35,6 +35,18 @@ import { buildTransformedUrl, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
 import { copyHintFor } from "@/media/workflow";
 import { trackerCommand } from "@/tracking/commands";
+import {
+  compileEntries,
+  DEFINITIONS_FILE,
+  type DefinitionsConfig,
+  matchEntry,
+  MAX_OPTIONS,
+  MAX_PROMPT_MS,
+  MIN_PROMPT_MS,
+  PROMPT_GRACE_MULTIPLIER,
+  promptWindow,
+  readDefinitions,
+} from "@/tracking/definitions";
 import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect";
 import {
   addGif,
@@ -46,6 +58,7 @@ import {
   RawResponsesFile,
   removeGif,
 } from "@/tracking/gifs";
+import { INSULTS_FILE, mentionsBot, readInsults } from "@/tracking/mention";
 import {
   chooseReply,
   fillPlaceholders,
@@ -921,6 +934,273 @@ function checkSlurResponses(): void {
   );
 }
 
+/** Which ways a fake message pings the bot, for {@link fakeMentionMessage}. */
+interface MentionScenario {
+  /** The author typed the bot's mention. */
+  direct?: boolean;
+  /** A role the bot holds was pinged. */
+  viaRole?: boolean;
+  /** The message pinged everyone. */
+  everyone?: boolean;
+  /** The message is a reply to the bot, carrying the implicit ping. */
+  repliedUser?: boolean;
+}
+
+/**
+ * Builds a message whose `mentions.has` behaves like discord.js: each ignore
+ * option drops one way of being mentioned, and a direct mention survives them
+ * all.
+ * @param scenario - How the fake message pings the bot.
+ * @returns A stand-in {@link Message} for {@link mentionsBot}.
+ */
+function fakeMentionMessage(scenario: MentionScenario): Message<true> {
+  const has = (
+    _user: unknown,
+    options?: { ignoreRoles?: boolean; ignoreEveryone?: boolean; ignoreRepliedUser?: boolean },
+  ): boolean =>
+    Boolean(scenario.direct) ||
+    (!options?.ignoreRoles && Boolean(scenario.viaRole)) ||
+    (!options?.ignoreEveryone && Boolean(scenario.everyone)) ||
+    (!options?.ignoreRepliedUser && Boolean(scenario.repliedUser));
+  return { client: { user: { id: "bot" } }, mentions: { has } } as unknown as Message<true>;
+}
+
+/**
+ * Verifies the mention comeback: only a deliberate ping at the bot earns one,
+ * and the pool is read from insults.json alone - a file with an empty array
+ * switches comebacks off, while no file at all leaves the next scope to answer.
+ */
+function checkMentions(): void {
+  check("mentions", "a direct mention counts", mentionsBot(fakeMentionMessage({ direct: true })));
+  check(
+    "mentions",
+    "a role the bot holds does not",
+    !mentionsBot(fakeMentionMessage({ viaRole: true })),
+  );
+  check(
+    "mentions",
+    "an everyone ping does not",
+    !mentionsBot(fakeMentionMessage({ everyone: true })),
+  );
+  check(
+    "mentions",
+    "a reply's implicit ping does not",
+    !mentionsBot(fakeMentionMessage({ repliedUser: true })),
+  );
+  check("mentions", "an unrelated message does not", !mentionsBot(fakeMentionMessage({})));
+
+  const dir = path.join(ROOT, "data", SMOKE_GUILD);
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    check("mentions", "no file means no pool", readInsults(SMOKE_GUILD) === null);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, INSULTS_FILE),
+      JSON.stringify({ insults: ["{user} is a smoke-test poopy head."], spam: "enough" }),
+      "utf-8",
+    );
+    const configured = readInsults(SMOKE_GUILD);
+    check(
+      "mentions",
+      "a file supplies the pool and spam line",
+      configured?.insults.join(",") === "{user} is a smoke-test poopy head." &&
+        configured.spam === "enough",
+    );
+
+    // An empty array is a decision, not a missing file: it must resolve rather
+    // than fall through to the next scope.
+    writeFileSync(path.join(dir, INSULTS_FILE), JSON.stringify({ insults: [] }), "utf-8");
+    check(
+      "mentions",
+      "an empty pool turns comebacks off",
+      readInsults(SMOKE_GUILD)?.insults.length === 0,
+    );
+
+    writeFileSync(path.join(dir, INSULTS_FILE), JSON.stringify({ spam: "enough" }), "utf-8");
+    check("mentions", "a file with no pool falls through", readInsults(SMOKE_GUILD) === null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Builds a definitions config for the checks below: one entry whose words earn
+ * a two-meaning prompt.
+ * @param words - The trigger words for the entry.
+ * @returns A {@link DefinitionsConfig} ready to compile or write out.
+ */
+function smokeDefinitions(words: string[]): DefinitionsConfig {
+  return {
+    entries: [
+      {
+        words,
+        prompt: "{user} bird or bundle?",
+        options: [
+          { id: "bird", label: "Bird", reply: "A goose." },
+          { id: "bundle", label: "Bundle", reply: "A bundle of sticks." },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Verifies the "define your terms" prompt: which messages earn the question,
+ * which entries are usable, and that the pool is read from definitions.json
+ * alone - an empty list switches prompts off, while no file at all leaves the
+ * next scope to answer.
+ */
+function checkDefinitions(): void {
+  const compiled = compileEntries(smokeDefinitions(["goose"]));
+  check(
+    "definitions",
+    "a listed word earns a prompt",
+    matchEntry("what a goose", compiled) !== null,
+  );
+  check(
+    "definitions",
+    "an obfuscated spelling earns one too",
+    matchEntry("what a g00se", compiled) !== null,
+  );
+  check(
+    "definitions",
+    "an unrelated message earns nothing",
+    matchEntry("what a duck", compiled) === null,
+  );
+  check(
+    "definitions",
+    "the word inside a longer one does not count",
+    matchEntry("gooseberry jam", compiled) === null,
+  );
+  check(
+    "definitions",
+    "the word only in a link does not count",
+    matchEntry("https://example.com/goose", compiled) === null,
+  );
+
+  // One question per message: a message using two listed words must not stack
+  // two prompts on the author.
+  const two = compileEntries({
+    entries: [
+      ...smokeDefinitions(["goose"]).entries,
+      { words: ["duck"], prompt: "?", options: [{ id: "d", label: "D", reply: "R" }] },
+    ],
+  });
+  check(
+    "definitions",
+    "the first matching entry wins",
+    matchEntry("a goose and a duck", two)?.words.join(",") === "goose",
+  );
+
+  check(
+    "definitions",
+    "an entry with no words is dropped",
+    compileEntries({
+      entries: [{ words: [], prompt: "?", options: [{ id: "a", label: "A", reply: "R" }] }],
+    }).length === 0,
+  );
+  check(
+    "definitions",
+    "an entry with no meanings is dropped",
+    compileEntries({ entries: [{ words: ["goose"], prompt: "?", options: [] }] }).length === 0,
+  );
+
+  // Discord refuses a row of more than five buttons, so the extras go rather
+  // than the whole question.
+  const many = compileEntries({
+    entries: [
+      {
+        words: ["goose"],
+        prompt: "?",
+        options: Array.from({ length: MAX_OPTIONS + 2 }, (_, i) => ({
+          id: `o${i}`,
+          label: `O${i}`,
+          reply: "R",
+        })),
+      },
+    ],
+  });
+  check(
+    "definitions",
+    "options past the row cap are dropped, not the entry",
+    many.length === 1 && many[0].entry.options.length === MAX_OPTIONS,
+  );
+
+  // The window follows /setdelay, but a question is not a reflex: seconds are
+  // scaled up into minutes, and only "disabled" is taken at face value.
+  check(
+    "definitions",
+    "a brisk /setdelay still leaves minutes to answer",
+    promptWindow(10_000) === MIN_PROMPT_MS,
+  );
+  check(
+    "definitions",
+    "a longer /setdelay stretches the window",
+    promptWindow(60_000) === 60_000 * PROMPT_GRACE_MULTIPLIER,
+  );
+  check(
+    "definitions",
+    "the longest /setdelay stretches to under an hour",
+    promptWindow(300_000) === 50 * 60_000,
+  );
+  // /setdelay tops out at 300s, so only a hand-edited media_settings.json can
+  // reach the cap - which is what it is there for.
+  check(
+    "definitions",
+    "an absurd stored grace is capped short of never expiring",
+    promptWindow(24 * 60 * 60_000) === MAX_PROMPT_MS,
+  );
+  check(
+    "definitions",
+    "/setdelay disabled means the question never expires",
+    promptWindow("disabled") === "disabled",
+  );
+  check(
+    "definitions",
+    "/setdelay instant still asks, at the floor",
+    promptWindow("instant") === MIN_PROMPT_MS,
+  );
+  check(
+    "definitions",
+    "an unset /setdelay falls back to the floor",
+    promptWindow(undefined) === MIN_PROMPT_MS,
+  );
+
+  const dir = path.join(ROOT, "data", SMOKE_GUILD);
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    check("definitions", "no file means nothing is asked", readDefinitions(SMOKE_GUILD) === null);
+
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, DEFINITIONS_FILE);
+    writeFileSync(file, JSON.stringify(smokeDefinitions(["goose"])), "utf-8");
+    check(
+      "definitions",
+      "a file supplies the entries",
+      readDefinitions(SMOKE_GUILD)?.entries[0]?.words.join(",") === "goose",
+    );
+
+    // An empty array is a decision, not a missing file: it must resolve rather
+    // than fall through to the next scope.
+    writeFileSync(file, JSON.stringify({ entries: [] }), "utf-8");
+    check(
+      "definitions",
+      "an empty list turns prompts off",
+      readDefinitions(SMOKE_GUILD)?.entries.length === 0,
+    );
+
+    writeFileSync(file, JSON.stringify({ prompt: "?" }), "utf-8");
+    check(
+      "definitions",
+      "a file with no entries falls through",
+      readDefinitions(SMOKE_GUILD) === null,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Verifies the /gif rules: categories come from the word config, URLs are
  * validated, and add/remove enforce ownership and the per-category cap while
@@ -1675,6 +1955,8 @@ void (async () => {
     checkTrackers();
     checkWordsCache();
     checkSlurResponses();
+    checkMentions();
+    checkDefinitions();
     checkGifs();
     checkGifListLength();
 

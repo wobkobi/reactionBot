@@ -34,6 +34,15 @@ per-server counters for swears, slurs, and name-calling.
 - **Phrase reactions**: 🦙 for drama/llama, 💅 for girls slang, 🇬🇧 for Britishisms (reactions
   sharing a pool compete - one random pick per message), and per-word spell-out reactions in letter
   and keycap emojis (e.g. n-word hits spell "NWORD"; phrases with a repeated character are skipped).
+- **Mention comebacks**: ping the bot and it fires back with a playground insult ("you're a poopy
+  head") - rate-limited per person, silent during calm mode, and skipped when the message already
+  earned a word reply.
+- **"Define your terms"**: words with an innocent second meaning earn a button prompt asking which
+  one was meant ("homo or sticks?"), and the bot posts the definition of whichever is picked. Only
+  the author's clicks count, and how long they get follows `/setdelay` scaled into minutes rather
+  than seconds (`disabled` means the question never expires). Configured in
+  `data/global/definitions.json` (see [data/readme.md](data/readme.md)); it runs alongside the word
+  replies rather than instead of them, and picking a meaning never changes what was counted.
 
 ## Requirements
 
@@ -88,6 +97,10 @@ one (`/slurs nuke`, `/swears nuke`), and an admin sees both, marked 🔒.
 - `/setdelay personal [enabled] [max-seconds] [allow-never]` - what members may set for themselves
   with `/mydelay`. Every option is optional; only the ones you supply change. Defaults to on, up to
   300s, opt-out allowed.
+
+  `/setdelay` also sizes the "define your terms" prompt, scaled from seconds into minutes - see that
+  section below.
+
 - `/mydelay instant|countdown|ask|never|show|clear` - anyone, for their own links only. `instant`
   moves yours straight away; `countdown seconds:<1-300>` moves yours when the timer runs out unless
   you hit Cancel; `ask seconds:<1-300>` is the usual Yes/Copy/No prompt; `never` leaves yours alone
@@ -134,6 +147,53 @@ admin rights needed - and a new GIF is live from the next message, with no resta
 Entries added this way are shared across every server the bot is in, since they are written to
 `data/global/responses.json`. The hand-written entries in that file carry no id, so `/gif remove`
 cannot reach them - edit the JSON to change those.
+
+### Mention comebacks
+
+Mention the bot and it answers with a random playground insult. Only a deliberate ping counts - a
+role the bot happens to hold, an `@everyone`, and the implicit ping a reply carries are all somebody
+talking to the channel, so none of them set it off. A message that already earned a `responses.json`
+reply gets that one instead, so "@bot you \<slur\>" is answered once, not twice.
+
+The pool lives in `insults.json` - the server's data folder first, then `data/global/`. There is no
+built-in pool, so on a fresh deploy copy
+[data/global/insults.example.json](data/global/insults.example.json) to `data/global/insults.json`;
+with neither file the bot takes the ping in silence. Each entry is text or a GIF/image link - a link
+on its own embeds, so the bot can answer a ping with a reaction GIF the same way it does a slur.
+`{user}` is the author mention and `{count}` is how many times they have pinged the bot. Comebacks
+are rate-limited per person (10s), silenced while calm mode is on, and ping-spam gets a single
+"that's enough" before the bot goes calm by itself. An `insults` array is what makes a file count,
+empty or not: an empty one switches comebacks off for that server rather than letting `global`
+answer for it.
+
+### "Define your terms"
+
+Some words have a perfectly innocent second meaning, so the bot gives the benefit of the doubt and
+asks: say one and it posts a row of buttons ("homo or sticks?"), then replies with the definition of
+whichever meaning gets picked. Only the author's clicks count, and saying the word again while they
+still owe an answer does not stack a second question - they answer the one they have. An unanswered
+question is left standing with its buttons stripped.
+
+How long they get follows `/setdelay`, but not to the second: a link prompt is a reflex, while this
+asks them to own a meaning they may not come back to for a while, so the setting is scaled up by ten
+and held between 5 minutes and an hour. A default `/setdelay seconds seconds:10` gives 5 minutes,
+`60` gives 10, and the `300` maximum gives 50. `/setdelay disabled` is the one value taken at face
+value - the question then never expires, so the only way out is picking a meaning.
+`/setdelay instant` can't be: there is nothing to go ahead and do without an answer, so it takes the
+5-minute floor rather than skipping the question. Personal `/mydelay` settings don't apply - they
+govern your own media links, and letting someone set `never` would just be a way of dodging the
+question.
+
+The word list lives in `definitions.json` - the server's data folder first, then `data/global/`. On
+a fresh deploy copy [data/global/definitions.example.json](data/global/definitions.example.json) to
+`data/global/definitions.json`; with neither file no word ever earns a prompt. Each entry gives the
+`words` that trigger it (matched leniently, so `f4ggot` and `||fag||` are caught, while a link or a
+longer word containing it is not), the `prompt`, and up to five `options` to pick from - see
+[data/readme.md](data/readme.md) for the full shape. Prompts are rate-limited per person (10s) and
+silenced while calm mode is on.
+
+This runs alongside the word replies rather than instead of them: a slur still earns its
+`responses.json` reply and still gets counted, whatever meaning the author then claims.
 
 ## Development
 
