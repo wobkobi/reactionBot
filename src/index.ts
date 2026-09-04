@@ -12,6 +12,7 @@ import type { CommandModule } from "@/types/discord";
 import { createLogger } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
+import { onVoiceStateUpdate, shutdownVoice, sweepGuilds } from "@/voice/autojoin";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
@@ -67,6 +68,10 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
+    // Voice states drive the auto-join: without this the bot never learns that
+    // a channel has people in it. GuildMembers is not needed, as
+    // channel.members is derived from the voice state cache.
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
@@ -124,6 +129,15 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
       });
       log.info("commands registered");
       boot("Commands registered", { count: commandData.length });
+
+      // Anyone already sitting in a call when the bot restarts emits no voice
+      // state update, so without this sweep the bot waits for the next person
+      // to move before it joins anything.
+      void sweepGuilds(client, guildInScope).catch((err: unknown) => {
+        log.warn("startup voice sweep failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     } catch (err) {
       log.error("failed to register commands", {
         error: err instanceof Error ? err.message : String(err),
@@ -148,6 +162,15 @@ client.on("messageDelete", async (message) => {
   if (!guildInScope(message.guildId)) return;
   await onMessageDelete(message).catch((err) => {
     log.error("message-delete cleanup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+});
+
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  if (!guildInScope(newState.guild?.id ?? oldState.guild?.id ?? null)) return;
+  await onVoiceStateUpdate(oldState, newState).catch((err: unknown) => {
+    log.warn("voice state handling failed", {
       error: err instanceof Error ? err.message : String(err),
     });
   });
@@ -242,6 +265,22 @@ client.on("shardError", (err) => logSurvived("shard error", err));
 // (the approval prompts) are plain emitters, so a rejection in one of their
 // handlers reaches Node, which ends the process on it by default.
 process.on("unhandledRejection", (reason) => logSurvived("unhandled rejection", reason));
+
+// A voice connection outlives the process from Discord's side, so without this
+// a restart (a tsx watch reload especially) leaves a ghost bot sitting in the
+// channel until the gateway times it out. The transcriber's worker also has to
+// be told to stop, or it keeps the event loop alive.
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    boot(`Received ${signal}, shutting down`);
+    shutdownVoice();
+    void client.destroy();
+    process.exit(0);
+  });
+}
 
 if (DEV_GUILD_ID) boot("Dev guard active: only serving one guild", { guild: DEV_GUILD_ID });
 boot("Starting login");

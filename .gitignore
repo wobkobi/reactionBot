@@ -64,4 +64,7 @@ yarn-error.log*
 !/data/global/responses.example.json
 !/data/global/insults.example.json
 !/data/global/definitions.example.json
+!/data/global/sounds.example.json
+# data/sounds/ (the clip files) and data/models/ (the Whisper cache, a few
+# hundred MB) are already covered by the /data/* rule above.
 docs/

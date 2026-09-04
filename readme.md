@@ -43,12 +43,21 @@ per-server counters for swears, slurs, and name-calling.
   than seconds (`disabled` means the question never expires). Configured in
   `data/global/definitions.json` (see [data/readme.md](data/readme.md)); it runs alongside the word
   replies rather than instead of them, and picking a meaning never changes what was counted.
+- **Voice sound bites**: the bot can sit in a voice channel, listen to what people say, and play a
+  clip back when it hears a trigger word - say "swag", get told to shut up. Speech is transcribed
+  locally with Whisper, so no audio leaves the machine, and neither the audio nor the transcript is
+  written to disk. Off until `/voice enable`; after that it joins any channel with people in it and
+  leaves when the channel empties. Triggers and clip pools live in `data/global/sounds.json` (see
+  [data/readme.md](data/readme.md)).
 
 ## Requirements
 
 - Node.js >= 20
 - A Discord application with a bot token, invited with the `bot` and `applications.commands` scopes
   and message content intent enabled.
+- For voice sound bites: `Connect` and `Speak` in the channels it should join. No extra privileged
+  intent is required. The Whisper model (a few hundred MB) downloads on first use into
+  `data/models/`. ffmpeg is optional, and only needed for clips that are not already Ogg Opus.
 
 ## Setup
 
@@ -165,6 +174,27 @@ are rate-limited per person (10s), silenced while calm mode is on, and ping-spam
 "that's enough" before the bot goes calm by itself. An `insults` array is what makes a file count,
 empty or not: an empty one switches comebacks off for that server rather than letting `global`
 answer for it.
+
+### Voice sound bites
+
+| Command          | What it does                                                            |
+| ---------------- | ----------------------------------------------------------------------- |
+| `/voice enable`  | Let the bot join voice channels in this server and listen (admin)       |
+| `/voice disable` | Stop listening here (admin)                                             |
+| `/voice leave`   | Leave the current channel for now, without changing the setting (admin) |
+| `/voice status`  | Show what it is doing: channel, model, decoder, trigger count (admin)   |
+
+Once enabled the bot joins any voice channel that has people in it, transcribes what it hears with a
+local Whisper model, and plays a clip when someone says a trigger word. It leaves when the channel
+empties. Nothing plays during calm mode, and both the server and each speaker get a cooldown, so it
+cannot be spammed.
+
+Expect a second or two between the word and the clip: the bot waits for the speaker to stop before
+transcribing, which is what makes the transcript worth reading.
+
+Several trigger words can share one clip pool, and mishearings are handled automatically - Whisper
+writing "swig" for "swag" still fires - without listing variants by hand. Triggers, pools and the
+tuning knobs are documented in [data/readme.md](data/readme.md).
 
 ### "Define your terms"
 

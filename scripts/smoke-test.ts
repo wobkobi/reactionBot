@@ -16,6 +16,7 @@ import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdel
 import { data as setMediaChannel } from "@/commands/setmediachannel";
 import { data as slursCommand } from "@/commands/slurs";
 import { data as swearsCommand } from "@/commands/swears";
+import { data as voiceCommand } from "@/commands/voice";
 import { isApproved } from "@/media/approval";
 import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
@@ -76,6 +77,27 @@ import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/
 import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
 import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
+import {
+  downsampleToMono16k,
+  isSilenceFrame,
+  MIN_UTTERANCE_SAMPLES,
+  pcmToInt16,
+  rms,
+  SILENCE_RMS,
+  utteranceVerdict,
+} from "@/voice/audio";
+import { pickChannel } from "@/voice/autojoin";
+import { shouldPlay } from "@/voice/playback";
+import {
+  compileSounds,
+  isIgnoredTranscript,
+  matchTrigger,
+  pickClip,
+  safeClipName,
+  type SoundsConfig,
+} from "@/voice/sounds";
+import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
+import { cachedOggPath, ffmpegArgs, hasOpusHead } from "@/voice/transcode";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
   type ChatInputCommandInteraction,
@@ -1500,7 +1522,15 @@ function checkMemberPrefs(): void {
  * hiding, or it advertises commands a member can only be refused.
  */
 function checkCommandVisibility(): void {
-  const builders = [setDelay, setMediaChannel, calmDown, myDelay, swearsCommand, slursCommand];
+  const builders = [
+    setDelay,
+    setMediaChannel,
+    calmDown,
+    myDelay,
+    swearsCommand,
+    slursCommand,
+    voiceCommand,
+  ];
   // Registering any default permission would silently reinstate the gate the
   // owner grant cannot beat, so this is the invariant the rest rests on.
   check(
@@ -1917,6 +1947,335 @@ function checkEnvTiming(): void {
 /* --------------------------------------------------------------- reporting */
 
 /**
+ * Verifies the voice DSP: the 48kHz stereo to 16kHz mono conversion, the gates
+ * that decide whether an utterance is worth transcribing, and Discord's silence
+ * frame. All pure, so none of it needs a model or a gateway.
+ */
+function checkVoiceAudio(): void {
+  // Six interleaved samples collapse into one output sample, so a 12-sample
+  // buffer must give exactly 2, each the mean of its group.
+  const ramp = new Int16Array([1000, 2000, 3000, 4000, 5000, 6000, 100, 200, 300, 400, 500, 600]);
+  const mono = downsampleToMono16k(ramp);
+  check("voice/audio", "48k stereo downmixes 6:1 into 16k mono", mono.length === 2);
+  check(
+    "voice/audio",
+    "each output sample is its group's mean",
+    Math.abs(mono[0]! - 3500 / 32768) < 1e-6 && Math.abs(mono[1]! - 350 / 32768) < 1e-6,
+  );
+
+  const tail = downsampleToMono16k(new Int16Array(14));
+  check("voice/audio", "a partial trailing group is dropped, not read past", tail.length === 2);
+
+  const full = downsampleToMono16k(new Int16Array(6).fill(-32768));
+  check("voice/audio", "full-scale input stays inside [-1, 1]", full[0]! >= -1 && full[0]! <= 1);
+
+  // Node carves Buffers out of a shared pool, so a non-zero byteOffset is
+  // routine and an Int16Array view over the raw ArrayBuffer would misread it.
+  const pool = Buffer.alloc(10);
+  pool.writeInt16LE(-1234, 4);
+  pool.writeInt16LE(4321, 6);
+  const offset = pool.subarray(4, 8);
+  const parsed = pcmToInt16(offset);
+  check(
+    "voice/audio",
+    "pcmToInt16 is correct on a non-zero byteOffset buffer",
+    offset.byteOffset !== 0 && parsed[0] === -1234 && parsed[1] === 4321,
+  );
+
+  check("voice/audio", "rms of silence is 0", rms(new Float32Array(100)) === 0);
+  check(
+    "voice/audio",
+    "rms of full scale is 1",
+    Math.abs(rms(new Float32Array(50).fill(1)) - 1) < 1e-6,
+  );
+
+  check(
+    "voice/audio",
+    "utteranceVerdict rejects a short buffer",
+    utteranceVerdict(MIN_UTTERANCE_SAMPLES - 1, 0.5) === "too-short",
+  );
+  check(
+    "voice/audio",
+    "utteranceVerdict rejects a silent buffer",
+    utteranceVerdict(MIN_UTTERANCE_SAMPLES + 1, SILENCE_RMS / 2) === "silent",
+  );
+  check(
+    "voice/audio",
+    "utteranceVerdict keeps loud speech",
+    utteranceVerdict(MIN_UTTERANCE_SAMPLES + 1, 0.2) === "keep",
+  );
+
+  check(
+    "voice/audio",
+    "Discord's silence frame is recognised",
+    isSilenceFrame(Buffer.from([0xf8, 0xff, 0xfe])) &&
+      !isSilenceFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x00])) &&
+      !isSilenceFrame(Buffer.from([0x12, 0x34, 0x56])),
+  );
+}
+
+/**
+ * Verifies trigger compilation and both match tiers. The phonetic checks are
+ * the important ones: they pin down that the tier is tolerant enough to catch a
+ * Whisper mishearing and tight enough not to fire on ordinary speech.
+ */
+function checkVoiceSounds(): void {
+  const config: SoundsConfig = {
+    pools: {
+      shutup: ["a.ogg", "b.ogg"],
+      airhorn: ["horn.ogg"],
+      empty: [],
+    },
+    ignore: ["thank you", "subscribe"],
+    triggers: [
+      { words: ["swag"], pool: "shutup" },
+      { words: ["drip"], pool: "shutup" },
+      { words: ["shut up"], pool: "airhorn" },
+      { words: ["nope"], pool: "missing" },
+      { words: [], pool: "shutup" },
+      { words: ["blank"], pool: "empty" },
+    ],
+  };
+  const compiled = compileSounds(config);
+
+  check(
+    "voice/sounds",
+    "unusable triggers are dropped (unknown pool, no words, empty pool)",
+    compiled.triggers.length === 3,
+  );
+
+  // The case the whole schema exists for: several unrelated words, one audio.
+  const swag = matchTrigger("that is proper swag", compiled);
+  const drip = matchTrigger("look at that drip", compiled);
+  check(
+    "voice/sounds",
+    "several distinct words share one pool",
+    swag?.files.join() === "a.ogg,b.ogg" && drip?.files.join() === "a.ogg,b.ogg",
+  );
+
+  check(
+    "voice/sounds",
+    "Whisper's punctuation and capitals still match",
+    matchTrigger("SWAG! that's nice.", compiled) !== null,
+  );
+  check(
+    "voice/sounds",
+    "a longer word containing the trigger does not match",
+    matchTrigger("he has a swagger about him", compiled) === null,
+  );
+  check(
+    "voice/sounds",
+    "a phrase matches both spaced and collapsed forms",
+    matchTrigger("just shut up", compiled)?.files[0] === "horn.ogg" &&
+      matchTrigger("just shutup", compiled)?.files[0] === "horn.ogg",
+  );
+
+  // Tier two: vowel-mangled mishearings hit ...
+  check(
+    "voice/sounds",
+    "phonetic tier catches a vowel-mangled mishearing",
+    matchTrigger("that is proper swig", compiled) !== null &&
+      matchTrigger("that is proper sweg", compiled) !== null,
+  );
+  // ... while the guards keep it off ordinary speech. Without the first-letter
+  // rule "trip" hits "drip"; without the common-word veto "sick" and "sock" hit
+  // "swag". Both were measured, so both are pinned here.
+  check(
+    "voice/sounds",
+    "phonetic tier ignores a voiced/unvoiced neighbour (trip vs drip)",
+    matchTrigger("i went on a trip", compiled) === null,
+  );
+  check(
+    "voice/sounds",
+    "phonetic tier ignores common words (sick, sock, seek vs swag)",
+    matchTrigger("i feel sick", compiled) === null &&
+      matchTrigger("put on a sock", compiled) === null &&
+      matchTrigger("go seek him out", compiled) === null,
+  );
+  check(
+    "voice/sounds",
+    "phonetic tier ignores a consonant-different word (slag, swap)",
+    matchTrigger("that is slag", compiled) === null && matchTrigger("lets swap", compiled) === null,
+  );
+
+  const exactOnly = compileSounds({
+    pools: { shutup: ["a.ogg"] },
+    phonetic: false,
+    triggers: [{ words: ["swag"], pool: "shutup" }],
+  });
+  check(
+    "voice/sounds",
+    "phonetic: false falls back to exact matching only",
+    matchTrigger("proper swag", exactOnly) !== null &&
+      matchTrigger("proper swig", exactOnly) === null,
+  );
+
+  check(
+    "voice/sounds",
+    "hallucinated filler is ignored",
+    isIgnoredTranscript("Thank you.", compiled) && !isIgnoredTranscript("proper swag", compiled),
+  );
+
+  check(
+    "voice/sounds",
+    "pickClip wraps by index and refuses an empty pool",
+    pickClip(["a", "b", "c"], 4) === "b" && pickClip([], 0) === null,
+  );
+
+  check(
+    "voice/sounds",
+    "unsafe clip names are refused",
+    safeClipName("../../.env") === null &&
+      safeClipName("/etc/passwd") === null &&
+      safeClipName("C:\\windows\\x") === null &&
+      safeClipName("shutup/oi.ogg") === "shutup/oi.ogg",
+  );
+}
+
+/**
+ * Verifies the transcriber's load shedding and the worker path resolution that
+ * has to work under tsx, under Node's own type stripping, and once compiled.
+ */
+function checkVoiceQueue(): void {
+  const under = enqueueBounded([1, 2], 3, 4);
+  check(
+    "voice/stt",
+    "a queue under the cap just appends",
+    under.queue.join() === "1,2,3" && under.dropped.length === 0,
+  );
+
+  const over = enqueueBounded([1, 2, 3, 4], 5, 4);
+  check(
+    "voice/stt",
+    "a full queue drops the oldest and keeps the newest",
+    over.queue.join() === "2,3,4,5" && over.dropped.join() === "1",
+  );
+
+  check(
+    "voice/stt",
+    "a job past its ttl is stale",
+    isStale(1000, 1000 + STT_JOB_TTL_MS, STT_JOB_TTL_MS) &&
+      !isStale(1000, 1000 + STT_JOB_TTL_MS - 1, STT_JOB_TTL_MS),
+  );
+
+  // Built from real paths: a file:// URL without a drive letter is not absolute
+  // on Windows and fileURLToPath rejects it.
+  const fromTs = resolveWorkerPath(pathToFileURL(path.join(ROOT, "src", "voice", "stt.ts")).href);
+  const fromJs = resolveWorkerPath(pathToFileURL(path.join(ROOT, "build", "voice", "stt.js")).href);
+  check(
+    "voice/stt",
+    "the worker resolves beside its caller with a matching extension",
+    fromTs.endsWith(path.join("src", "voice", "whisperWorker.ts")) &&
+      fromJs.endsWith(path.join("build", "voice", "whisperWorker.js")),
+  );
+}
+
+/**
+ * Verifies the auto-join guards and the playback arbitration. All the cost
+ * control lives in pickChannel, so this is where it gets pinned down.
+ */
+function checkVoiceJoinRules(): void {
+  const base = {
+    humans: 3,
+    isAfk: false,
+    isStage: false,
+    isFull: false,
+    canConnect: true,
+    canSpeak: true,
+  };
+  const ok = { ...base, channelId: "100" };
+
+  check("voice/join", "a populated channel is joined", pickChannel([ok], 1, null) === "100");
+  check(
+    "voice/join",
+    "an empty channel is not joined",
+    pickChannel([{ ...ok, humans: 0 }], 1, null) === null,
+  );
+  check(
+    "voice/join",
+    "the afk channel is skipped",
+    pickChannel([{ ...ok, isAfk: true }], 1, null) === null,
+  );
+  check(
+    "voice/join",
+    "a stage channel is skipped",
+    pickChannel([{ ...ok, isStage: true }], 1, null) === null,
+  );
+  check(
+    "voice/join",
+    "missing Connect or Speak skips the channel",
+    pickChannel([{ ...ok, canConnect: false }], 1, null) === null &&
+      pickChannel([{ ...ok, canSpeak: false }], 1, null) === null,
+  );
+  check(
+    "voice/join",
+    "a full channel is skipped unless already in it",
+    pickChannel([{ ...ok, isFull: true }], 1, null) === null &&
+      pickChannel([{ ...ok, isFull: true }], 1, "100") === "100",
+  );
+  check(
+    "voice/join",
+    "minMembers is respected",
+    pickChannel([{ ...ok, humans: 2 }], 3, null) === null &&
+      pickChannel([{ ...ok, humans: 3 }], 3, null) === "100",
+  );
+  // Following the crowd would make the bot hop as people move around.
+  check(
+    "voice/join",
+    "the current channel wins over a busier one",
+    pickChannel([ok, { ...base, channelId: "200", humans: 9 }], 1, "100") === "100",
+  );
+  check(
+    "voice/join",
+    "the busiest channel wins when starting fresh",
+    pickChannel([ok, { ...base, channelId: "200", humans: 9 }], 1, null) === "200",
+  );
+  check(
+    "voice/join",
+    "leaving is chosen when nothing qualifies",
+    pickChannel([{ ...ok, humans: 0 }], 1, "100") === null,
+  );
+
+  check(
+    "voice/play",
+    "a clip is refused while one is playing",
+    !shouldPlay(true, 99_999, 99_999, 8_000, 20_000),
+  );
+  check(
+    "voice/play",
+    "a clip is refused inside either cooldown",
+    !shouldPlay(false, 1_000, 99_999, 8_000, 20_000) &&
+      !shouldPlay(false, 99_999, 1_000, 8_000, 20_000),
+  );
+  check(
+    "voice/play",
+    "a clip plays once both cooldowns have elapsed",
+    shouldPlay(false, 99_999, 99_999, 8_000, 20_000),
+  );
+
+  // An Ogg Vorbis file handed to StreamType.OggOpus plays silence rather than
+  // failing, so the container alone is not enough to trust.
+  check(
+    "voice/play",
+    "Opus is distinguished from Vorbis inside Ogg",
+    hasOpusHead(Buffer.from("OggS\0\0OpusHead....")) &&
+      !hasOpusHead(Buffer.from("OggS\0\0\x01vorbis....")),
+  );
+  const args = ffmpegArgs("in.mp3", "out.ogg").join(" ");
+  check(
+    "voice/play",
+    "ffmpeg converts to 48kHz stereo opus",
+    args.includes("-ar 48000") && args.includes("-ac 2") && args.includes("libopus"),
+  );
+  check(
+    "voice/play",
+    "the conversion cache key follows the source file's mtime",
+    cachedOggPath("/a/b.mp3", 1, 10) === cachedOggPath("/a/b.mp3", 1, 10) &&
+      cachedOggPath("/a/b.mp3", 2, 10) !== cachedOggPath("/a/b.mp3", 1, 10),
+  );
+}
+
+/**
  * Prints a results table grouped by check, with a coloured status icon.
  */
 function printTable(): void {
@@ -1959,6 +2318,10 @@ void (async () => {
     checkDefinitions();
     checkGifs();
     checkGifListLength();
+    checkVoiceAudio();
+    checkVoiceSounds();
+    checkVoiceQueue();
+    checkVoiceJoinRules();
 
     printTable();
 

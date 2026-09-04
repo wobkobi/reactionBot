@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "type": "module",
   "scripts": {
     "build": "node -e \"fs.rmSync('build',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
@@ -24,8 +24,10 @@
     "**/*.{mjs,cjs,json,md,yml,yaml}": "prettier --write"
   },
   "dependencies": {
+    "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.27.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "double-metaphone": "^2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -44,12 +46,18 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.69.0"
   },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "mediaplex": "^1.0.0",
+    "opusscript": "^0.1.1"
+  },
   "engines": {
     "node": "24.x",
     "npm": ">=10.0.0"
   },
   "allowScripts": {
     "esbuild": false,
+    "onnxruntime-node": true,
     "simple-git-hooks": true
   }
 }
