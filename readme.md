@@ -84,6 +84,50 @@ behaviour (trackers + reactions) lives in one file, `data/global/words.json` - s
 [data/readme.md](data/readme.md) for the full format, a template, and how to add words. It's
 gitignored (it contains the slur list), so copy your own file in on a fresh deploy.
 
+### Docker
+
+```sh
+cp .env.example .env          # fill in BOT_TOKEN and CLIENT_ID
+mkdir -p data/sounds
+chown -R 1000:1000 ./data     # the image runs unprivileged as uid 1000
+docker compose up -d --build
+```
+
+`data/` is bind-mounted, so `words.json`, `sounds.json` and the clips in `data/sounds/` are edited
+on the host and picked up without a restart. Keep it: it holds every per-guild setting and counter,
+and the Whisper model cache (a few hundred MB, re-downloaded if deleted).
+
+The image is Debian-based rather than Alpine because `onnxruntime-node`, which does the speech
+recognition, ships only glibc builds - on Alpine voice silently fails to load while everything else
+works.
+
+Speech recognition needs the memory and cores to go with it. The compose file caps memory at 4 GB,
+which is what `whisper-base.en` wants; it sits around 1.9 GB resident and takes ~1.5s per utterance
+on four modern cores, against ~4.8s on two. On a smaller box set
+`VOICE_MODEL=Xenova/whisper-tiny.en` and drop the limit to 2 GB. Avoid burstable instances -
+sustained inference will exhaust CPU credits and then utterances age out of the queue unheard. If
+you are not using voice at all, none of this applies and the bot is happy in a few hundred MB.
+
+### TrueNAS SCALE
+
+[deploy/truenas.yaml](deploy/truenas.yaml) is the version to paste into **Apps > Discover Apps >
+Install via YAML** on SCALE 24.10 (Electric Eel) or later, which run Docker rather than k3s. Its
+header comment has the dataset setup to do first.
+
+It differs from the root `compose.yaml` in three ways, each forced by the platform:
+
+- **It pulls a published image instead of building.** The Apps UI has no build context, so
+  `docker.yml` publishes to `ghcr.io/wobkobi/reactionbot` on every push to `main`.
+- **It runs as `568:568`, the apps user**, not the image's uid 1000, so the files it writes stay
+  editable from the TrueNAS side. Create the dataset with the **Apps** preset or a POSIX ACL: on an
+  SMB-style dataset the NFSv4 ACL overrides the ownership and the bot cannot write its own config,
+  which is the usual reason a first install comes up and then does nothing.
+- **Every path is absolute**, including `env_file`, which keeps the bot token in a file on the
+  dataset rather than in the Apps UI config.
+
+Leave the box headroom above the 4 GB cap - ZFS ARC is competing for the same memory, and the
+container being OOM-killed mid-sentence looks exactly like the bot ignoring people.
+
 ## Commands
 
 ### Media

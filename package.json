@@ -23,6 +23,10 @@
     ],
     "**/*.{mjs,cjs,json,md,yml,yaml}": "prettier --write"
   },
+  "overrides": {
+    "adm-zip": "^0.6.0",
+    "sharp": "^0.35.4"
+  },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.27.0",
@@ -33,7 +37,7 @@
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-jsdoc": "^64.3.4",
+    "eslint-plugin-jsdoc": "^64.3.5",
     "eslint-plugin-prettier": "^5.5.6",
     "globals": "^17.12.0",
     "lint-staged": "^17.4.1",
@@ -41,7 +45,7 @@
     "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-packagejson": "^3.0.2",
     "simple-git-hooks": "^2.14.0",
-    "tsc-alias": "^1.9.3",
+    "tsc-alias": "^1.9.4",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.69.0"

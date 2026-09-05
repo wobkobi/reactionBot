@@ -1,0 +1,32 @@
+services:
+  reactionbot:
+    build: .
+    image: reactionbot:latest
+    restart: unless-stopped
+
+    # BOT_TOKEN and CLIENT_ID are required; see .env.example for the rest.
+    env_file: .env
+
+    volumes:
+      # Per-guild config and counters, sound clips, and the Whisper model cache.
+      # Bind-mounted rather than a named volume so words.json and the clips in
+      # data/sounds/ can be edited from the host; the bot picks config edits up
+      # without a restart. The container runs as uid 1000, so the host
+      # directory has to be writable by it: chown -R 1000:1000 ./data
+      - ./data:/app/data
+
+    # Node is PID 1 here and reaps its own children, but ffmpeg conversions can
+    # leave orphaned grandchildren; init gives them something to reap them.
+    init: true
+
+    # Speech recognition sits around 1.9GB resident with the default
+    # whisper-base.en model, measured over 40 consecutive inferences, so this is
+    # an OOM guard rather than a target. With VOICE_MODEL set to
+    # Xenova/whisper-tiny.en it fits in 2G.
+    mem_limit: 4g
+
+    # Cores are not requested here on purpose: outside Swarm a cpu reservation
+    # is advisory and guarantees nothing, and capping cpus would only make this
+    # slower. Give the host enough instead - whisper-base.en takes roughly 1.5s
+    # per utterance on 4 cores and 4.8s on 2, and past about 3s utterances start
+    # aging out of the queue unheard. On 2 cores use whisper-tiny.en.
