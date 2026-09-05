@@ -48,6 +48,7 @@ COPY --from=builder /app/build ./build
 # Config templates, so a fresh named volume starts with something to copy.
 COPY data/readme.md ./data/
 COPY data/global/*.example.json ./data/global/
+COPY data/sounds/readme.md ./data/sounds/
 
 # The bot reads and writes data/ relative to its working directory, and runs
 # unprivileged, so the directory has to be owned by the user that writes it.

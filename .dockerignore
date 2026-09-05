@@ -20,3 +20,6 @@ data/*
 !data/global/
 data/global/*
 !data/global/*.example.json
+!data/sounds/
+data/sounds/*
+!data/sounds/readme.md

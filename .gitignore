@@ -65,6 +65,10 @@ yarn-error.log*
 !/data/global/insults.example.json
 !/data/global/definitions.example.json
 !/data/global/sounds.example.json
-# data/sounds/ (the clip files) and data/models/ (the Whisper cache, a few
-# hundred MB) are already covered by the /data/* rule above.
+# The clip files themselves stay local, but the note explaining how to format
+# them ships. data/models/ (the Whisper cache, a few hundred MB) is already
+# covered by the /data/* rule above.
+!/data/sounds/
+/data/sounds/*
+!/data/sounds/readme.md
 docs/

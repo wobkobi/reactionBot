@@ -193,11 +193,11 @@ fires on "sick", "sock", "sack", "seek" and "soak". Set `"phonetic": false` on a
 trigger to demand the exact word, and add spellings to `words` for anything the
 guards turn away.
 
-**Clip files.** `.ogg`/`.opus` (Opus in Ogg) play as-is. Anything else - mp3,
-wav, m4a, or Ogg Vorbis - is converted once with ffmpeg and cached in
-`data/sounds/.cache/`, so ffmpeg is only needed if you use those formats.
-Keep clips short and at a consistent volume; there is no volume normalisation
-at playback.
+**Clip files.** They live in `data/sounds/`, and
+[sounds/readme.md](sounds/readme.md) covers the formats, the folder layout and
+how to convert a clip. The short version: `.ogg`/`.opus` play as-is, anything
+else is converted once with ffmpeg and cached, and clips should be short and
+matched in volume.
 
 **Tuning.** Turn on `logTranscripts` and watch the debug log to see what the bot
 actually heard. That is the fastest way to work out why a trigger is or is not
