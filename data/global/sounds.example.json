@@ -1,0 +1,19 @@
+{
+  "_comment": "Voice sound bites. Copy to sounds.json (here for every server, or into data/<guildId>/ for one). Clip files go in data/sounds/. Run /voice enable in a server to switch listening on.",
+  "enabled": false,
+  "minMembers": 1,
+  "guildCooldownMs": 8000,
+  "userCooldownMs": 20000,
+  "phonetic": true,
+  "logTranscripts": false,
+  "ignore": ["thank you", "thanks for watching", "you", "bye", "subscribe", "please subscribe"],
+  "pools": {
+    "shutup": ["shutup/oi-shut-up.ogg", "shutup/be-quiet.ogg", "shutup/nobody-asked.ogg"],
+    "airhorn": ["airhorn.ogg"]
+  },
+  "triggers": [
+    { "words": ["swag"], "pool": "shutup" },
+    { "words": ["drip"], "pool": "shutup" },
+    { "words": ["air horn", "airhorn"], "pool": "airhorn", "cooldownMs": 60000 }
+  ]
+}

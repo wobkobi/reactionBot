@@ -43,12 +43,21 @@ per-server counters for swears, slurs, and name-calling.
   than seconds (`disabled` means the question never expires). Configured in
   `data/global/definitions.json` (see [data/readme.md](data/readme.md)); it runs alongside the word
   replies rather than instead of them, and picking a meaning never changes what was counted.
+- **Voice sound bites**: the bot can sit in a voice channel, listen to what people say, and play a
+  clip back when it hears a trigger word - say "swag", get told to shut up. Speech is transcribed
+  locally with Whisper, so no audio leaves the machine, and neither the audio nor the transcript is
+  written to disk. Off until `/voice enable`; after that it joins any channel with people in it and
+  leaves when the channel empties. Triggers and clip pools live in `data/global/sounds.json` (see
+  [data/readme.md](data/readme.md)).
 
 ## Requirements
 
 - Node.js >= 20
 - A Discord application with a bot token, invited with the `bot` and `applications.commands` scopes
   and message content intent enabled.
+- For voice sound bites: `Connect` and `Speak` in the channels it should join. No extra privileged
+  intent is required. The Whisper model (a few hundred MB) downloads on first use into
+  `data/models/`. ffmpeg is optional, and only needed for clips that are not already Ogg Opus.
 
 ## Setup
 
@@ -74,6 +83,50 @@ that triggered it for 30. Both are pruned on write, off the message ID's own tim
 behaviour (trackers + reactions) lives in one file, `data/global/words.json` - see
 [data/readme.md](data/readme.md) for the full format, a template, and how to add words. It's
 gitignored (it contains the slur list), so copy your own file in on a fresh deploy.
+
+### Docker
+
+```sh
+cp .env.example .env          # fill in BOT_TOKEN and CLIENT_ID
+mkdir -p data/sounds
+chown -R 1000:1000 ./data     # the image runs unprivileged as uid 1000
+docker compose up -d --build
+```
+
+`data/` is bind-mounted, so `words.json`, `sounds.json` and the clips in `data/sounds/` are edited
+on the host and picked up without a restart. Keep it: it holds every per-guild setting and counter,
+and the Whisper model cache (a few hundred MB, re-downloaded if deleted).
+
+The image is Debian-based rather than Alpine because `onnxruntime-node`, which does the speech
+recognition, ships only glibc builds - on Alpine voice silently fails to load while everything else
+works.
+
+Speech recognition needs the memory and cores to go with it. The compose file caps memory at 4 GB,
+which is what `whisper-base.en` wants; it sits around 1.9 GB resident and takes ~1.5s per utterance
+on four modern cores, against ~4.8s on two. On a smaller box set
+`VOICE_MODEL=Xenova/whisper-tiny.en` and drop the limit to 2 GB. Avoid burstable instances -
+sustained inference will exhaust CPU credits and then utterances age out of the queue unheard. If
+you are not using voice at all, none of this applies and the bot is happy in a few hundred MB.
+
+### TrueNAS SCALE
+
+[deploy/truenas.yaml](deploy/truenas.yaml) is the version to paste into **Apps > Discover Apps >
+Install via YAML** on SCALE 24.10 (Electric Eel) or later, which run Docker rather than k3s. Its
+header comment has the dataset setup to do first.
+
+It differs from the root `compose.yaml` in three ways, each forced by the platform:
+
+- **It pulls a published image instead of building.** The Apps UI has no build context, so
+  `docker.yml` publishes to `ghcr.io/wobkobi/reactionbot` on every push to `main`.
+- **It runs as `568:568`, the apps user**, not the image's uid 1000, so the files it writes stay
+  editable from the TrueNAS side. Create the dataset with the **Apps** preset or a POSIX ACL: on an
+  SMB-style dataset the NFSv4 ACL overrides the ownership and the bot cannot write its own config,
+  which is the usual reason a first install comes up and then does nothing.
+- **Every path is absolute**, including `env_file`, which keeps the bot token in a file on the
+  dataset rather than in the Apps UI config.
+
+Leave the box headroom above the 4 GB cap - ZFS ARC is competing for the same memory, and the
+container being OOM-killed mid-sentence looks exactly like the bot ignoring people.
 
 ## Commands
 
@@ -165,6 +218,27 @@ are rate-limited per person (10s), silenced while calm mode is on, and ping-spam
 "that's enough" before the bot goes calm by itself. An `insults` array is what makes a file count,
 empty or not: an empty one switches comebacks off for that server rather than letting `global`
 answer for it.
+
+### Voice sound bites
+
+| Command          | What it does                                                            |
+| ---------------- | ----------------------------------------------------------------------- |
+| `/voice enable`  | Let the bot join voice channels in this server and listen (admin)       |
+| `/voice disable` | Stop listening here (admin)                                             |
+| `/voice leave`   | Leave the current channel for now, without changing the setting (admin) |
+| `/voice status`  | Show what it is doing: channel, model, decoder, trigger count (admin)   |
+
+Once enabled the bot joins any voice channel that has people in it, transcribes what it hears with a
+local Whisper model, and plays a clip when someone says a trigger word. It leaves when the channel
+empties. Nothing plays during calm mode, and both the server and each speaker get a cooldown, so it
+cannot be spammed.
+
+Expect a second or two between the word and the clip: the bot waits for the speaker to stop before
+transcribing, which is what makes the transcript worth reading.
+
+Several trigger words can share one clip pool, and mishearings are handled automatically - Whisper
+writing "swig" for "swag" still fires - without listing variants by hand. Triggers, pools and the
+tuning knobs are documented in [data/readme.md](data/readme.md).
 
 ### "Define your terms"
 

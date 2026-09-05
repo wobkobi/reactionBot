@@ -1,0 +1,22 @@
+# Build context: keep it to what the image actually needs. node_modules alone is
+# ~460MB and is reinstalled inside the image for the target platform anyway.
+node_modules
+build
+.git
+.github
+.vscode
+*.tsbuildinfo
+.eslintcache
+npm-debug.log*
+
+# Secrets never belong in an image layer; pass them with --env-file or -e.
+.env
+.env.*
+!.env.example
+
+# Runtime state lives in a volume, not the image. data/models alone is ~280MB.
+data/*
+!data/readme.md
+!data/global/
+data/global/*
+!data/global/*.example.json

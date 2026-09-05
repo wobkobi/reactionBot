@@ -1,0 +1,64 @@
+# TrueNAS SCALE 24.10+ (Electric Eel and later, which run Docker rather than
+# k3s). Install with Apps > Discover Apps > the three-dot menu > Install via
+# YAML, and paste this in.
+#
+# Two differences from the compose.yaml in the repo root, both forced by the
+# Apps UI: it cannot build an image, so this pulls a published one; and it has
+# no build context, so every path has to be absolute.
+#
+# Replace POOL with your pool name in the three paths below. Before installing,
+# from the TrueNAS shell:
+#
+#   mkdir -p /mnt/POOL/apps/reactionbot/data/sounds
+#
+#   # Seed the config templates out of the image, so the repo does not have to
+#   # be checked out on the NAS. A bind mount hides whatever the image ships at
+#   # /app/data, which is why this is a copy rather than something automatic.
+#   docker create --name rb-seed ghcr.io/wobkobi/reactionbot:latest
+#   docker cp rb-seed:/app/data/. /mnt/POOL/apps/reactionbot/data/
+#   docker rm rb-seed
+#
+#   vi /mnt/POOL/apps/reactionbot/.env        # BOT_TOKEN and CLIENT_ID
+#   chmod 600 /mnt/POOL/apps/reactionbot/.env
+#   chown -R 568:568 /mnt/POOL/apps/reactionbot
+#
+# words.json is gitignored and is not in the image, so copy your own in as
+# /mnt/POOL/apps/reactionbot/data/global/words.json.
+#
+# 568 is the apps user. Create the dataset with the Apps preset (or POSIX ACL);
+# on an SMB-style dataset the NFSv4 ACL overrides the ownership above and the
+# bot cannot write its own config.
+
+services:
+  reactionbot:
+    image: ghcr.io/wobkobi/reactionbot:latest
+    restart: unless-stopped
+
+    # Runs as the apps user rather than the image's built-in uid 1000, so the
+    # files it writes stay readable and editable from the TrueNAS side.
+    user: "568:568"
+
+    # Kept out of the app config so the token is not stored in the Apps UI.
+    env_file: /mnt/POOL/apps/reactionbot/.env
+
+    environment:
+      # uid 568 has no home directory in the image. Anything that falls back to
+      # a home-relative cache would otherwise try to write to / and fail.
+      HOME: /app/data
+
+    volumes:
+      - /mnt/POOL/apps/reactionbot/data:/app/data
+
+    # ffmpeg conversions can leave orphaned grandchildren; init reaps them.
+    init: true
+
+    # Speech recognition holds around 1.9GB with the default whisper-base.en.
+    # This is an OOM guard, not a target. Remember ZFS ARC is competing for the
+    # same RAM: leave the box headroom rather than sizing this to what is free.
+    mem_limit: 4g
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

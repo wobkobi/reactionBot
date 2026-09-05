@@ -129,6 +129,80 @@ word can
 earn a reply *and* the question, and picking a meaning never changes what was
 counted against them.
 
+## sounds.json - voice sound bites
+
+The bot can sit in a voice channel, listen to what people say, and play a clip
+back when it hears a trigger. Speech is transcribed locally with Whisper; no
+audio and no transcript leaves the machine or is written to disk.
+
+Off until someone runs `/voice enable` in the server. Once on, the bot joins any
+voice channel that has people in it and leaves when the channel empties.
+
+`sounds.example.json` is the template. Copy it to `global/sounds.json`, or to
+`data/<guildId>/sounds.json` for one server (a guild copy replaces the global
+one wholesale). Comments and trailing commas are allowed, same as `words.json`.
+Clip files go in `data/sounds/`, or `data/<guildId>/sounds/` to override one
+clip for a single server.
+
+```jsonc
+{
+  "enabled": false,        // config-wide default; /voice enable overrides it
+  "minMembers": 1,         // people (bots don't count) needed before joining
+  "guildCooldownMs": 8000, // gap between clips in a server
+  "userCooldownMs": 20000, // gap between clips from the same speaker
+  "phonetic": true,        // match mishearings automatically, see below
+  "logTranscripts": false, // echo what was heard at debug level
+
+  // Whisper invents these when it hears near-silence. Never played.
+  "ignore": ["thank you", "you", "bye", "subscribe"],
+
+  // Named clip lists. Several triggers can share one pool.
+  "pools": {
+    "shutup": ["shutup/oi-shut-up.ogg", "shutup/be-quiet.ogg"]
+  },
+
+  "triggers": [
+    { "words": ["swag"], "pool": "shutup" },
+    { "words": ["drip"], "pool": "shutup" }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `pools` | Named lists of clip files, relative to `data/sounds/`. One is picked at random each time. |
+| `triggers[].words` | What to listen for. The first trigger that matches wins. |
+| `triggers[].pool` | Which pool to play from. An unknown or empty pool drops the trigger with a warning. |
+| `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
+| `triggers[].cooldownMs` | Overrides `guildCooldownMs` for this trigger. |
+| `triggers[].fuzzy` | Stretched-spelling tolerance, as in `words.json`. Rarely useful for speech. |
+
+**Several words, one sound.** Point as many triggers as you like at the same
+pool. Three unrelated words sharing one set of clips is the normal case, not a
+workaround.
+
+**You do not list mishearings by hand.** Whisper writes down what it thinks it
+heard, and for short words it often gets the vowels wrong: "swig" or "sweg" for
+"swag". With `phonetic` on (the default), those match anyway, because the
+matcher compares how a word sounds rather than how it is spelled.
+
+It is deliberately conservative about this, and only accepts a soundalike when
+it shares the trigger's first letter and is not an everyday English word.
+Without those guards a "drip" trigger fires on "trip", and a "swag" trigger
+fires on "sick", "sock", "sack", "seek" and "soak". Set `"phonetic": false` on a
+trigger to demand the exact word, and add spellings to `words` for anything the
+guards turn away.
+
+**Clip files.** `.ogg`/`.opus` (Opus in Ogg) play as-is. Anything else - mp3,
+wav, m4a, or Ogg Vorbis - is converted once with ffmpeg and cached in
+`data/sounds/.cache/`, so ffmpeg is only needed if you use those formats.
+Keep clips short and at a consistent volume; there is no volume normalisation
+at playback.
+
+**Tuning.** Turn on `logTranscripts` and watch the debug log to see what the bot
+actually heard. That is the fastest way to work out why a trigger is or is not
+firing.
+
 ## Other files
 
 - `global/responses.json` - reply pools per word type (`responses.example.json`
@@ -152,6 +226,15 @@ counted against them.
   already earned a `responses.json` reply gets that one instead.
 - `global/definitions.json` - the "define your terms" prompts, documented
   above.
+- `global/sounds.json` - the voice triggers and clip pools, documented above
+  (`sounds.example.json` is the template; a copy in `data/<guildId>/` overrides
+  it per server).
+- `sounds/` - the clip files themselves, plus a `.cache/` of clips converted to
+  Ogg Opus. Safe to delete; it is rebuilt on demand.
+- `models/` - the downloaded Whisper model (a few hundred MB, fetched on first
+  use). Safe to delete; it is re-downloaded. Set `VOICE_MODEL_DIR` to move it.
+- `<guildId>/voice.json` - whether voice listening is on for that server
+  (managed by `/voice enable` and `/voice disable`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
 - `<guildId>/calm.json` - the calm-mode window (managed by the bot and

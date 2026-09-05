@@ -1,0 +1,51 @@
+name: Publish image
+
+# The TrueNAS Apps UI installs from a compose YAML but cannot build one, so the
+# image has to already exist somewhere it can pull from.
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Read package version
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          # amd64 only: the target is an x86 NAS, and cross-building the native
+          # speech-recognition dependencies under emulation is slow enough to
+          # not be worth it until something actually needs arm64.
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/reactionbot:latest
+            ghcr.io/${{ github.repository_owner }}/reactionbot:${{ steps.pkg.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/reactionbot:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
