@@ -13,6 +13,20 @@ COPY package.json package-lock.json ./
 # simple-git-hooks has nothing to hook in a container and would fail the
 # install outright; dropping the prepare script leaves dependency install
 # scripts alone, which onnxruntime-node needs to place its binaries.
+# onnxruntime-node's postinstall downloads and extracts the CUDA 12 execution
+# provider on linux/x64, which is this image's platform and the only one it
+# does that for. Nothing here uses CUDA - transcription runs on the CPU - so it
+# is a large download for a binary that never loads.
+#
+# Skipping it also takes adm-zip out of the picture. That is the package behind
+# GHSA-vwc7-r8mq-g2x9, which has no patched version: extraction follows a
+# symlink already present at the destination, and this postinstall extracts
+# into a predictable directory under /tmp with overwrite enabled. A build
+# container is a poor place to exploit that, being single-user with a fresh
+# /tmp, but not running the code at all beats reasoning about who can write
+# where.
+ENV ONNXRUNTIME_NODE_INSTALL=skip
+
 RUN npm pkg delete scripts.prepare \
     && npm ci --no-audit --no-fund
 
@@ -39,6 +53,20 @@ COPY package.json package-lock.json ./
 # --omit=dev keeps optionalDependencies, which is where the voice packages live.
 # A platform without a prebuild degrades to voice being off rather than failing
 # the build, which is why they are optional in the first place.
+# onnxruntime-node's postinstall downloads and extracts the CUDA 12 execution
+# provider on linux/x64, which is this image's platform and the only one it
+# does that for. Nothing here uses CUDA - transcription runs on the CPU - so it
+# is a large download for a binary that never loads.
+#
+# Skipping it also takes adm-zip out of the picture. That is the package behind
+# GHSA-vwc7-r8mq-g2x9, which has no patched version: extraction follows a
+# symlink already present at the destination, and this postinstall extracts
+# into a predictable directory under /tmp with overwrite enabled. A build
+# container is a poor place to exploit that, being single-user with a fresh
+# /tmp, but not running the code at all beats reasoning about who can write
+# where.
+ENV ONNXRUNTIME_NODE_INSTALL=skip
+
 RUN npm pkg delete scripts.prepare \
     && npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force

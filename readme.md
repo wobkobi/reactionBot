@@ -58,6 +58,9 @@ Logs go to `docker compose logs -f`, timestamped, with warnings and errors on st
 read on their own. `LOG_LEVEL=debug` adds the per-utterance voice decisions, and `LOG_FORMAT=json`
 switches to one JSON object per line for a collector.
 
+The image sets `ONNXRUNTIME_NODE_INSTALL=skip`. Without it, the speech recognition package downloads
+a CUDA execution provider on linux/x64 that nothing here uses, since transcription runs on the CPU.
+
 `data/` must be a volume: it holds the configuration, the counters, the sound clips and the Whisper
 model cache. The image is Debian-based because the speech recognition library ships no musl build,
 so voice silently fails to load on Alpine.
