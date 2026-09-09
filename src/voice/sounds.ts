@@ -401,6 +401,17 @@ export function resolveClips(guildId: string, source: ClipSource): string[] {
 }
 
 /**
+ * Whether a guild has anything worth joining a channel for. Ambient sounds
+ * need no triggers, so testing triggers alone would keep the bot out of voice
+ * for a config that only wants atmosphere.
+ * @param compiled - The guild's compiled sound config.
+ * @returns `true` when something could play.
+ */
+export function hasSomethingToPlay(compiled: CompiledSounds): boolean {
+  return compiled.triggers.length > 0 || compiled.ambient !== null;
+}
+
+/**
  * Reads and parses a sounds.json, tolerating comments and trailing commas the
  * way the other hand-edited configs do.
  * @param scope - Discord guild ID or "global".

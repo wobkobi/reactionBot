@@ -93,6 +93,7 @@ import {
   AMBIENT_FLOOR_MS,
   type CompiledTrigger,
   compileSounds,
+  hasSomethingToPlay,
   isIgnoredTranscript,
   matchTrigger,
   nextAmbientDelay,
@@ -2184,6 +2185,19 @@ function checkVoiceSounds(): void {
       nextAmbientDelay(300_000, 1_200_000, 0.999999) <= 1_200_000,
   );
   // A zero or inverted range would otherwise fire as fast as clips finish.
+  // The bot only joins a channel when something could play there. Counting
+  // triggers alone would keep it out for a config that only wants atmosphere.
+  check(
+    "voice/ambient",
+    "an ambient-only config is still worth joining for",
+    hasSomethingToPlay(
+      compileSounds({
+        pools: { ambience: ["a.ogg"] },
+        ambient: { pool: "ambience" },
+        triggers: [],
+      }),
+    ) && !hasSomethingToPlay(compileSounds({ pools: {}, triggers: [] })),
+  );
   check(
     "voice/ambient",
     "a zero or inverted range is clamped rather than obeyed",
