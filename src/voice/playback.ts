@@ -9,7 +9,7 @@
 // buffer to police.
 
 import { createLogger } from "@/utils/log";
-import { ensurePlayableOgg } from "@/voice/transcode";
+import { ensurePlayable, type OpusContainer } from "@/voice/transcode";
 import {
   AudioPlayerStatus,
   createAudioPlayer,
@@ -28,6 +28,12 @@ export const GUILD_CLIP_COOLDOWN_MS = 8_000;
 
 /** Minimum gap between clips triggered by the same speaker. */
 export const USER_CLIP_COOLDOWN_MS = 20_000;
+
+/** Stream type to declare for each container that plays without transcoding. */
+const STREAM_TYPES: Record<OpusContainer, StreamType> = {
+  "ogg/opus": StreamType.OggOpus,
+  "webm/opus": StreamType.WebmOpus,
+};
 
 const players = new Map<string, AudioPlayer>();
 const lastGuildClip = new Map<string, number>();
@@ -118,7 +124,7 @@ export async function playClip(
   userId: string,
   filePath: string,
 ): Promise<boolean> {
-  const playable = await ensurePlayableOgg(filePath).catch((err: unknown) => {
+  const playable = await ensurePlayable(filePath).catch((err: unknown) => {
     log.warn("could not prepare clip", {
       filePath,
       error: err instanceof Error ? err.message : String(err),
@@ -130,16 +136,18 @@ export async function playClip(
   try {
     const player = getPlayer(guildId);
     connection.subscribe(player);
-    // Ogg Opus passes straight through, so playback needs no encoder and no
-    // inline volume (which would force a PCM transcode); clip loudness is
-    // normalised at conversion time instead.
+    // Both containers demux straight to Opus packets, so playback needs no
+    // encoder and no inline volume (which would force a PCM transcode); clip
+    // loudness is normalised at conversion time instead.
     player.play(
-      createAudioResource(fs.createReadStream(playable), { inputType: StreamType.OggOpus }),
+      createAudioResource(fs.createReadStream(playable.path), {
+        inputType: STREAM_TYPES[playable.container],
+      }),
     );
     const now = Date.now();
     lastGuildClip.set(guildId, now);
     lastUserClip.set(`${guildId}:${userId}`, now);
-    log.info("playing clip", { guildId, userId, clip: filePath });
+    log.info("playing clip", { guildId, userId, clip: filePath, container: playable.container });
     return true;
   } catch (err) {
     log.warn("failed to start playback", {

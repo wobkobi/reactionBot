@@ -97,7 +97,7 @@ import {
   type SoundsConfig,
 } from "@/voice/sounds";
 import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
-import { cachedOggPath, ffmpegArgs, hasOpusHead } from "@/voice/transcode";
+import { cachedOggPath, detectOpusContainer, ffmpegArgs } from "@/voice/transcode";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
   type ChatInputCommandInteraction,
@@ -2254,12 +2254,26 @@ function checkVoiceJoinRules(): void {
   );
 
   // An Ogg Vorbis file handed to StreamType.OggOpus plays silence rather than
-  // failing, so the container alone is not enough to trust.
+  // failing, so neither the extension nor the container alone can be trusted.
+  const EBML = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
   check(
     "voice/play",
-    "Opus is distinguished from Vorbis inside Ogg",
-    hasOpusHead(Buffer.from("OggS\0\0OpusHead....")) &&
-      !hasOpusHead(Buffer.from("OggS\0\0\x01vorbis....")),
+    "Opus is recognised inside Ogg and WebM",
+    detectOpusContainer(Buffer.from("OggS  OpusHead....")) === "ogg/opus" &&
+      detectOpusContainer(Buffer.concat([EBML, Buffer.from("....A_OPUS....")])) === "webm/opus",
+  );
+  check(
+    "voice/play",
+    "another codec in the same container is not mistaken for Opus",
+    detectOpusContainer(Buffer.from("OggS  vorbis....")) === null &&
+      detectOpusContainer(Buffer.concat([EBML, Buffer.from("....A_VORBIS....")])) === null,
+  );
+  // The codec marker alone is not enough: without the container magic, any file
+  // that happened to contain the string would be played untranscoded.
+  check(
+    "voice/play",
+    "the codec marker is only trusted behind the container magic",
+    detectOpusContainer(Buffer.from("ID3 OpusHead A_OPUS")) === null,
   );
   const args = ffmpegArgs("in.mp3", "out.ogg").join(" ");
   check(
@@ -2267,6 +2281,9 @@ function checkVoiceJoinRules(): void {
     "ffmpeg converts to 48kHz stereo opus",
     args.includes("-ar 48000") && args.includes("-ac 2") && args.includes("libopus"),
   );
+  // The output goes to a .tmp path, and ffmpeg refuses a job whose extension it
+  // does not recognise unless the muxer is named.
+  check("voice/play", "the ogg muxer is named rather than inferred", args.includes("-f ogg"));
   check(
     "voice/play",
     "the conversion cache key follows the source file's mtime",

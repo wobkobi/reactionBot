@@ -28,15 +28,17 @@ name in `data/<guildId>/sounds/`. That is checked first.
 
 ## Formats
 
-**Ogg Opus (`.ogg`, `.opus`) plays as-is** and is what to use if you can.
+**Opus plays as-is**, in either an Ogg (`.ogg`, `.opus`) or a WebM (`.webm`) container. Discord
+accepts Opus and nothing else, so a file that already holds Opus frames just has its container
+unwrapped: no conversion, no ffmpeg, nothing to wait for.
 
-Anything else - mp3, wav, m4a, and Ogg **Vorbis** - is converted once with ffmpeg and cached in
-`.cache/`, so only the first play is slow. That needs ffmpeg installed; without it those files are
-skipped with a warning and only Ogg Opus works.
+Anything else - mp3, wav, m4a, and Ogg **Vorbis** - has to be decoded and re-encoded, so it is
+converted once with ffmpeg and cached in `.cache/`. Only the first play pays for it. That needs
+ffmpeg installed; without it those files are skipped with a warning and only Opus works.
 
 Watch out for Ogg Vorbis: it has the same `.ogg` extension as Ogg Opus but is a different codec, so
-the extension alone does not tell you which you have. The bot checks the file itself, so a Vorbis
-file is converted rather than played as silence.
+the extension alone does not tell you which you have. The bot reads the file header rather than
+trusting the name, so a Vorbis file is converted instead of played as silence.
 
 To convert a clip yourself, matching what the bot does:
 
