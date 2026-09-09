@@ -1,19 +1,16 @@
 // src/tracking/responses.ts
 
-/**
- * @file Configurable replies to detected words, per type from words.json: a
- * random GIF/text from the type's pool, escalating to its "enough" reply when
- * a user spams that type in quick succession, rate-limited per user and
- * silenced entirely while calm mode is on. The legacy slur_responses.json is
- * still read as a slur-only pool when no responses.json exists.
- */
+// Configurable replies to detected words, per type from words.json: a random
+// GIF/text from the type's pool, escalating to its "enough" reply when a user
+// spams that type in quick succession, rate-limited per user and silenced
+// entirely while calm mode is on.
 
 import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
 import { countMatches } from "@/tracking/detect";
 import { getUserTotal } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { CompiledWords } from "@/tracking/words";
-import { loadData } from "@/utils/file";
+import { readIfPresent, resolveScoped } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import { recordReply } from "@/utils/replyStore";
 import { Message } from "discord.js";
@@ -61,8 +58,6 @@ export interface ResponsesConfig {
 export const RESPONSES_FILE = "responses.json";
 
 /** Legacy slur-only config filename, read when no responses.json exists. */
-export const LEGACY_SLUR_FILE = "slur_responses.json";
-
 /** Minimum gap between replies to one user for one type (anti-spam). */
 export const RESPONSE_COOLDOWN_MS = 10_000;
 /** Window over which rapid hits (from any user) count toward "spam". */
@@ -107,14 +102,9 @@ const spamHits = new Map<string, number[]>();
  * @returns The config, or null when neither file exists.
  */
 function readConfig(guildId: string): ResponsesConfig | null {
-  const cfg = loadData<Partial<ResponsesConfig> | null>(guildId, RESPONSES_FILE, { soft: true });
-  if (cfg?.types && Object.keys(cfg.types).length > 0) return { types: cfg.types };
-
-  const legacy = loadData<Partial<TypeResponses> | null>(guildId, LEGACY_SLUR_FILE, { soft: true });
-  if (legacy?.responses?.length) {
-    return { types: { slur: { responses: legacy.responses, spam: legacy.spam } } };
-  }
-  return null;
+  const cfg = readIfPresent<Partial<ResponsesConfig>>(guildId, RESPONSES_FILE);
+  if (!cfg) return null;
+  return { types: cfg.types ?? {} };
 }
 
 /**
@@ -124,7 +114,7 @@ function readConfig(guildId: string): ResponsesConfig | null {
  * @returns The resolved {@link ResponsesConfig}.
  */
 function loadResponses(guildId: string): ResponsesConfig {
-  return readConfig(guildId) ?? readConfig("global") ?? DEFAULT_CONFIG;
+  return resolveScoped(guildId, readConfig) ?? DEFAULT_CONFIG;
 }
 
 /**

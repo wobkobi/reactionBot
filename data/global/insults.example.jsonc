@@ -1,0 +1,37 @@
+// Comebacks fired at anyone who @s the bot.
+//
+// Copy to insults.json - here for every server, or into data/<guildId>/ for
+// one. There is no built-in pool: with no file at either scope the bot takes
+// the ping in silence.
+//
+// Only a deliberate ping counts. A role the bot happens to hold, an @everyone,
+// and the implicit ping on a reply are all somebody talking to the channel.
+{
+  // One is picked at random. Each entry is text, or a GIF/image link on its own
+  // line, which Discord embeds by itself.
+  //
+  //   {user}  the author's mention
+  //   {count} how many times they have pinged the bot
+  "insults": [
+    "{user} is a poopy head.",
+    "nice try, {user}, you big smelly.",
+    "{user} has cooties.",
+    "{user} eats crayons, and not even the good colours.",
+    "go and boil your head, {user}.",
+    "{user} is a doo-doo brain.",
+    "whatever, {user}, your bum's a face.",
+    "{user} smells like old cheese.",
+    "cry about it, {user}, you absolute wet sock.",
+    "that's ping #{count}, {user}, and you're still a butt-face.",
+  ],
+
+  // Sent instead when the bot is ping-spammed, after which it goes calm for a
+  // while: no replies, though reactions and counting carry on. Optional.
+  "spam": "okay {user}, that's enough. Go and play outside.",
+}
+// Comebacks are rate-limited per person, silenced during calm mode, and skipped
+// when the message already earned a responses.json reply - so "@bot you <slur>"
+// is answered once, not twice.
+//
+// An empty "insults" array switches comebacks off for that server rather than
+// letting the global file answer for it.

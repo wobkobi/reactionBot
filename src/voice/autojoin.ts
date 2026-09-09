@@ -16,7 +16,7 @@ import {
   sessionChannelId,
 } from "@/voice/session";
 import { isVoiceEnabled } from "@/voice/settings";
-import { loadSounds } from "@/voice/sounds";
+import { hasSomethingToPlay, loadSounds } from "@/voice/sounds";
 import { stopStt } from "@/voice/stt";
 import type { Client, Guild, VoiceBasedChannel, VoiceState } from "discord.js";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
@@ -127,8 +127,8 @@ async function reconcile(guild: Guild): Promise<void> {
   }
 
   const compiled = loadSounds(guildId);
-  if (compiled.triggers.length === 0) {
-    if (current) closeSession(guildId, "no triggers configured");
+  if (!hasSomethingToPlay(compiled)) {
+    if (current) closeSession(guildId, "nothing configured to play");
     return;
   }
 

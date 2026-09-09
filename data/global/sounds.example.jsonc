@@ -1,0 +1,47 @@
+// Voice sound bites. Copy this to sounds.json - here for every server, or into
+// data/<guildId>/ for one - and run /voice enable in the server.
+//
+// Comments and trailing commas are fine; the bot strips them when reading.
+// Every setting below is optional except the triggers themselves.
+//
+// Run /voice check in Discord to see what actually resolves.
+{
+  // A pool is just a folder under data/sounds. Put your clips in
+  // data/sounds/shutup/ and write "pool": "shutup" - there is no list to keep
+  // in step with the files, and adding a clip needs no edit here.
+  "triggers": [
+    { "words": ["swag"], "pool": "shutup" },
+    { "words": ["drip"], "pool": "shutup" },
+
+    // Several words can share one pool, and a phrase works as well as a word.
+    { "words": ["air horn", "airhorn"], "pool": "airhorn", "cooldownMs": 60000 },
+
+    // For a one-off, name the file instead of making a folder for it.
+    { "words": ["bruh"], "sounds": ["bruh.ogg"] }
+  ],
+
+  // Plays a clip from a folder now and then, with nobody prompting it. Delete
+  // this block to switch it off.
+  "ambient": { "pool": "ambience", "minMinutes": 5, "maxMinutes": 20 },
+
+  // Whisper invents these when it hears near-silence. Never played.
+  "ignore": ["thank you", "thanks for watching", "you", "bye", "subscribe"],
+
+  // How many people a channel needs before the bot joins it.
+  "minMembers": 1,
+
+  // Minimum gap between clips, for the whole server and for one speaker.
+  "guildCooldownMs": 8000,
+  "userCooldownMs": 20000,
+
+  // Match mishearings automatically ("swig" for "swag"). Per-trigger override
+  // with "phonetic": false when a word needs to be exact.
+  "phonetic": true,
+
+  // Echo what the bot heard at debug level, for working out why a trigger is
+  // or is not firing.
+  "logTranscripts": false,
+
+  // Turns voice on for every server without needing /voice enable in each.
+  "enabled": false
+}

@@ -1,14 +1,12 @@
 // src/voice/whisperWorker.ts
 
-// Runs Whisper off the main thread. Inference is CPU-bound and would otherwise
-// stall discord.js gateway heartbeats, which drops the bot from voice and then
-// from the gateway.
+// Runs Whisper off the main thread, where its CPU cost would stall gateway
+// heartbeats and drop the bot from voice.
 //
-// This module is spawned by path, never imported, and must stay self-contained:
-// its only runtime imports are node:worker_threads and the dynamically loaded
-// transformers package. The sttTypes import is type-only, so it erases and
-// never has to resolve at runtime. That keeps the file runnable under tsx,
-// under Node's own TypeScript stripping, and as compiled JavaScript.
+// Spawned by path, never imported, so it must stay self-contained: only
+// node:worker_threads and the transformers package at runtime, with sttTypes
+// imported as types alone. That keeps it runnable under tsx, under Node's own
+// type stripping, and as compiled JavaScript.
 
 import type { SttIn, SttOut } from "@/voice/sttTypes";
 import { parentPort } from "node:worker_threads";

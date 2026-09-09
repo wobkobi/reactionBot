@@ -1,0 +1,50 @@
+// The "define your terms" prompts.
+//
+// Some words have a perfectly innocent second meaning, so the bot gives the
+// benefit of the doubt and asks which was meant, then posts that definition.
+//
+// Copy to definitions.json - here for every server, or into data/<guildId>/ for
+// one. With no file at either scope, no word ever earns a prompt.
+{
+  "entries": [
+    {
+      // Matched leniently, so write them plainly: "f4ggot" and "||fag||" are
+      // caught for you, while a link or a longer word containing one is not.
+      // The first entry that matches a message wins.
+      "words": ["faggot", "fag", "faggots", "fags"],
+
+      // {user} is the author's mention, here and in every reply below.
+      "prompt": "{user} homo or sticks?",
+
+      // At most five - Discord refuses a longer row of buttons. Only the
+      // author's clicks count.
+      "options": [
+        {
+          "id": "homo",
+          "label": "Homo",
+          "emoji": "🏳️‍🌈",
+          "reply": "Thought so.\n**faggot** (ˈfæɡət) *noun* - an insulting word for a gay man. [US, informal, offensive]\n-# Collins COBUILD Advanced Learner's Dictionary",
+        },
+        {
+          "id": "sticks",
+          "label": "Sticks",
+          "emoji": "🪵",
+          "reply": "Fair enough, {user}.\n**faggot** (ˈfæɡət) *noun* - a bundle of sticks or twigs, esp when bound together and used as fuel.\n-# Collins English Dictionary. C14: from Old French, perhaps from Greek *phakelos*, bundle",
+        },
+        {
+          "id": "food",
+          "label": "The food",
+          "emoji": "🍽️",
+          "reply": "Enjoy your tea, {user}.\n**faggot** (ˈfæɡət) *noun* - a ball of chopped meat, usually pork liver, bound with herbs and bread and eaten fried.\n-# Collins English Dictionary",
+        },
+      ],
+    },
+  ],
+}
+// How long someone gets to answer follows the server's /setdelay, scaled up by
+// ten and held between 5 minutes and an hour - a question is not the reflex a
+// link prompt is. "disabled" is taken at face value, so the question never
+// expires. Personal /mydelay settings do not apply.
+//
+// This runs alongside the word replies rather than instead of them: a slur is
+// still counted and still answered, whatever meaning the author then claims.

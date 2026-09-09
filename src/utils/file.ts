@@ -1,4 +1,5 @@
 // src/utils/file.ts
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import fs from "fs";
 import path from "path";
@@ -120,6 +121,44 @@ export function loadData<T>(guildId: string, fileName: string, opts?: LoadOption
     });
     throw new Error(`Failed to parse JSON: ${filePath}`, { cause: err });
   }
+}
+
+/**
+ * Reads a scoped config file, distinguishing "not there" from "there and
+ * empty". {@link loadData} in soft mode returns `{}` for both, which is the
+ * difference between falling back to the global config and deliberately
+ * switching a feature off for one server.
+ * @template T - Expected JSON shape.
+ * @param scope - Discord guild ID or "global".
+ * @param fileName - JSON file name.
+ * @returns The parsed contents, or null when the file is absent or unreadable.
+ */
+export function readIfPresent<T>(scope: string, fileName: string): T | null {
+  const filePath = dataFilePath(scope, fileName);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return parseJsonc<T>(fs.readFileSync(filePath, "utf-8"));
+  } catch (err) {
+    log.warn("failed to parse config, ignoring it", {
+      filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Picks the config a guild should use, applying the one rule every scoped
+ * config follows: a server's own file wins as soon as it exists and parses,
+ * whatever it contains. An empty file therefore means "off for this server",
+ * never "fall back to the global one" - only an absent file falls back.
+ * @template T - The config shape.
+ * @param guildId - Discord guild (server) ID.
+ * @param read - Reads one scope, returning null when the file is not there.
+ * @returns The guild's config, the global one, or null when neither exists.
+ */
+export function resolveScoped<T>(guildId: string, read: (scope: string) => T | null): T | null {
+  return read(guildId) ?? read("global");
 }
 
 /**

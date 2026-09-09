@@ -6,7 +6,8 @@
 // can sit under several. Format and template: data/readme.md.
 
 import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect";
-import { configFingerprint, dataFilePath } from "@/utils/file";
+import { configFingerprint, dataFilePath, resolveScoped } from "@/utils/file";
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import fs from "fs";
 
@@ -72,72 +73,6 @@ export interface CompiledWords {
 }
 
 /**
- * Parses JSON that may contain JSONC-style comments and trailing commas.
- * words.json is hand-edited, so both are tolerated: line (`//`) and block
- * comments are stripped (string contents are preserved - a "//" inside a
- * quoted value is untouched), then trailing commas before `}`/`]` dropped.
- * @param raw - Raw file contents.
- * @returns The parsed value.
- */
-export function parseJsonc<T>(raw: string): T {
-  let stripped = "";
-  let inString = false;
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i];
-    if (inString) {
-      stripped += ch;
-      if (ch === "\\") {
-        stripped += raw[++i] ?? "";
-        continue;
-      }
-      if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      stripped += ch;
-      continue;
-    }
-    if (ch === "/" && raw[i + 1] === "/") {
-      while (i < raw.length && raw[i] !== "\n") i++;
-      stripped += "\n";
-      continue;
-    }
-    if (ch === "/" && raw[i + 1] === "*") {
-      i += 2;
-      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
-      i++;
-      continue;
-    }
-    stripped += ch;
-  }
-
-  // Drop trailing commas (string-aware: quoted commas stay).
-  let out = "";
-  inString = false;
-  for (let i = 0; i < stripped.length; i++) {
-    const ch = stripped[i];
-    if (inString) {
-      out += ch;
-      if (ch === "\\") {
-        out += stripped[++i] ?? "";
-        continue;
-      }
-      if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    if (ch === ",") {
-      let j = i + 1;
-      while (j < stripped.length && /\s/.test(stripped[j])) j++;
-      if (stripped[j] === "}" || stripped[j] === "]") continue;
-    }
-    out += ch;
-  }
-  return JSON.parse(out) as T;
-}
-
-/**
  * Reads and parses a words.json (with comment/trailing-comma tolerance).
  * @param guildId - Discord guild ID or "global".
  * @returns The parsed {@link WordsConfig}, or `null` when missing/broken.
@@ -183,11 +118,7 @@ export function loadWords(guildId: string): CompiledWords {
  * @returns The {@link CompiledWords} for matching and reacting.
  */
 function compileWords(guildId: string): CompiledWords {
-  const guildCfg = readWordsFile(guildId);
-  const cfg =
-    guildCfg?.words && Object.keys(guildCfg.words).length > 0
-      ? guildCfg
-      : (readWordsFile("global") ?? {});
+  const cfg = resolveScoped(guildId, readWordsFile) ?? {};
 
   const types = cfg.types ?? {};
 

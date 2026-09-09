@@ -12,7 +12,7 @@ import { GraceSetting } from "@/media/types";
 import { isCalm } from "@/tracking/calm";
 import { compileItems, countMatches, DetectList } from "@/tracking/detect";
 import { RESPONSE_COOLDOWN_MS } from "@/tracking/responses";
-import { configFingerprint, loadData } from "@/utils/file";
+import { configFingerprint, readIfPresent, resolveScoped } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import { recordReply } from "@/utils/replyStore";
 import { ButtonStyle, Message } from "discord.js";
@@ -99,9 +99,9 @@ export interface CompiledEntry {
  * @returns The config, or null when this scope has no usable file.
  */
 export function readDefinitions(scope: string): DefinitionsConfig | null {
-  const cfg = loadData<Partial<DefinitionsConfig> | null>(scope, DEFINITIONS_FILE, { soft: true });
-  if (!Array.isArray(cfg?.entries)) return null;
-  return { entries: cfg.entries };
+  const cfg = readIfPresent<Partial<DefinitionsConfig>>(scope, DEFINITIONS_FILE);
+  if (!cfg) return null;
+  return { entries: Array.isArray(cfg.entries) ? cfg.entries : [] };
 }
 
 /**
@@ -166,7 +166,7 @@ function loadEntries(guildId: string): CompiledEntry[] {
   const current = configFingerprint(guildId, DEFINITIONS_FILE);
   const cached = cache.get(guildId);
   if (cached?.fingerprint === current) return cached.compiled;
-  const config = readDefinitions(guildId) ?? readDefinitions("global") ?? NO_DEFINITIONS;
+  const config = resolveScoped(guildId, readDefinitions) ?? NO_DEFINITIONS;
   const compiled = compileEntries(config);
   cache.set(guildId, { fingerprint: current, compiled });
   return compiled;

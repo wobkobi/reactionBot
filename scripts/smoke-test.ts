@@ -70,8 +70,9 @@ import {
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
-import { loadWords, parseJsonc, WORDS_FILE } from "@/tracking/words";
+import { loadWords, WORDS_FILE } from "@/tracking/words";
 import { dataFilePath } from "@/utils/file";
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
@@ -90,7 +91,9 @@ import { pickChannel } from "@/voice/autojoin";
 import { shouldPlay } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
+  type CompiledTrigger,
   compileSounds,
+  hasSomethingToPlay,
   isIgnoredTranscript,
   matchTrigger,
   nextAmbientDelay,
@@ -1041,8 +1044,17 @@ function checkMentions(): void {
       readInsults(SMOKE_GUILD)?.insults.length === 0,
     );
 
+    // A file that is there counts, whatever it holds; only an absent one falls
+    // through to the next scope.
     writeFileSync(path.join(dir, INSULTS_FILE), JSON.stringify({ spam: "enough" }), "utf-8");
-    check("mentions", "a file with no pool falls through", readInsults(SMOKE_GUILD) === null);
+    check(
+      "mentions",
+      "a file present but listing nothing still counts",
+      readInsults(SMOKE_GUILD)?.insults.length === 0,
+    );
+
+    rmSync(path.join(dir, INSULTS_FILE), { force: true });
+    check("mentions", "only an absent file falls through", readInsults(SMOKE_GUILD) === null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1214,10 +1226,19 @@ function checkDefinitions(): void {
       readDefinitions(SMOKE_GUILD)?.entries.length === 0,
     );
 
+    // A file that is there counts, whatever it holds; only an absent one falls
+    // through to the next scope.
     writeFileSync(file, JSON.stringify({ prompt: "?" }), "utf-8");
     check(
       "definitions",
-      "a file with no entries falls through",
+      "a file present but listing nothing still counts",
+      readDefinitions(SMOKE_GUILD)?.entries.length === 0,
+    );
+
+    rmSync(file, { force: true });
+    check(
+      "definitions",
+      "only an absent file falls through",
       readDefinitions(SMOKE_GUILD) === null,
     );
   } finally {
@@ -2022,6 +2043,14 @@ function checkVoiceAudio(): void {
  * Whisper mishearing and tight enough not to fire on ordinary speech.
  */
 function checkVoiceSounds(): void {
+  /**
+   * Reads the first clip name off a compiled trigger backed by a literal list.
+   * @param t - The matched trigger, or null.
+   * @returns The clip name, or undefined.
+   */
+  const firstClip = (t: CompiledTrigger | null): string | undefined =>
+    t && t.source.kind === "list" ? t.source.files[0] : undefined;
+
   const config: SoundsConfig = {
     pools: {
       shutup: ["a.ogg", "b.ogg"],
@@ -2033,7 +2062,7 @@ function checkVoiceSounds(): void {
       { words: ["swag"], pool: "shutup" },
       { words: ["drip"], pool: "shutup" },
       { words: ["shut up"], pool: "airhorn" },
-      { words: ["nope"], pool: "missing" },
+      { words: [], pool: "missing" },
       { words: [], pool: "shutup" },
       { words: ["blank"], pool: "empty" },
     ],
@@ -2042,7 +2071,7 @@ function checkVoiceSounds(): void {
 
   check(
     "voice/sounds",
-    "unusable triggers are dropped (unknown pool, no words, empty pool)",
+    "triggers with no words or no clips are dropped",
     compiled.triggers.length === 3,
   );
 
@@ -2052,7 +2081,10 @@ function checkVoiceSounds(): void {
   check(
     "voice/sounds",
     "several distinct words share one pool",
-    swag?.files.join() === "a.ogg,b.ogg" && drip?.files.join() === "a.ogg,b.ogg",
+    swag?.source.kind === "list" &&
+      swag.source.files.join() === "a.ogg,b.ogg" &&
+      drip?.source.kind === "list" &&
+      drip.source.files.join() === "a.ogg,b.ogg",
   );
 
   check(
@@ -2068,8 +2100,8 @@ function checkVoiceSounds(): void {
   check(
     "voice/sounds",
     "a phrase matches both spaced and collapsed forms",
-    matchTrigger("just shut up", compiled)?.files[0] === "horn.ogg" &&
-      matchTrigger("just shutup", compiled)?.files[0] === "horn.ogg",
+    firstClip(matchTrigger("just shut up", compiled)) === "horn.ogg" &&
+      firstClip(matchTrigger("just shutup", compiled)) === "horn.ogg",
   );
 
   // Tier two: vowel-mangled mishearings hit ...
@@ -2134,7 +2166,8 @@ function checkVoiceSounds(): void {
   check(
     "voice/ambient",
     "the ambient pool resolves to its clips and range",
-    amb.ambient?.files.join() === "a.ogg,b.ogg" &&
+    amb.ambient?.source.kind === "list" &&
+      amb.ambient.source.files.join() === "a.ogg,b.ogg" &&
       amb.ambient?.minMs === 300_000 &&
       amb.ambient?.maxMs === 1_200_000,
   );
@@ -2142,7 +2175,7 @@ function checkVoiceSounds(): void {
     "voice/ambient",
     "ambient is off without a block, and off for a missing pool",
     compileSounds({ pools: {}, triggers: [] }).ambient === null &&
-      compileSounds({ pools: {}, ambient: { pool: "nope" }, triggers: [] }).ambient === null,
+      compileSounds({ pools: {}, ambient: {}, triggers: [] }).ambient === null,
   );
   check(
     "voice/ambient",
@@ -2152,6 +2185,19 @@ function checkVoiceSounds(): void {
       nextAmbientDelay(300_000, 1_200_000, 0.999999) <= 1_200_000,
   );
   // A zero or inverted range would otherwise fire as fast as clips finish.
+  // The bot only joins a channel when something could play there. Counting
+  // triggers alone would keep it out for a config that only wants atmosphere.
+  check(
+    "voice/ambient",
+    "an ambient-only config is still worth joining for",
+    hasSomethingToPlay(
+      compileSounds({
+        pools: { ambience: ["a.ogg"] },
+        ambient: { pool: "ambience" },
+        triggers: [],
+      }),
+    ) && !hasSomethingToPlay(compileSounds({ pools: {}, triggers: [] })),
+  );
   check(
     "voice/ambient",
     "a zero or inverted range is clamped rather than obeyed",

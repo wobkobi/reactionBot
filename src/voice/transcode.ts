@@ -1,14 +1,9 @@
 // src/voice/transcode.ts
 
-// Turns whatever clip files someone dropped in data/sounds into something
-// @discordjs/voice can stream with no encoder in the way.
-//
-// Discord accepts Opus and nothing else, so a file already holding Opus frames
-// only needs its container unwrapped: Ogg and WebM both demux straight to
-// packets, costing no ffmpeg process and no encoder per play. Anything else
-// (mp3, wav, m4a, and Ogg Vorbis, which is a different codec in the same
-// container) has to be decoded, resampled and re-encoded, so it is converted
-// once with ffmpeg and cached and the cost is never paid again.
+// Prepares clip files for playback. Discord accepts Opus and nothing else, so
+// a file already holding Opus frames only needs its container unwrapped: Ogg
+// and WebM both demux straight to packets, with no ffmpeg or encoder per play.
+// Anything else is converted once with ffmpeg and cached.
 
 import { guildDataDir } from "@/utils/file";
 import { createLogger } from "@/utils/log";

@@ -5,15 +5,33 @@ each server gets its own `data/<guildId>/` folder for settings, counters and
 repost records (all managed by the bot - you normally only edit the global
 config).
 
+## How a server overrides the global config
+
+One rule, the same for every config file below:
+
+> A server's own file wins as soon as it exists, whatever it contains. Only an
+> absent file falls back to `global/`.
+
+Every file below is read the same way too: comments (`//` and `/* */`) and
+trailing commas are fine, so a note explaining a setting can sit next to the
+setting. The `.example.jsonc` templates use that rather than a wall of prose at
+the top, and are the fastest way to see what a file can hold.
+
+So `data/<guildId>/insults.json` containing `{ "insults": [] }` switches
+comebacks off for that server rather than letting the global pool answer, and
+the same shape applies to every other file. Overrides are wholesale: the guild
+file replaces the global one, it does not merge with it.
+
+Run `npm run check-config` to list any per-server file that declares nothing,
+since those are the ones where "off here" and "use global" look the same from
+the outside.
+
 ## words.json - the word config
 
 All word behaviour lives in `data/global/words.json`. It is gitignored (it
 contains the slur list), so on a fresh deploy copy your own file in. It is
 re-read on every message, so edits apply without a restart. A `words.json`
 inside `data/<guildId>/` overrides the global file wholesale for that server.
-
-Comments (`//` and `/* */`) and trailing commas are tolerated - the bot strips
-them when reading.
 
 ### Structure
 
@@ -84,10 +102,10 @@ spelled out in part - the bot logs a warning naming the value.
 
 `data/global/definitions.json` lists words with an innocent second meaning. Say
 one and the bot asks which you meant, then posts that meaning's definition.
-`definitions.example.json` is the template; a copy in `data/<guildId>/`
-overrides it per server. Gitignored like the files above, and an `entries`
-array is what makes a file count, empty or not - an empty one switches prompts
-off for that server instead of letting the global file answer.
+`definitions.example.jsonc` is the template; a copy in `data/<guildId>/`
+overrides it per server. Gitignored like the files above; an empty
+one switches prompts off for that server rather than letting the global file
+answer.
 
 ```jsonc
 {
@@ -138,59 +156,53 @@ audio and no transcript leaves the machine or is written to disk.
 Off until someone runs `/voice enable` in the server. Once on, the bot joins any
 voice channel that has people in it and leaves when the channel empties.
 
-`sounds.example.json` is the template. Copy it to `global/sounds.json`, or to
-`data/<guildId>/sounds.json` for one server (a guild copy replaces the global
-one wholesale). Comments and trailing commas are allowed, same as `words.json`.
-Clip files go in `data/sounds/`, or `data/<guildId>/sounds/` to override one
-clip for a single server.
+`sounds.example.jsonc` is the template, and it explains every setting inline.
+Copy it to `sounds.json` here, or to `data/<guildId>/sounds.json` for one
+server. Comments and trailing commas are fine.
+
+**A pool is a folder.** Put clips in `data/sounds/shutup/` and write
+`"pool": "shutup"`. There is no list to keep in step with the files, and adding
+a clip needs no edit at all. The smallest useful config is:
 
 ```jsonc
 {
-  "enabled": false,        // config-wide default; /voice enable overrides it
-  "minMembers": 1,         // people (bots don't count) needed before joining
-  "guildCooldownMs": 8000, // gap between clips in a server
-  "userCooldownMs": 20000, // gap between clips from the same speaker
-  "phonetic": true,        // match mishearings automatically, see below
-  "logTranscripts": false, // echo what was heard at debug level
-
-  // Whisper invents these when it hears near-silence. Never played.
-  "ignore": ["thank you", "you", "bye", "subscribe"],
-
-  // Named clip lists. Several triggers can share one pool.
-  "pools": {
-    "shutup": ["shutup/oi-shut-up.ogg", "shutup/be-quiet.ogg"]
-  },
-
-  "triggers": [
-    { "words": ["swag"], "pool": "shutup" },
-    { "words": ["drip"], "pool": "shutup" }
-  ],
-
-  // Optional. Plays a clip from a pool at random intervals while the bot is
-  // sitting in a channel, with nobody having to say anything. Remove the block
-  // to switch it off.
-  "ambient": { "pool": "ambience", "minMinutes": 5, "maxMinutes": 20 }
+  "triggers": [{ "words": ["swag"], "pool": "shutup" }]
 }
 ```
 
+For a one-off, name the file directly with `"sounds": ["bruh.ogg"]` instead of
+making a folder for it. An explicit `"pools"` block still works if you want one
+folder's clips split across several pools, and it wins over a folder of the
+same name.
+
+**Run `/voice check`** to see what resolves and what does not - missing folders,
+empty pools, and clip names that point at nothing all come back in Discord
+rather than sitting in the log.
+
 | Field | Meaning |
 | --- | --- |
-| `pools` | Named lists of clip files, relative to `data/sounds/`. One is picked at random each time. |
 | `triggers[].words` | What to listen for. The first trigger that matches wins. |
-| `triggers[].pool` | Which pool to play from. An unknown or empty pool drops the trigger with a warning. |
-| `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
+| `triggers[].pool` | Folder under `data/sounds/` (or a key in `pools`) to draw from. |
+| `triggers[].sounds` | Clips named directly, instead of a pool. |
 | `triggers[].cooldownMs` | Overrides `guildCooldownMs` for this trigger. |
+| `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
 | `triggers[].fuzzy` | Stretched-spelling tolerance, as in `words.json`. Rarely useful for speech. |
-| `ambient.pool` | Pool the unprompted sounds come from. Absent, or naming an empty pool, turns ambient off. |
-| `ambient.minMinutes` / `maxMinutes` | Gap either side of each sound, re-rolled every time. Defaults to 5 and 20; a gap under 10 seconds is refused. |
+| `ambient.pool` / `.sounds` | Where the unprompted sounds come from. Remove the block to switch them off. |
+| `ambient.minMinutes` / `maxMinutes` | Gap either side of each sound, re-rolled every time. Defaults to 5 and 20; under 10 seconds is refused. |
+| `minMembers` | People a channel needs before the bot joins. Default 1. |
+| `guildCooldownMs` / `userCooldownMs` | Minimum gap between clips, per server and per speaker. |
+| `phonetic` | Automatic soundalike matching. Default true. |
+| `ignore` | Phrases that never count. |
+| `logTranscripts` | Echo what was heard at debug level. |
+| `enabled` | Config-wide default for the per-guild switch. `/voice enable` overrides it. |
 
 **Several words, one sound.** Point as many triggers as you like at the same
 pool. Three unrelated words sharing one set of clips is the normal case, not a
 workaround.
 
 **You do not list mishearings by hand.** Whisper writes down what it thinks it
-heard, and for short words it often gets the vowels wrong: "swig" or "sweg" for
-"swag". With `phonetic` on (the default), those match anyway, because the
+heard, and for short words it usually gets the vowels wrong: "swig" or "sweg"
+for "swag". With `phonetic` on (the default), those match anyway, because the
 matcher compares how a word sounds rather than how it is spelled.
 
 It is deliberately conservative about this, and only accepts a soundalike when
@@ -200,37 +212,29 @@ fires on "sick", "sock", "sack", "seek" and "soak". Set `"phonetic": false` on a
 trigger to demand the exact word, and add spellings to `words` for anything the
 guards turn away.
 
-**Clip files.** They live in `data/sounds/`, and
-[sounds/readme.md](sounds/readme.md) covers the formats, the folder layout and
-how to convert a clip. The short version: `.ogg`/`.opus` play as-is, anything
-else is converted once with ffmpeg and cached, and clips should be short and
-matched in volume.
-
 **Ambient sounds.** With an `ambient` block the bot also plays a clip now and
-then on its own, from its own pool, at a random gap inside the range. The gap is
-re-rolled after each one, so it never settles into a rhythm. It does not wait
-for a gap in conversation, but it will not talk over a clip already playing, and
-calm mode silences it like everything else. It never touches the trigger
-cooldowns, so an ambient sound cannot swallow a trigger someone earned.
-`/voice status` reports whether it is running.
+then on its own, at a random gap inside the range, re-rolled each time so it
+never settles into a rhythm. It does not wait for a gap in conversation, but it
+will not talk over a clip already playing, and calm mode silences it. It never
+touches the trigger cooldowns, so an ambient sound cannot swallow a trigger
+someone earned.
 
-**Tuning.** Turn on `logTranscripts` and watch the debug log to see what the bot
-actually heard. That is the fastest way to work out why a trigger is or is not
-firing.
+**Clip files.** They live in `data/sounds/`, and
+[sounds/readme.md](sounds/readme.md) covers the formats and how to convert one.
+The short version: Opus in an Ogg or WebM container plays as-is, anything else
+is converted once with ffmpeg and cached.
 
 ## Other files
 
-- `global/responses.json` - reply pools per word type (`responses.example.json`
+- `global/responses.json` - reply pools per word type (`responses.example.jsonc`
   is the template; a `responses.json` in `data/<guildId>/` overrides it per
-  server). The legacy `slur_responses.json` is still read as a slur-only pool
-  when no `responses.json` exists.
 
   Entries added through `/gif` also carry `id`, `addedBy` (Discord ID) and
   `addedAt` (ISO timestamp), and always land in this global file. The `id` is
   what `/gif remove` looks up, so hand-written entries - which have none - can
   only be changed by editing the file.
 - `global/insults.json` - the comebacks fired at anyone who mentions the bot,
-  text or GIF/image links (`insults.example.json` is the template; a copy in
+  text or GIF/image links (`insults.example.jsonc` is the template; a copy in
   `data/<guildId>/` overrides it per server). Gitignored like the files above,
   and there is no built-in pool - with no file the bot takes the ping in
   silence. An `insults` array is what makes a file count, empty or not, so an
@@ -242,7 +246,7 @@ firing.
 - `global/definitions.json` - the "define your terms" prompts, documented
   above.
 - `global/sounds.json` - the voice triggers and clip pools, documented above
-  (`sounds.example.json` is the template; a copy in `data/<guildId>/` overrides
+  (`sounds.example.jsonc` is the template; a copy in `data/<guildId>/` overrides
   it per server).
 - `sounds/` - the clip files themselves, plus a `.cache/` of clips converted to
   Ogg Opus. Safe to delete; it is rebuilt on demand.

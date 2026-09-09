@@ -1,0 +1,49 @@
+// Replies sent when a word is detected, per word type.
+//
+// Copy to responses.json - here for every server, or into data/<guildId>/ for
+// one. The keys under "types" are type names from words.json.
+//
+// At most one reply is sent per message, and replies are rate-limited per
+// person per type and silenced during calm mode.
+{
+  "types": {
+    "slur": {
+      // The pool for a hit is every "generic" reply plus every reply tagged
+      // with a category the message matched. One is then picked at random.
+      //
+      //   {user}  the author's mention
+      //   {count} their running total for swears and slurs, otherwise the
+      //           number of hits in this message
+      "responses": [
+        // A plain string is generic: it can answer any word of the type.
+        "🚨 {user} said a slur. That's slur #{count} for them. Shame.",
+
+        // A link on its own embeds, so a GIF needs no extra syntax.
+        "https://tenor.com/view/a-generic-reaction-gif",
+
+        // An object restricts a reply to the categories set in words.json.
+        // Add "generic" alongside them to use it everywhere as well.
+        { "content": "https://tenor.com/view/black-category-gif", "categories": ["black"] },
+        { "content": "https://tenor.com/view/shared-gif", "categories": ["black", "LGBT"] },
+
+        // /gif add writes entries in this shape. The id is what /gif remove
+        // looks up, so hand-written entries above can only be changed here.
+        {
+          "content": "https://tenor.com/view/added-via-the-gif-command",
+          "categories": ["jewish"],
+          "id": "a1b2c3d4",
+          "addedBy": "123456789012345678",
+          "addedAt": "2026-01-01T00:00:00.000Z",
+        },
+      ],
+
+      // Sent instead when someone spams this type, after which the bot goes
+      // calm for a while: no replies, though reactions and counting carry on.
+      "spam": "https://tenor.com/view/thats-enough-gif",
+    },
+
+    "swear": {
+      "responses": ["That's swear #{count} for {user}."],
+    },
+  },
+}

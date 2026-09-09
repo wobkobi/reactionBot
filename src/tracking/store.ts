@@ -1,13 +1,8 @@
 // src/tracking/store.ts
 
-/**
- * @file Generic per-guild count store, keyed by a store filename. Powers the
- * swear and slur trackers, which share the same shape:
- * {
- *   "users":  { "<userId>": { "<word>": count, ... }, ... },
- *   "totals": { "<word>": count, ... }
- * }
- */
+// Generic per-guild count store, keyed by a store filename. Powers the swear
+// and slur trackers, which share the same shape: { "users": { "<userId>": {
+// "<word>": count, ... }, ... }, "totals": { "<word>": count, ... } }
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";

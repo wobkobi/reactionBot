@@ -1,9 +1,7 @@
 // src/media/repostStore.ts
 
-/**
- * @file Persists moved-message records so author deletes survive restarts.
- * Keyed by the moved (repost) message ID within each guild's reposts.json.
- */
+// Persists moved-message records so author deletes survive restarts. Keyed by
+// the moved (repost) message ID within each guild's reposts.json.
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";

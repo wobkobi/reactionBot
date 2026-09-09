@@ -1,13 +1,11 @@
 // src/tracking/trackers.ts
 
-/**
- * @file Tracker configs. Each tracker pairs a track key in the unified word
- * config (words.json, see tracking/words.ts) with a store file (persistence)
- * and the copy its slash command renders - the command builder and every reply
- * helper in tracking/commands.ts read their wording from here, so this file is
- * the only place a tracker's user-facing text lives. Both trackers are
- * attributed to the message author.
- */
+// Tracker configs. Each tracker pairs a track key in the unified word config
+// (words.json, see tracking/words.ts) with a store file (persistence) and the
+// copy its slash command renders - the command builder and every reply helper
+// in tracking/commands.ts read their wording from here, so this file is the
+// only place a tracker's user-facing text lives. Both trackers are attributed
+// to the message author.
 
 import { TrackKey } from "@/tracking/words";
 

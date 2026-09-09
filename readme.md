@@ -58,6 +58,9 @@ Logs go to `docker compose logs -f`, timestamped, with warnings and errors on st
 read on their own. `LOG_LEVEL=debug` adds the per-utterance voice decisions, and `LOG_FORMAT=json`
 switches to one JSON object per line for a collector.
 
+The image sets `ONNXRUNTIME_NODE_INSTALL=skip`. Without it, the speech recognition package downloads
+a CUDA execution provider on linux/x64 that nothing here uses, since transcription runs on the CPU.
+
 `data/` must be a volume: it holds the configuration, the counters, the sound clips and the Whisper
 model cache. The image is Debian-based because the speech recognition library ships no musl build,
 so voice silently fails to load on Alpine.
@@ -115,6 +118,7 @@ Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete p
 | `/voice disable` | Stop listening here (admin)                             |
 | `/voice leave`   | Leave the current channel, keeping the setting (admin)  |
 | `/voice status`  | Channel, model, decoder and trigger count (admin)       |
+| `/voice check`   | Report any sound config that does not resolve (admin)   |
 
 Once enabled it joins any channel with people in it and leaves when they go. Expect a second or two
 between the word and the clip, since it waits for the speaker to stop before transcribing. Several

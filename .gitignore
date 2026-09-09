@@ -61,10 +61,10 @@ yarn-error.log*
 # words.json (the real word config, contains the slur list) and
 # responses.json (your own replies, plus the legacy slur_responses.json) stay
 # local; data/readme.md and the .example files document the shapes.
-!/data/global/responses.example.json
-!/data/global/insults.example.json
-!/data/global/definitions.example.json
-!/data/global/sounds.example.json
+!/data/global/responses.example.jsonc
+!/data/global/insults.example.jsonc
+!/data/global/definitions.example.jsonc
+!/data/global/sounds.example.jsonc
 # The clip files themselves stay local, but the note explaining how to format
 # them ships. data/models/ (the Whisper cache, a few hundred MB) is already
 # covered by the /data/* rule above.

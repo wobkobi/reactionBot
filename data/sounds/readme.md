@@ -5,26 +5,28 @@ play them - see [../readme.md](../readme.md) for that side.
 
 ## Layout
 
-Names in `sounds.json` are relative to this folder, and subfolders are fine:
+**A folder is a pool.** Make a folder, drop clips in it, and name it from
+`sounds.json`. Nothing lists the files, so adding one is just adding a file:
 
 ```
 data/sounds/
-  airhorn.ogg
-  shutup/
+  shutup/           <- "pool": "shutup"
     oi-shut-up.ogg
     be-quiet.ogg
-  .cache/          # converted copies, made automatically, safe to delete
+  ambience/         <- "ambient": { "pool": "ambience" }
+    creak.ogg
+  bruh.ogg          <- "sounds": ["bruh.ogg"] for a one-off
+  .cache/           converted copies, made automatically, safe to delete
 ```
 
-```json
-"pools": {
-  "shutup": ["shutup/oi-shut-up.ogg", "shutup/be-quiet.ogg"],
-  "airhorn": ["airhorn.ogg"]
-}
-```
+Only audio files count (`.ogg .opus .webm .mp3 .wav .m4a .flac`), so a readme or
+a stray artwork file in a pool folder is ignored rather than queued up to fail.
 
-To override one clip for a single server without copying the whole set, put a file with the same
-name in `data/<guildId>/sounds/`. That is checked first.
+To override one clip, or a whole pool, for a single server, put the same name
+under `data/<guildId>/sounds/`. That is checked first.
+
+Run `/voice check` in Discord to see which pools resolve and which come back
+empty.
 
 ## Formats
 
