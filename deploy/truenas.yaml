@@ -34,6 +34,11 @@ services:
     image: ghcr.io/wobkobi/reactionbot:latest
     restart: unless-stopped
 
+    # A tag is not a subscription: without this, restarting the app reuses the
+    # image already on disk and the container comes back on the same code it
+    # was already running. Pulling on every start makes "restart it" the update.
+    pull_policy: always
+
     # Runs as the apps user rather than the image's built-in uid 1000, so the
     # files it writes stay readable and editable from the TrueNAS side.
     user: "568:568"

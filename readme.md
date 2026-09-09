@@ -66,6 +66,15 @@ On **TrueNAS SCALE 24.10+**, paste [deploy/truenas.yaml](deploy/truenas.yaml) in
 Apps > Install via YAML. Its header comment has the dataset setup, which matters: create the dataset
 with a POSIX ACL, or the bot cannot write its own config.
 
+**Updating.** Merging to `main` builds and pushes `ghcr.io/wobkobi/reactionbot`, tagged `latest`,
+the version, and the commit. Nothing pulls it on its own - a tag is not a subscription - so the
+deploy updates when the container is restarted, which re-pulls because `pull_policy: always` is set.
+Pin the version tag instead of `latest` if you would rather choose when that happens, and to have
+something to roll back to.
+
+Config is not code: `words.json`, `sounds.json` and the clips are read from the volume and picked up
+without a restart, and the Whisper model cache survives an update rather than downloading again.
+
 Voice wants roughly 4 GB and 4 cores on the default model. On a smaller box set
 `VOICE_MODEL=Xenova/whisper-tiny.en`. Without voice the bot is happy in a few hundred MB.
 
