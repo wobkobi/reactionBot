@@ -9,7 +9,7 @@
 // buffer to police.
 
 import { createLogger } from "@/utils/log";
-import { ensurePlayableOgg } from "@/voice/transcode";
+import { ensurePlayable, type OpusContainer } from "@/voice/transcode";
 import {
   AudioPlayerStatus,
   createAudioPlayer,
@@ -28,6 +28,12 @@ export const GUILD_CLIP_COOLDOWN_MS = 8_000;
 
 /** Minimum gap between clips triggered by the same speaker. */
 export const USER_CLIP_COOLDOWN_MS = 20_000;
+
+/** Stream type to declare for each container that plays without transcoding. */
+const STREAM_TYPES: Record<OpusContainer, StreamType> = {
+  "ogg/opus": StreamType.OggOpus,
+  "webm/opus": StreamType.WebmOpus,
+};
 
 const players = new Map<string, AudioPlayer>();
 const lastGuildClip = new Map<string, number>();
@@ -105,20 +111,19 @@ export function clipAllowed(guildId: string, userId: string, guildCooldownMs: nu
 }
 
 /**
- * Plays one clip into a connection.
+ * Starts a file playing, with none of the bookkeeping that decides whether it
+ * should have been allowed to.
  * @param connection - The guild's live voice connection.
  * @param guildId - Discord guild (server) ID.
- * @param userId - Speaker who triggered it, for the per-user cooldown.
  * @param filePath - Absolute path of the clip to play.
  * @returns `true` when playback started.
  */
-export async function playClip(
+async function startPlayback(
   connection: VoiceConnection,
   guildId: string,
-  userId: string,
   filePath: string,
 ): Promise<boolean> {
-  const playable = await ensurePlayableOgg(filePath).catch((err: unknown) => {
+  const playable = await ensurePlayable(filePath).catch((err: unknown) => {
     log.warn("could not prepare clip", {
       filePath,
       error: err instanceof Error ? err.message : String(err),
@@ -130,16 +135,15 @@ export async function playClip(
   try {
     const player = getPlayer(guildId);
     connection.subscribe(player);
-    // Ogg Opus passes straight through, so playback needs no encoder and no
-    // inline volume (which would force a PCM transcode); clip loudness is
-    // normalised at conversion time instead.
+    // Both containers demux straight to Opus packets, so playback needs no
+    // encoder and no inline volume (which would force a PCM transcode); clip
+    // loudness is normalised at conversion time instead.
     player.play(
-      createAudioResource(fs.createReadStream(playable), { inputType: StreamType.OggOpus }),
+      createAudioResource(fs.createReadStream(playable.path), {
+        inputType: STREAM_TYPES[playable.container],
+      }),
     );
-    const now = Date.now();
-    lastGuildClip.set(guildId, now);
-    lastUserClip.set(`${guildId}:${userId}`, now);
-    log.info("playing clip", { guildId, userId, clip: filePath });
+    log.info("playing clip", { guildId, clip: filePath, container: playable.container });
     return true;
   } catch (err) {
     log.warn("failed to start playback", {
@@ -158,4 +162,44 @@ export function dropPlayer(guildId: string): void {
   const player = players.get(guildId);
   player?.stop(true);
   players.delete(guildId);
+}
+
+/**
+ * Plays a clip fired by something someone said, and records it against both
+ * cooldowns.
+ * @param connection - The guild's live voice connection.
+ * @param guildId - Discord guild (server) ID.
+ * @param userId - Speaker who triggered it, for the per-user cooldown.
+ * @param filePath - Absolute path of the clip to play.
+ * @returns `true` when playback started.
+ */
+export async function playClip(
+  connection: VoiceConnection,
+  guildId: string,
+  userId: string,
+  filePath: string,
+): Promise<boolean> {
+  const started = await startPlayback(connection, guildId, filePath);
+  if (!started) return false;
+  const now = Date.now();
+  lastGuildClip.set(guildId, now);
+  lastUserClip.set(`${guildId}:${userId}`, now);
+  return true;
+}
+
+/**
+ * Plays an unprompted ambient sound. Deliberately leaves the cooldowns alone:
+ * they exist to stop people spamming triggers, and an ambient sound blocking
+ * the next real trigger for the whole cooldown would be the wrong trade.
+ * @param connection - The guild's live voice connection.
+ * @param guildId - Discord guild (server) ID.
+ * @param filePath - Absolute path of the clip to play.
+ * @returns `true` when playback started.
+ */
+export async function playAmbient(
+  connection: VoiceConnection,
+  guildId: string,
+  filePath: string,
+): Promise<boolean> {
+  return startPlayback(connection, guildId, filePath);
 }

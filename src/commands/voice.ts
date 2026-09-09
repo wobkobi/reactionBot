@@ -2,10 +2,11 @@
 
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
+import { ambientRunning } from "@/voice/ambient";
 import { opusDecoderName } from "@/voice/opus";
 import { closeSession, sessionChannelId } from "@/voice/session";
 import { isVoiceEnabled, setVoiceEnabled } from "@/voice/settings";
-import { loadSounds } from "@/voice/sounds";
+import { loadSounds, type CompiledSounds } from "@/voice/sounds";
 import { sttModel, sttStatus } from "@/voice/stt";
 import { ffmpegAvailable } from "@/voice/transcode";
 import {
@@ -31,6 +32,21 @@ export const data = new SlashCommandBuilder()
   );
 
 /**
+ * Describes ambient playback for the status report. It has no trigger anyone
+ * can test against, so the only way to tell it is working is to be told.
+ * @param compiled - The guild's compiled sound config.
+ * @param guildId - Discord guild (server) ID.
+ * @returns A one-line description.
+ */
+function ambientDescription(compiled: CompiledSounds, guildId: string): string {
+  const ambient = compiled.ambient;
+  if (!ambient) return "not configured";
+  const mins = (ms: number): number => Math.round(ms / 60_000);
+  const state = ambientRunning(guildId) ? "running" : "idle (not in a channel)";
+  return `${state}, ${ambient.files.length} clip${ambient.files.length === 1 ? "" : "s"} every ${mins(ambient.minMs)}-${mins(ambient.maxMs)} min`;
+}
+
+/**
  * Builds the status report. Everything here is something that silently stops
  * voice working, so they are listed together rather than left to the logs.
  * @param guildId - Discord guild (server) ID.
@@ -46,6 +62,7 @@ async function statusLines(guildId: string): Promise<string[]> {
     `**Listening:** ${isVoiceEnabled(guildId) ? "enabled" : "disabled"}`,
     `**Channel:** ${channelId ? `<#${channelId}>` : "not connected"}`,
     `**Triggers:** ${compiled.triggers.length} across ${pools} pool${pools === 1 ? "" : "s"}`,
+    `**Ambient:** ${ambientDescription(compiled, guildId)}`,
     `**Speech recognition:** ${sttStatus()} (${sttModel()})`,
     `**Opus decoder:** ${decoder ?? "none loaded"}`,
     `**ffmpeg:** ${(await ffmpegAvailable()) ? "available" : "missing (Ogg Opus clips only)"}`,

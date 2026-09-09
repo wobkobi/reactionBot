@@ -3,11 +3,12 @@
 // Turns whatever clip files someone dropped in data/sounds into something
 // @discordjs/voice can stream with no encoder in the way.
 //
-// An Ogg Opus file is passed through untouched: StreamType.OggOpus sends its
-// pages straight to Discord, so playback needs neither ffmpeg nor an Opus
-// encoder. Anything else (mp3, wav, m4a, and Ogg Vorbis, which is a different
-// codec in the same container) is converted once with ffmpeg and cached, so the
-// cost is paid on the first play of each file and never again.
+// Discord accepts Opus and nothing else, so a file already holding Opus frames
+// only needs its container unwrapped: Ogg and WebM both demux straight to
+// packets, costing no ffmpeg process and no encoder per play. Anything else
+// (mp3, wav, m4a, and Ogg Vorbis, which is a different codec in the same
+// container) has to be decoded, resampled and re-encoded, so it is converted
+// once with ffmpeg and cached and the cost is never paid again.
 
 import { guildDataDir } from "@/utils/file";
 import { createLogger } from "@/utils/log";
@@ -21,21 +22,44 @@ const log = createLogger("voice/transcode");
 /** Folder holding converted clips, beside the originals. */
 const CACHE_DIR = path.join(guildDataDir("sounds"), ".cache");
 
-/** Bytes of an Ogg file to read when identifying the codec. */
-const HEAD_BYTES = 512;
+/**
+ * Bytes to read when identifying the codec. Ogg announces itself in the first
+ * page, but WebM names its codec in the Tracks element, which sits behind the
+ * EBML and Segment headers, so the window has to be wide enough to reach it.
+ */
+const HEAD_BYTES = 8192;
+
+/** EBML magic, the first four bytes of every Matroska and WebM file. */
+const EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
 
 let ffmpegChecked = false;
 let ffmpegOk = false;
 
+/** A container Discord can be handed without transcoding it first. */
+export type OpusContainer = "ogg/opus" | "webm/opus";
+
 /**
- * Detects Opus inside an Ogg container. Ogg holds several codecs, and handing
- * an Ogg Vorbis file to StreamType.OggOpus produces silence rather than an
- * error, so the extension alone cannot be trusted.
+ * Identifies a container already holding Opus, so it can be played untouched.
+ *
+ * Both checks require the container's magic bytes as well as the codec marker.
+ * The extension proves nothing on its own - Ogg and WebM each carry several
+ * codecs, and an Ogg Vorbis file handed to StreamType.OggOpus plays silence
+ * rather than failing - while the marker alone could appear anywhere in an
+ * unrelated file's bytes.
  * @param head - The first bytes of the file.
- * @returns `true` when the stream is Opus.
+ * @returns The container, or null when the file needs converting.
  */
-export function hasOpusHead(head: Uint8Array): boolean {
-  return Buffer.from(head).includes("OpusHead");
+export function detectOpusContainer(head: Uint8Array): OpusContainer | null {
+  const buf = Buffer.from(head);
+  if (buf.subarray(0, 4).toString("latin1") === "OggS" && buf.includes("OpusHead")) {
+    return "ogg/opus";
+  }
+  // A_OPUS is Matroska's codec id; a WebM holding Vorbis or AAC says otherwise
+  // and gets converted like anything else.
+  if (EBML_MAGIC.every((byte, i) => buf[i] === byte) && buf.includes("A_OPUS")) {
+    return "webm/opus";
+  }
+  return null;
 }
 
 /**
@@ -69,6 +93,12 @@ export function ffmpegArgs(input: string, output: string): string[] {
     "20",
     "-application",
     "audio",
+    // Name the muxer rather than letting ffmpeg infer it. The output goes to a
+    // .tmp path so a killed run cannot leave a half-written clip that later
+    // looks like a cache hit, and an unrecognised extension makes ffmpeg refuse
+    // the job outright.
+    "-f",
+    "ogg",
     output,
   ];
 }
@@ -124,13 +154,27 @@ export async function ffmpegAvailable(): Promise<boolean> {
 async function convert(input: string, output: string): Promise<boolean> {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   const partial = `${output}.${process.pid}.tmp`;
-  const ok = await new Promise<boolean>((resolve) => {
-    const proc = spawn(ffmpegBin(), ffmpegArgs(input, partial), { stdio: "ignore" });
-    proc.on("error", () => resolve(false));
-    proc.on("close", (code) => resolve(code === 0));
+  const { ok, stderr } = await new Promise<{ ok: boolean; stderr: string }>((resolve) => {
+    const proc = spawn(ffmpegBin(), ffmpegArgs(input, partial), {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let err = "";
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      err += chunk.toString();
+    });
+    proc.on("error", (spawnErr) => resolve({ ok: false, stderr: spawnErr.message }));
+    proc.on("close", (code) => resolve({ ok: code === 0, stderr: err }));
   });
   if (!ok || !fs.existsSync(partial)) {
     fs.rmSync(partial, { force: true });
+    // ffmpeg says exactly what it disliked; without this the only trace is that
+    // the clip never plays.
+    log.warn("ffmpeg could not convert the clip", {
+      input,
+      // Collapsed onto one line and capped, so a chatty failure cannot break
+      // the log format or flood it.
+      ffmpeg: stderr.trim().replace(/\s+/g, " ").slice(0, 400) || "no output",
+    });
     return false;
   }
   // Rename into place so a killed conversion cannot leave a truncated clip that
@@ -139,27 +183,37 @@ async function convert(input: string, output: string): Promise<boolean> {
   return true;
 }
 
+/** A clip ready to stream, with the container the player should declare. */
+export interface Playable {
+  path: string;
+  container: OpusContainer;
+}
+
 /**
- * Returns a path that is safe to hand to StreamType.OggOpus, converting and
- * caching the file first when it is not already Ogg Opus.
+ * Prepares a clip for playback, converting and caching it only when it is not
+ * already in a container Discord can take as-is.
  * @param sourcePath - Absolute path of the clip to play.
- * @returns A playable path, or null when the file cannot be prepared.
+ * @returns The path to stream and its container, or null when the file cannot
+ * be prepared.
  */
-export async function ensurePlayableOgg(sourcePath: string): Promise<string | null> {
+export async function ensurePlayable(sourcePath: string): Promise<Playable | null> {
   const stat = fs.statSync(sourcePath, { throwIfNoEntry: false });
   if (!stat) return null;
 
   const head = Buffer.alloc(HEAD_BYTES);
   const fd = fs.openSync(sourcePath, "r");
+  let read = 0;
   try {
-    fs.readSync(fd, head, 0, HEAD_BYTES, 0);
+    read = fs.readSync(fd, head, 0, HEAD_BYTES, 0);
   } finally {
     fs.closeSync(fd);
   }
-  if (hasOpusHead(head)) return sourcePath;
+
+  const container = detectOpusContainer(head.subarray(0, read));
+  if (container) return { path: sourcePath, container };
 
   const cached = cachedOggPath(sourcePath, stat.mtimeMs, stat.size);
-  if (fs.existsSync(cached)) return cached;
+  if (fs.existsSync(cached)) return { path: cached, container: "ogg/opus" };
 
   if (!(await ffmpegAvailable())) {
     log.warn("clip needs conversion but ffmpeg is unavailable", { sourcePath });
@@ -171,5 +225,5 @@ export async function ensurePlayableOgg(sourcePath: string): Promise<string | nu
     log.warn("clip conversion failed", { sourcePath });
     return null;
   }
-  return cached;
+  return { path: cached, container: "ogg/opus" };
 }

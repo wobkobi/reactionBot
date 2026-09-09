@@ -7,6 +7,14 @@ services:
     # BOT_TOKEN and CLIENT_ID are required; see .env.example for the rest.
     env_file: .env
 
+    environment:
+      # Pretty output carries a timestamp whenever it is not attached to a
+      # terminal, so `docker compose logs` reads correctly as it stands. Set
+      # LOG_FORMAT=json to feed a collector instead, and LOG_LEVEL=debug to see
+      # per-utterance voice decisions.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-pretty}
+
     volumes:
       # Per-guild config and counters, sound clips, and the Whisper model cache.
       # Bind-mounted rather than a named volume so words.json and the clips in
@@ -24,6 +32,14 @@ services:
     # an OOM guard rather than a target. With VOICE_MODEL set to
     # Xenova/whisper-tiny.en it fits in 2G.
     mem_limit: 4g
+
+    # Without a cap the log file grows until the disk does not. Three 10MB files
+    # is a few days of ordinary chatter and survives a restart loop.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     # Cores are not requested here on purpose: outside Swarm a cpu reservation
     # is advisory and guarantees nothing, and capping cpus would only make this

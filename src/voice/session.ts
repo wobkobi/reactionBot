@@ -9,6 +9,7 @@
 
 import { isCalm } from "@/tracking/calm";
 import { createLogger } from "@/utils/log";
+import { startAmbient, stopAmbient } from "@/voice/ambient";
 import {
   concatFloat32,
   downsampleToMono16k,
@@ -219,6 +220,7 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
   const session: Session = { connection, channelId: channel.id, decoder, capturing: new Set() };
   sessions.set(guildId, session);
   connection.subscribe(getPlayer(guildId));
+  startAmbient(guildId, connection);
 
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     // A disconnect is often a region move rather than a real drop, so give the
@@ -250,6 +252,7 @@ export function closeSession(guildId: string, reason: string): void {
   const session = sessions.get(guildId);
   if (!session) return;
   sessions.delete(guildId);
+  stopAmbient(guildId);
   dropPlayer(guildId);
   try {
     session.connection.destroy();

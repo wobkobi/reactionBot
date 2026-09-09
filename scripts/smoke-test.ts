@@ -89,15 +89,17 @@ import {
 import { pickChannel } from "@/voice/autojoin";
 import { shouldPlay } from "@/voice/playback";
 import {
+  AMBIENT_FLOOR_MS,
   compileSounds,
   isIgnoredTranscript,
   matchTrigger,
+  nextAmbientDelay,
   pickClip,
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
 import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
-import { cachedOggPath, ffmpegArgs, hasOpusHead } from "@/voice/transcode";
+import { cachedOggPath, detectOpusContainer, ffmpegArgs } from "@/voice/transcode";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
   type ChatInputCommandInteraction,
@@ -2122,6 +2124,46 @@ function checkVoiceSounds(): void {
     pickClip(["a", "b", "c"], 4) === "b" && pickClip([], 0) === null,
   );
 
+  // Ambient playback has no trigger to observe, so the schedule is the only
+  // thing that can be pinned down.
+  const amb = compileSounds({
+    pools: { ambience: ["a.ogg", "b.ogg"], shutup: ["x.ogg"] },
+    ambient: { pool: "ambience", minMinutes: 5, maxMinutes: 20 },
+    triggers: [{ words: ["swag"], pool: "shutup" }],
+  });
+  check(
+    "voice/ambient",
+    "the ambient pool resolves to its clips and range",
+    amb.ambient?.files.join() === "a.ogg,b.ogg" &&
+      amb.ambient?.minMs === 300_000 &&
+      amb.ambient?.maxMs === 1_200_000,
+  );
+  check(
+    "voice/ambient",
+    "ambient is off without a block, and off for a missing pool",
+    compileSounds({ pools: {}, triggers: [] }).ambient === null &&
+      compileSounds({ pools: {}, ambient: { pool: "nope" }, triggers: [] }).ambient === null,
+  );
+  check(
+    "voice/ambient",
+    "the delay spans the range and stays inside it",
+    nextAmbientDelay(300_000, 1_200_000, 0) === 300_000 &&
+      nextAmbientDelay(300_000, 1_200_000, 0.5) === 750_000 &&
+      nextAmbientDelay(300_000, 1_200_000, 0.999999) <= 1_200_000,
+  );
+  // A zero or inverted range would otherwise fire as fast as clips finish.
+  check(
+    "voice/ambient",
+    "a zero or inverted range is clamped rather than obeyed",
+    nextAmbientDelay(0, 0, 0.5) === AMBIENT_FLOOR_MS &&
+      nextAmbientDelay(600_000, 60_000, 0) === 60_000 &&
+      compileSounds({
+        pools: { ambience: ["a.ogg"] },
+        ambient: { pool: "ambience", minMinutes: 0, maxMinutes: 0 },
+        triggers: [],
+      }).ambient?.minMs === AMBIENT_FLOOR_MS,
+  );
+
   check(
     "voice/sounds",
     "unsafe clip names are refused",
@@ -2254,12 +2296,26 @@ function checkVoiceJoinRules(): void {
   );
 
   // An Ogg Vorbis file handed to StreamType.OggOpus plays silence rather than
-  // failing, so the container alone is not enough to trust.
+  // failing, so neither the extension nor the container alone can be trusted.
+  const EBML = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
   check(
     "voice/play",
-    "Opus is distinguished from Vorbis inside Ogg",
-    hasOpusHead(Buffer.from("OggS\0\0OpusHead....")) &&
-      !hasOpusHead(Buffer.from("OggS\0\0\x01vorbis....")),
+    "Opus is recognised inside Ogg and WebM",
+    detectOpusContainer(Buffer.from("OggS  OpusHead....")) === "ogg/opus" &&
+      detectOpusContainer(Buffer.concat([EBML, Buffer.from("....A_OPUS....")])) === "webm/opus",
+  );
+  check(
+    "voice/play",
+    "another codec in the same container is not mistaken for Opus",
+    detectOpusContainer(Buffer.from("OggS  vorbis....")) === null &&
+      detectOpusContainer(Buffer.concat([EBML, Buffer.from("....A_VORBIS....")])) === null,
+  );
+  // The codec marker alone is not enough: without the container magic, any file
+  // that happened to contain the string would be played untranscoded.
+  check(
+    "voice/play",
+    "the codec marker is only trusted behind the container magic",
+    detectOpusContainer(Buffer.from("ID3 OpusHead A_OPUS")) === null,
   );
   const args = ffmpegArgs("in.mp3", "out.ogg").join(" ");
   check(
@@ -2267,6 +2323,9 @@ function checkVoiceJoinRules(): void {
     "ffmpeg converts to 48kHz stereo opus",
     args.includes("-ar 48000") && args.includes("-ac 2") && args.includes("libopus"),
   );
+  // The output goes to a .tmp path, and ffmpeg refuses a job whose extension it
+  // does not recognise unless the muxer is named.
+  check("voice/play", "the ogg muxer is named rather than inferred", args.includes("-f ogg"));
   check(
     "voice/play",
     "the conversion cache key follows the source file's mtime",

@@ -164,7 +164,12 @@ clip for a single server.
   "triggers": [
     { "words": ["swag"], "pool": "shutup" },
     { "words": ["drip"], "pool": "shutup" }
-  ]
+  ],
+
+  // Optional. Plays a clip from a pool at random intervals while the bot is
+  // sitting in a channel, with nobody having to say anything. Remove the block
+  // to switch it off.
+  "ambient": { "pool": "ambience", "minMinutes": 5, "maxMinutes": 20 }
 }
 ```
 
@@ -176,6 +181,8 @@ clip for a single server.
 | `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
 | `triggers[].cooldownMs` | Overrides `guildCooldownMs` for this trigger. |
 | `triggers[].fuzzy` | Stretched-spelling tolerance, as in `words.json`. Rarely useful for speech. |
+| `ambient.pool` | Pool the unprompted sounds come from. Absent, or naming an empty pool, turns ambient off. |
+| `ambient.minMinutes` / `maxMinutes` | Gap either side of each sound, re-rolled every time. Defaults to 5 and 20; a gap under 10 seconds is refused. |
 
 **Several words, one sound.** Point as many triggers as you like at the same
 pool. Three unrelated words sharing one set of clips is the normal case, not a
@@ -193,11 +200,19 @@ fires on "sick", "sock", "sack", "seek" and "soak". Set `"phonetic": false` on a
 trigger to demand the exact word, and add spellings to `words` for anything the
 guards turn away.
 
-**Clip files.** `.ogg`/`.opus` (Opus in Ogg) play as-is. Anything else - mp3,
-wav, m4a, or Ogg Vorbis - is converted once with ffmpeg and cached in
-`data/sounds/.cache/`, so ffmpeg is only needed if you use those formats.
-Keep clips short and at a consistent volume; there is no volume normalisation
-at playback.
+**Clip files.** They live in `data/sounds/`, and
+[sounds/readme.md](sounds/readme.md) covers the formats, the folder layout and
+how to convert a clip. The short version: `.ogg`/`.opus` play as-is, anything
+else is converted once with ffmpeg and cached, and clips should be short and
+matched in volume.
+
+**Ambient sounds.** With an `ambient` block the bot also plays a clip now and
+then on its own, from its own pool, at a random gap inside the range. The gap is
+re-rolled after each one, so it never settles into a rhythm. It does not wait
+for a gap in conversation, but it will not talk over a clip already playing, and
+calm mode silences it like everything else. It never touches the trigger
+cooldowns, so an ambient sound cannot swallow a trigger someone earned.
+`/voice status` reports whether it is running.
 
 **Tuning.** Turn on `logTranscripts` and watch the debug log to see what the bot
 actually heard. That is the fastest way to work out why a trigger is or is not
