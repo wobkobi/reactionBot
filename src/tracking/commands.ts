@@ -1,10 +1,10 @@
 // src/tracking/commands.ts
 
 // Shared slash-command plumbing for the tracker commands (swears, slurs).
-// {@link trackerCommand} builds the subcommands they have in common and the
-// reply helpers render them; both take their wording from the {@link Tracker},
-// so a command file only wires the two together and adds whatever is unique to
-// it (e.g. `/slurs groups`).
+// trackerCommand builds the subcommands they have in common and the reply
+// helpers render them; both take their wording from the Tracker, so a command
+// file only wires the two together and adds whatever is unique to it (e.g.
+// `/slurs groups`).
 
 import { aggregateByCategory } from "@/tracking/detect";
 import {

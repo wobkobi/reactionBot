@@ -2,7 +2,7 @@
 
 // Persists which bot replies are tied to which user message, so when the
 // trigger message is deleted the bot's replies can be deleted too, across any
-// number of restarts and up to {@link REPLY_RETENTION_MS} after the fact.
+// number of restarts and up to REPLY_RETENTION_MS after the fact.
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
