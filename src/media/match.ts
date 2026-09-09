@@ -1,8 +1,6 @@
 // src/media/match.ts
 
-/**
- * @file Detects supported media URLs inside message content.
- */
+// Detects supported media URLs inside message content.
 
 import { stripTracking } from "@/media/cleanTracking";
 import { MediaMatch, ServiceKey } from "@/media/types";

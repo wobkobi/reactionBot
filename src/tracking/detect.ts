@@ -1,11 +1,9 @@
 // src/tracking/detect.ts
 
-/**
- * @file Generic word/phrase detection shared by the trackers and reactions.
- * Words come from the unified config (see tracking/words.ts) and are matched
- * whole-word, leetspeak- and diacritic-insensitive. Fuzzy items compile into
- * an obfuscation-tolerant regex (see {@link wordToPattern}).
- */
+// Generic word/phrase detection shared by the trackers and reactions. Words
+// come from the unified config (see tracking/words.ts) and are matched
+// whole-word, leetspeak- and diacritic-insensitive. Fuzzy items compile into an
+// obfuscation-tolerant regex (see {@link wordToPattern}).
 
 /** One word/phrase to compile, with its matching mode and metadata. */
 export interface CompileItem {

@@ -1,11 +1,9 @@
 // src/tracking/responses.ts
 
-/**
- * @file Configurable replies to detected words, per type from words.json: a
- * random GIF/text from the type's pool, escalating to its "enough" reply when
- * a user spams that type in quick succession, rate-limited per user and
- * silenced entirely while calm mode is on.
- */
+// Configurable replies to detected words, per type from words.json: a random
+// GIF/text from the type's pool, escalating to its "enough" reply when a user
+// spams that type in quick succession, rate-limited per user and silenced
+// entirely while calm mode is on.
 
 import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
 import { countMatches } from "@/tracking/detect";

@@ -1,11 +1,9 @@
 // src/onMessage.ts
 
-/**
- * @file Orchestrates per-message processing.
- * - Records swear/slur stats in the background.
- * - Delegates media-link detection & relocation to the media workflow.
- *   (See src/media/workflow.ts and submodules.)
- */
+// Orchestrates per-message processing.
+// - Records swear/slur stats in the background.
+// - Delegates media-link detection & relocation to the media workflow.
+// (See src/media/workflow.ts and submodules.)
 
 import { matchAny } from "@/media/match";
 import { handleMediaMessage } from "@/media/workflow";

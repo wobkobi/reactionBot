@@ -1,12 +1,10 @@
 // src/onMessageDelete.ts
 
-/**
- * @file Cleans up after a message deletion: bot replies tied to the deleted
- * message (e.g. slur GIF replies) are deleted with it, and when the deleted
- * message was a moved repost, its pointer tail and record are removed.
- * Everything is looked up from persisted stores, so it works for any age of
- * message and across restarts.
- */
+// Cleans up after a message deletion: bot replies tied to the deleted message
+// (e.g. slur GIF replies) are deleted with it, and when the deleted message was
+// a moved repost, its pointer tail and record are removed. Everything is looked
+// up from persisted stores, so it works for any age of message and across
+// restarts.
 
 import { appendDeletionLog } from "@/media/audit";
 import { getRepost, removeRepost } from "@/media/repostStore";
