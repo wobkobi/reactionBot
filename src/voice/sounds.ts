@@ -44,6 +44,13 @@ export interface SoundTrigger {
   cooldownMs?: number;
 }
 
+/** Occasional unprompted sounds while the bot is sitting in a channel. */
+export interface AmbientConfig {
+  pool: string;
+  minMinutes?: number;
+  maxMinutes?: number;
+}
+
 /** Parsed sounds.json. */
 export interface SoundsConfig {
   enabled?: boolean;
@@ -55,6 +62,7 @@ export interface SoundsConfig {
   ignore?: string[];
   pools?: Record<string, string[]>;
   triggers?: SoundTrigger[];
+  ambient?: AmbientConfig;
 }
 
 /** A trigger word reduced to what the phonetic tier compares. */
@@ -74,11 +82,73 @@ export interface CompiledTrigger {
   cooldownMs?: number;
 }
 
+/** Ambient playback resolved to files and a gap range, or null when off. */
+export interface CompiledAmbient {
+  files: string[];
+  minMs: number;
+  maxMs: number;
+}
+
 /** A whole config compiled and ready to match against transcripts. */
 export interface CompiledSounds {
   config: SoundsConfig;
   triggers: CompiledTrigger[];
   ignore: DetectList;
+  ambient: CompiledAmbient | null;
+}
+
+/** Default gap either side of an ambient sound when the config gives none. */
+export const AMBIENT_MIN_MS = 5 * 60_000;
+export const AMBIENT_MAX_MS = 20 * 60_000;
+
+/**
+ * Shortest gap accepted. A range of zero would fire as fast as clips finish,
+ * which is a fault rather than a setting.
+ */
+export const AMBIENT_FLOOR_MS = 10_000;
+
+/**
+ * Resolves the ambient block against the pools, or null when it is absent or
+ * unusable.
+ * @param config - The parsed config.
+ * @param pools - Clip pools, already filtered to safe names.
+ * @returns The compiled ambient settings, or null when ambient is off.
+ */
+function compileAmbient(
+  config: SoundsConfig,
+  pools: Record<string, string[]>,
+): CompiledAmbient | null {
+  const ambient = config.ambient;
+  if (!ambient) return null;
+
+  const files = (pools[ambient.pool] ?? [])
+    .map(safeClipName)
+    .filter((n): n is string => n !== null);
+  if (files.length === 0) {
+    log.warn("ambient names a missing or empty pool", { pool: ambient.pool });
+    return null;
+  }
+
+  const minMs = Math.max(AMBIENT_FLOOR_MS, (ambient.minMinutes ?? 5) * 60_000);
+  // A max below the min would otherwise produce a negative range; treat the
+  // pair as one value rather than refusing the whole block.
+  const maxMs = Math.max(minMs, (ambient.maxMinutes ?? 20) * 60_000);
+  return { files, minMs, maxMs };
+}
+
+/**
+ * Picks the gap before the next ambient sound, re-rolled after each one so the
+ * timing never settles into a rhythm.
+ * @param minMs - Shortest gap.
+ * @param maxMs - Longest gap.
+ * @param roll - A value in [0, 1); the caller supplies it so this stays pure.
+ * @returns The delay in milliseconds.
+ */
+export function nextAmbientDelay(minMs: number, maxMs: number, roll: number): number {
+  const low = Math.max(AMBIENT_FLOOR_MS, Math.min(minMs, maxMs));
+  const high = Math.max(low, maxMs);
+  const clamped = Math.min(Math.max(roll, 0), 0.999999);
+  return Math.round(low + (high - low) * clamped);
 }
 
 /**
@@ -210,7 +280,7 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
   }
 
   const ignore = compileItems((config.ignore ?? []).map((word) => ({ word })));
-  return { config, triggers, ignore };
+  return { config, triggers, ignore, ambient: compileAmbient(config, pools) };
 }
 
 /**
@@ -313,9 +383,14 @@ export function loadSounds(guildId: string): CompiledSounds {
   const cached = cache.get(guildId);
   if (cached?.fingerprint === current) return cached.compiled;
 
+  // A guild file counts when it declares anything the bot can act on. Testing
+  // only for triggers would silently fall back to the global config for a
+  // server that wanted ambient sounds and nothing else.
   const guildCfg = readSounds(guildId);
-  const cfg =
-    guildCfg?.triggers && guildCfg.triggers.length > 0 ? guildCfg : (readSounds("global") ?? {});
+  const guildDeclares = Boolean(
+    guildCfg && ((guildCfg.triggers?.length ?? 0) > 0 || guildCfg.ambient),
+  );
+  const cfg = guildDeclares ? guildCfg! : (readSounds("global") ?? {});
   const compiled = compileSounds(cfg);
   cache.set(guildId, { fingerprint: current, compiled });
   return compiled;

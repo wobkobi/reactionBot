@@ -49,6 +49,9 @@ ffmpeg -i input.mp3 -vn -c:a libopus -ar 48000 -ac 2 -b:a 96k \
 
 ## Practical notes
 
+- **Ambient clips want to be quiet.** A pool used by the `ambient` block plays
+  unprompted, so anything loud stops being atmosphere and becomes an
+  interruption. Mix them lower than the trigger clips.
 - **Keep clips short.** A trigger fired while a clip is playing is dropped, not queued, so a long
   clip means missing the next few.
 - **Match the volume across clips.** There is no normalisation at playback. If one is much louder

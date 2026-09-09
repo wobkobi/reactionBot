@@ -89,9 +89,11 @@ import {
 import { pickChannel } from "@/voice/autojoin";
 import { shouldPlay } from "@/voice/playback";
 import {
+  AMBIENT_FLOOR_MS,
   compileSounds,
   isIgnoredTranscript,
   matchTrigger,
+  nextAmbientDelay,
   pickClip,
   safeClipName,
   type SoundsConfig,
@@ -2120,6 +2122,46 @@ function checkVoiceSounds(): void {
     "voice/sounds",
     "pickClip wraps by index and refuses an empty pool",
     pickClip(["a", "b", "c"], 4) === "b" && pickClip([], 0) === null,
+  );
+
+  // Ambient playback has no trigger to observe, so the schedule is the only
+  // thing that can be pinned down.
+  const amb = compileSounds({
+    pools: { ambience: ["a.ogg", "b.ogg"], shutup: ["x.ogg"] },
+    ambient: { pool: "ambience", minMinutes: 5, maxMinutes: 20 },
+    triggers: [{ words: ["swag"], pool: "shutup" }],
+  });
+  check(
+    "voice/ambient",
+    "the ambient pool resolves to its clips and range",
+    amb.ambient?.files.join() === "a.ogg,b.ogg" &&
+      amb.ambient?.minMs === 300_000 &&
+      amb.ambient?.maxMs === 1_200_000,
+  );
+  check(
+    "voice/ambient",
+    "ambient is off without a block, and off for a missing pool",
+    compileSounds({ pools: {}, triggers: [] }).ambient === null &&
+      compileSounds({ pools: {}, ambient: { pool: "nope" }, triggers: [] }).ambient === null,
+  );
+  check(
+    "voice/ambient",
+    "the delay spans the range and stays inside it",
+    nextAmbientDelay(300_000, 1_200_000, 0) === 300_000 &&
+      nextAmbientDelay(300_000, 1_200_000, 0.5) === 750_000 &&
+      nextAmbientDelay(300_000, 1_200_000, 0.999999) <= 1_200_000,
+  );
+  // A zero or inverted range would otherwise fire as fast as clips finish.
+  check(
+    "voice/ambient",
+    "a zero or inverted range is clamped rather than obeyed",
+    nextAmbientDelay(0, 0, 0.5) === AMBIENT_FLOOR_MS &&
+      nextAmbientDelay(600_000, 60_000, 0) === 60_000 &&
+      compileSounds({
+        pools: { ambience: ["a.ogg"] },
+        ambient: { pool: "ambience", minMinutes: 0, maxMinutes: 0 },
+        triggers: [],
+      }).ambient?.minMs === AMBIENT_FLOOR_MS,
   );
 
   check(
