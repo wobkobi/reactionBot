@@ -70,8 +70,9 @@ import {
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
-import { loadWords, parseJsonc, WORDS_FILE } from "@/tracking/words";
+import { loadWords, WORDS_FILE } from "@/tracking/words";
 import { dataFilePath } from "@/utils/file";
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";

@@ -12,8 +12,8 @@
 // ordinary speech.
 
 import { compileItems, countMatches, normalise, type DetectList } from "@/tracking/detect";
-import { parseJsonc } from "@/tracking/words";
 import { configFingerprint, dataFilePath, guildDataDir, resolveScoped } from "@/utils/file";
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import { COMMON_WORDS } from "@/voice/commonWords";
 import { doubleMetaphone } from "double-metaphone";

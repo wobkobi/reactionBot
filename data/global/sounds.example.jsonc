@@ -17,7 +17,7 @@
     { "words": ["air horn", "airhorn"], "pool": "airhorn", "cooldownMs": 60000 },
 
     // For a one-off, name the file instead of making a folder for it.
-    { "words": ["bruh"], "sounds": ["bruh.ogg"] },
+    { "words": ["bruh"], "sounds": ["bruh.ogg"] }
   ],
 
   // Plays a clip from a folder now and then, with nobody prompting it. Delete
@@ -43,5 +43,5 @@
   "logTranscripts": false,
 
   // Turns voice on for every server without needing /voice enable in each.
-  "enabled": false,
+  "enabled": false
 }

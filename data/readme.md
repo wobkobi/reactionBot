@@ -12,6 +12,11 @@ One rule, the same for every config file below:
 > A server's own file wins as soon as it exists, whatever it contains. Only an
 > absent file falls back to `global/`.
 
+Every file below is read the same way too: comments (`//` and `/* */`) and
+trailing commas are fine, so a note explaining a setting can sit next to the
+setting. The `.example.jsonc` templates use that rather than a wall of prose at
+the top, and are the fastest way to see what a file can hold.
+
 So `data/<guildId>/insults.json` containing `{ "insults": [] }` switches
 comebacks off for that server rather than letting the global pool answer, and
 the same shape applies to every other file. Overrides are wholesale: the guild
@@ -27,9 +32,6 @@ All word behaviour lives in `data/global/words.json`. It is gitignored (it
 contains the slur list), so on a fresh deploy copy your own file in. It is
 re-read on every message, so edits apply without a restart. A `words.json`
 inside `data/<guildId>/` overrides the global file wholesale for that server.
-
-Comments (`//` and `/* */`) and trailing commas are tolerated - the bot strips
-them when reading.
 
 ### Structure
 
@@ -100,7 +102,7 @@ spelled out in part - the bot logs a warning naming the value.
 
 `data/global/definitions.json` lists words with an innocent second meaning. Say
 one and the bot asks which you meant, then posts that meaning's definition.
-`definitions.example.json` is the template; a copy in `data/<guildId>/`
+`definitions.example.jsonc` is the template; a copy in `data/<guildId>/`
 overrides it per server. Gitignored like the files above; an empty
 one switches prompts off for that server rather than letting the global file
 answer.
@@ -224,7 +226,7 @@ is converted once with ffmpeg and cached.
 
 ## Other files
 
-- `global/responses.json` - reply pools per word type (`responses.example.json`
+- `global/responses.json` - reply pools per word type (`responses.example.jsonc`
   is the template; a `responses.json` in `data/<guildId>/` overrides it per
 
   Entries added through `/gif` also carry `id`, `addedBy` (Discord ID) and
@@ -232,7 +234,7 @@ is converted once with ffmpeg and cached.
   what `/gif remove` looks up, so hand-written entries - which have none - can
   only be changed by editing the file.
 - `global/insults.json` - the comebacks fired at anyone who mentions the bot,
-  text or GIF/image links (`insults.example.json` is the template; a copy in
+  text or GIF/image links (`insults.example.jsonc` is the template; a copy in
   `data/<guildId>/` overrides it per server). Gitignored like the files above,
   and there is no built-in pool - with no file the bot takes the ping in
   silence. An `insults` array is what makes a file count, empty or not, so an

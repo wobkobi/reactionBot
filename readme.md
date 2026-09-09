@@ -115,6 +115,7 @@ Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete p
 | `/voice disable` | Stop listening here (admin)                             |
 | `/voice leave`   | Leave the current channel, keeping the setting (admin)  |
 | `/voice status`  | Channel, model, decoder and trigger count (admin)       |
+| `/voice check`   | Report any sound config that does not resolve (admin)   |
 
 Once enabled it joins any channel with people in it and leaves when they go. Expect a second or two
 between the word and the clip, since it waits for the speaker to stop before transcribing. Several

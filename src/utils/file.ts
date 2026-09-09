@@ -1,4 +1,5 @@
 // src/utils/file.ts
+import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import fs from "fs";
 import path from "path";
@@ -136,7 +137,7 @@ export function readIfPresent<T>(scope: string, fileName: string): T | null {
   const filePath = dataFilePath(scope, fileName);
   if (!fs.existsSync(filePath)) return null;
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
+    return parseJsonc<T>(fs.readFileSync(filePath, "utf-8"));
   } catch (err) {
     log.warn("failed to parse config, ignoring it", {
       filePath,
