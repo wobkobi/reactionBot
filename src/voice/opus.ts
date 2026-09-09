@@ -1,16 +1,11 @@
 // src/voice/opus.ts
 
-// Opus decoding for received voice packets.
+// Opus decoding for received voice packets. mediaplex first, since its
+// napi-rs prebuilds compile nothing, then opusscript as a pure-JS fallback.
+// With neither, voice switches off and the text side is untouched.
 //
-// mediaplex is preferred because it ships napi-rs prebuilds for every platform
-// the bot runs on, so installing it compiles nothing. opusscript is the pure-JS
-// fallback for a platform with no prebuild: slower, but decoding one speaker is
-// a few microseconds per 20ms frame either way. Neither is required - with both
-// missing, voice quietly switches off and the text side is untouched.
-//
-// prism-media is deliberately not used: it only knows @discordjs/opus,
-// node-opus and opusscript, and @discordjs/opus builds through node-pre-gyp
-// with --fallback-to-build, which can demand a C++ toolchain on Windows.
+// prism-media is avoided: it only knows backends that can demand a C++
+// toolchain on Windows.
 
 import { createLogger } from "@/utils/log";
 

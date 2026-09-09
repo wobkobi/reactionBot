@@ -1,15 +1,11 @@
 // src/voice/sounds.ts
 
-// Spoken triggers and the clip pools they fire. Config resolution mirrors
-// words.json: a guild's sounds.json overrides the global one wholesale, and a
-// fingerprint cache picks up hand edits without a restart.
+// Spoken triggers and the clip pools they fire, resolved like every other
+// scoped config and cached on a fingerprint so hand edits apply without a restart.
 //
-// Matching runs in two tiers. Tier one reuses tracking/detect.ts, so triggers
-// inherit its normalisation (punctuation and capitalisation folding, diacritic
-// stripping, whole-word Unicode boundaries). Tier two is phonetic and exists
-// because Whisper mishears: it writes "swig" or "sweg" for "swag". See
-// {@link phoneticMatch} for the guards that keep tier two from firing on
-// ordinary speech.
+// Matching runs in two tiers: tracking/detect.ts first, then a phonetic pass,
+// because Whisper writes "swig" or "sweg" for "swag". See phoneticMatch for
+// the guards that keep that tier off ordinary speech.
 
 import { compileItems, countMatches, normalise, type DetectList } from "@/tracking/detect";
 import { configFingerprint, dataFilePath, guildDataDir, resolveScoped } from "@/utils/file";

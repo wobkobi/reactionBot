@@ -1,14 +1,10 @@
 // scripts/check-config.ts
 
-// Reports per-server config files whose meaning changed when every scoped
-// config moved to one rule: a server's own file wins as soon as it exists,
-// whatever it holds, so an empty file means "off here" rather than "use the
-// global one".
+// Reports per-server config files that changed meaning when scoped configs
+// moved to one rule: a file wins as soon as it exists, so one declaring
+// nothing now means "off here" rather than falling through to global.
 //
-// Only a file that is present but declares nothing can change meaning. Under
-// the old rules that fell through to global; now it switches the feature off
-// for that server. Nothing is written unless --fix is passed, which deletes
-// exactly those files so they fall through again.
+// Reads only, unless --fix is passed to delete exactly those files.
 //
 //   npx tsx scripts/check-config.ts [--fix]
 

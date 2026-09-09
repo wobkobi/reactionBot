@@ -1,19 +1,19 @@
 # TrueNAS SCALE 24.10+ (Electric Eel and later, which run Docker rather than
-# k3s). Install with Apps > Discover Apps > the three-dot menu > Install via
-# YAML, and paste this in.
+# k3s). Paste into Apps > Discover Apps > the three-dot menu > Install via YAML.
 #
-# Two differences from the compose.yaml in the repo root, both forced by the
-# Apps UI: it cannot build an image, so this pulls a published one; and it has
-# no build context, so every path has to be absolute.
+# It pulls a published image because the Apps UI cannot build one, and its
+# paths are absolute because it has no build context. Replace POOL below.
 #
-# Replace POOL with your pool name in the three paths below. Before installing,
-# from the TrueNAS shell:
+# Create the dataset with the Apps preset or a POSIX ACL: on an SMB-style
+# dataset the NFSv4 ACL overrides the ownership and the bot cannot write its
+# own config. 568 is the apps user.
+#
+# From the TrueNAS shell first:
 #
 #   mkdir -p /mnt/POOL/apps/reactionbot/data/sounds
 #
-#   # Seed the config templates out of the image, so the repo does not have to
-#   # be checked out on the NAS. A bind mount hides whatever the image ships at
-#   # /app/data, which is why this is a copy rather than something automatic.
+#   # Seed the config templates from the image, since a bind mount hides
+#   # whatever it ships at /app/data.
 #   docker create --name rb-seed ghcr.io/wobkobi/reactionbot:latest
 #   docker cp rb-seed:/app/data/. /mnt/POOL/apps/reactionbot/data/
 #   docker rm rb-seed
@@ -22,12 +22,8 @@
 #   chmod 600 /mnt/POOL/apps/reactionbot/.env
 #   chown -R 568:568 /mnt/POOL/apps/reactionbot
 #
-# words.json is gitignored and is not in the image, so copy your own in as
-# /mnt/POOL/apps/reactionbot/data/global/words.json.
-#
-# 568 is the apps user. Create the dataset with the Apps preset (or POSIX ACL);
-# on an SMB-style dataset the NFSv4 ACL overrides the ownership above and the
-# bot cannot write its own config.
+# words.json is gitignored and not in the image, so copy your own into
+# data/global/words.json.
 
 services:
   reactionbot:
