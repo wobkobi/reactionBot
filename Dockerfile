@@ -2,9 +2,14 @@
 # @huggingface/transformers for speech recognition) ships one glibc
 # libonnxruntime.so per architecture and no musl build, so voice silently
 # fails to load on Alpine. linux/x64 and linux/arm64 are both provided.
+#
+# Trixie (Debian 13) rather than bookworm (12) for the newer packages, which is
+# most of the difference in what a scanner reports against the base: glibc 2.41
+# against 2.36, ffmpeg 7.1 against 5.1. glibc is backward compatible, so
+# onnxruntime's prebuilt binary is unaffected by the newer one.
 
 # ---------------------------------------------------------------- build stage
-FROM node:24-bookworm-slim AS builder
+FROM node:24-trixie-slim AS builder
 
 WORKDIR /app
 
@@ -36,7 +41,7 @@ COPY src ./src
 RUN npm run build
 
 # -------------------------------------------------------------- runtime stage
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 
 # ffmpeg converts sound clips that are not already Ogg Opus, once each, and
 # caches the result. Drop this line if every clip you use is .ogg/.opus.
