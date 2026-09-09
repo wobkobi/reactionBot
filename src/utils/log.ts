@@ -86,41 +86,46 @@ function flat(ctx?: Record<string, unknown>): string {
 }
 
 /**
- * Writes a compact, human-readable log line: `level ns msg key=value`. No
- * timestamp (the host/process manager adds its own); JSON mode keeps one.
+ * Whether a pretty line should carry its own timestamp. A terminal is someone
+ * watching live, where the time is noise. Anything else is a log someone reads
+ * later, and `docker logs` only shows the times it recorded when asked with
+ * --timestamps, so a container without this has no clock at all.
+ * @returns `true` when the timestamp should be printed.
+ */
+function wantsTimestamp(): boolean {
+  return !process.stdout.isTTY;
+}
+
+/**
+ * Builds a compact, human-readable log line: `level ns msg key=value`.
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
  * @param msg - Message describing the event.
  * @param [ctx] - Optional structured context to append.
+ * @returns The formatted line.
  */
-function writePretty(
+function prettyLine(
   ns: string,
   level: LogLevel,
   msg: string,
   ctx?: Record<string, unknown>,
-): void {
+): string {
+  const stamp = wantsTimestamp() ? colour(DIM, fmtTS()) + " " : "";
   const lvl = colour(LEVEL_COLOUR[level], level.toUpperCase().padEnd(5));
   const tail = ctx ? " " + colour(DIM, flat(ctx)) : "";
-  console.log(`${lvl} ${colour(DIM, ns)} ${msg}${tail}`);
+  return `${stamp}${lvl} ${colour(DIM, ns)} ${msg}${tail}`;
 }
 
 /**
- * Writes a log line as a single JSON object.
+ * Builds a log line as a single JSON object.
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
  * @param msg - Message describing the event.
  * @param [ctx] - Optional structured context merged into the JSON payload.
+ * @returns The serialised record.
  */
-function writeJson(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
-  console.log(
-    JSON.stringify({
-      ts: fmtTS(),
-      ns,
-      level,
-      msg,
-      ...(ctx ?? {}),
-    }),
-  );
+function jsonLine(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): string {
+  return JSON.stringify({ ts: fmtTS(), ns, level, msg, ...(ctx ?? {}) });
 }
 
 /**
@@ -141,11 +146,23 @@ function shouldLog(level: LogLevel): boolean {
  */
 function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
   if (!shouldLog(level)) return;
-  if (format() === "json") {
-    writeJson(ns, level, msg, ctx);
-  } else {
-    writePretty(ns, level, msg, ctx);
-  }
+  const line =
+    format() === "json" ? jsonLine(ns, level, msg, ctx) : prettyLine(ns, level, msg, ctx);
+  // Problems go to stderr so a collector can tell them apart from ordinary
+  // output. Docker tags the two streams separately, and a run that only needs
+  // watching for trouble can then read stderr alone.
+  if (level === "error" || level === "warn") console.error(line);
+  else console.log(line);
+}
+
+/**
+ * Reports the logging settings actually in force, so a run can say how it was
+ * configured rather than leaving someone to guess why a level is missing.
+ * @returns The resolved level and output format.
+ */
+export function logSettings(): { level: LogLevel; format: "pretty" | "json" } {
+  const name = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
+  return { level: name in LEVELS ? name : "info", format: format() };
 }
 
 export interface Logger {

@@ -9,7 +9,8 @@ import {
 import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
 import type { CommandModule } from "@/types/discord";
-import { createLogger } from "@/utils/log";
+import { checkDataRoot } from "@/utils/file";
+import { createLogger, logSettings } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { onVoiceStateUpdate, shutdownVoice, sweepGuilds } from "@/voice/autojoin";
@@ -29,11 +30,13 @@ import { readdirSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
-dotenv.config();
+// quiet: dotenv otherwise prints a banner of its own before any logger exists,
+// which is noise in a container and invalid JSON in the middle of a JSON log
+// stream. The environment line below reports what was loaded instead.
+dotenv.config({ quiet: true });
 
 const log = createLogger("core/index");
-const boot = (msg: string, extra?: Record<string, unknown>): void =>
-  console.log(`[BOOT] ${msg}${extra ? " " + JSON.stringify(extra) : ""}`);
+const boot = createLogger("core/boot");
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const CLIENT_ID = process.env.CLIENT_ID!;
@@ -54,11 +57,10 @@ const DEV_GUILD_ID =
 const guildInScope = (guildId: string | null): boolean => !DEV_GUILD_ID || guildId === DEV_GUILD_ID;
 
 if (!BOT_TOKEN || !CLIENT_ID) {
-  log.error("missing required environment variables", {
+  boot.error("missing BOT_TOKEN or CLIENT_ID, set them in .env; exiting", {
     hasToken: !!BOT_TOKEN,
     hasClientId: !!CLIENT_ID,
   });
-  boot("Missing BOT_TOKEN or CLIENT_ID; set them in .env. Exiting.");
   process.exit(1);
 }
 
@@ -112,23 +114,19 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
   }
 
   const names = [...client.commands.keys()];
-  log.info("commands loaded", { count: names.length, names });
-  boot("Commands loaded", { count: names.length, names });
+  boot.info("commands loaded", { count: names.length, names });
 
   client.once("ready", async () => {
-    log.info("logged in", { user: client.user!.tag });
-    boot("Running", {
+    boot.info("logged in", {
       user: client.user!.tag,
       guilds: client.guilds.cache.size,
     });
 
     try {
-      log.info("registering commands", { count: commandData.length });
       await rest.put(Routes.applicationCommands(CLIENT_ID), {
         body: commandData,
       });
-      log.info("commands registered");
-      boot("Commands registered", { count: commandData.length });
+      boot.info("commands registered", { count: commandData.length });
 
       // Anyone already sitting in a call when the bot restarts emits no voice
       // state update, so without this sweep the bot waits for the next person
@@ -139,10 +137,9 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
         });
       });
     } catch (err) {
-      log.error("failed to register commands", {
+      boot.error("command registration failed", {
         error: err instanceof Error ? err.message : String(err),
       });
-      boot("Command registration failed");
     }
   });
 }
@@ -275,15 +272,40 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    boot(`Received ${signal}, shutting down`);
+    boot.info("shutting down", { signal });
     shutdownVoice();
     void client.destroy();
     process.exit(0);
   });
 }
 
-if (DEV_GUILD_ID) boot("Dev guard active: only serving one guild", { guild: DEV_GUILD_ID });
-boot("Starting login");
+if (DEV_GUILD_ID) boot.warn("dev guard active, only serving one guild", { guild: DEV_GUILD_ID });
+
+// One line saying how this process is configured, so a container's logs answer
+// "what is it actually running with" without a shell into it.
+{
+  const settings = logSettings();
+  const dataRoot = checkDataRoot();
+  boot.info("environment", {
+    node: process.version,
+    pid: process.pid,
+    logLevel: settings.level,
+    logFormat: settings.format,
+    dataDir: dataRoot.path,
+    voiceModel: process.env.VOICE_MODEL || "default",
+  });
+  // Worth its own line at error level: the bot comes up and answers commands
+  // either way, and only reveals this when the first save fails much later.
+  if (!dataRoot.writable) {
+    boot.error("data directory is not writable, nothing will be saved", {
+      dataDir: dataRoot.path,
+      error: dataRoot.error,
+      hint: "check ownership of the mounted volume",
+    });
+  }
+}
+
+boot.info("starting login");
 client.login(BOT_TOKEN).catch((err) =>
   log.error("login failed", {
     error: err instanceof Error ? err.message : String(err),

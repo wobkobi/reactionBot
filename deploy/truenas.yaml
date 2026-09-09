@@ -45,6 +45,11 @@ services:
       # uid 568 has no home directory in the image. Anything that falls back to
       # a home-relative cache would otherwise try to write to / and fail.
       HOME: /app/data
+      # Pretty output timestamps itself when not attached to a terminal, which
+      # is what the Apps UI log viewer shows. LOG_LEVEL=debug adds the
+      # per-utterance voice decisions; either can be set in the .env instead.
+      LOG_LEVEL: info
+      LOG_FORMAT: pretty
 
     volumes:
       - /mnt/POOL/apps/reactionbot/data:/app/data

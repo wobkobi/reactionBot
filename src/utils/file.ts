@@ -38,6 +38,30 @@ function ensureDir(dir: string): string {
 }
 
 /**
+ * Checks that the data root exists and can actually be written to, by writing
+ * a file rather than reading permission bits: a bind-mounted volume can be
+ * owned by the right user and still refuse writes when an ACL overrides the
+ * mode, which is the usual reason a container starts cleanly and then saves
+ * nothing.
+ * @returns The path, whether it is writable, and the reason when it is not.
+ */
+export function checkDataRoot(): { path: string; writable: boolean; error?: string } {
+  try {
+    ensureDir(DATA_ROOT);
+    const probe = path.join(DATA_ROOT, `.write-probe.${process.pid}`);
+    fs.writeFileSync(probe, "");
+    fs.rmSync(probe, { force: true });
+    return { path: DATA_ROOT, writable: true };
+  } catch (err) {
+    return {
+      path: DATA_ROOT,
+      writable: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
  * Returns the absolute directory path for a guild's data folder.
  * @param guildId - Discord guild ID or `"global"` for global config.
  * @returns Absolute path to the guild's data directory.

@@ -54,6 +54,10 @@ chown -R 1000:1000 ./data
 docker compose up -d --build
 ```
 
+Logs go to `docker compose logs -f`, timestamped, with warnings and errors on stderr so they can be
+read on their own. `LOG_LEVEL=debug` adds the per-utterance voice decisions, and `LOG_FORMAT=json`
+switches to one JSON object per line for a collector.
+
 `data/` must be a volume: it holds the configuration, the counters, the sound clips and the Whisper
 model cache. The image is Debian-based because the speech recognition library ships no musl build,
 so voice silently fails to load on Alpine.
