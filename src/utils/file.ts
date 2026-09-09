@@ -123,6 +123,44 @@ export function loadData<T>(guildId: string, fileName: string, opts?: LoadOption
 }
 
 /**
+ * Reads a scoped config file, distinguishing "not there" from "there and
+ * empty". {@link loadData} in soft mode returns `{}` for both, which is the
+ * difference between falling back to the global config and deliberately
+ * switching a feature off for one server.
+ * @template T - Expected JSON shape.
+ * @param scope - Discord guild ID or "global".
+ * @param fileName - JSON file name.
+ * @returns The parsed contents, or null when the file is absent or unreadable.
+ */
+export function readIfPresent<T>(scope: string, fileName: string): T | null {
+  const filePath = dataFilePath(scope, fileName);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
+  } catch (err) {
+    log.warn("failed to parse config, ignoring it", {
+      filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Picks the config a guild should use, applying the one rule every scoped
+ * config follows: a server's own file wins as soon as it exists and parses,
+ * whatever it contains. An empty file therefore means "off for this server",
+ * never "fall back to the global one" - only an absent file falls back.
+ * @template T - The config shape.
+ * @param guildId - Discord guild (server) ID.
+ * @param read - Reads one scope, returning null when the file is not there.
+ * @returns The guild's config, the global one, or null when neither exists.
+ */
+export function resolveScoped<T>(guildId: string, read: (scope: string) => T | null): T | null {
+  return read(guildId) ?? read("global");
+}
+
+/**
  * Serialises and writes a JSON value under the guild’s data directory.
  * Ensures the directory exists and pretty-prints with 2-space indent.
  * @template T - Any serialisable shape.

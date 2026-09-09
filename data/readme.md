@@ -5,6 +5,22 @@ each server gets its own `data/<guildId>/` folder for settings, counters and
 repost records (all managed by the bot - you normally only edit the global
 config).
 
+## How a server overrides the global config
+
+One rule, the same for every config file below:
+
+> A server's own file wins as soon as it exists, whatever it contains. Only an
+> absent file falls back to `global/`.
+
+So `data/<guildId>/insults.json` containing `{ "insults": [] }` switches
+comebacks off for that server rather than letting the global pool answer, and
+the same shape applies to every other file. Overrides are wholesale: the guild
+file replaces the global one, it does not merge with it.
+
+Run `npm run check-config` to list any per-server file that declares nothing,
+since those are the ones where "off here" and "use global" look the same from
+the outside.
+
 ## words.json - the word config
 
 All word behaviour lives in `data/global/words.json`. It is gitignored (it
@@ -85,9 +101,9 @@ spelled out in part - the bot logs a warning naming the value.
 `data/global/definitions.json` lists words with an innocent second meaning. Say
 one and the bot asks which you meant, then posts that meaning's definition.
 `definitions.example.json` is the template; a copy in `data/<guildId>/`
-overrides it per server. Gitignored like the files above, and an `entries`
-array is what makes a file count, empty or not - an empty one switches prompts
-off for that server instead of letting the global file answer.
+overrides it per server. Gitignored like the files above; an empty
+one switches prompts off for that server rather than letting the global file
+answer.
 
 ```jsonc
 {
@@ -210,8 +226,6 @@ is converted once with ffmpeg and cached.
 
 - `global/responses.json` - reply pools per word type (`responses.example.json`
   is the template; a `responses.json` in `data/<guildId>/` overrides it per
-  server). The legacy `slur_responses.json` is still read as a slur-only pool
-  when no `responses.json` exists.
 
   Entries added through `/gif` also carry `id`, `addedBy` (Discord ID) and
   `addedAt` (ISO timestamp), and always land in this global file. The `id` is

@@ -6,7 +6,7 @@
 // can sit under several. Format and template: data/readme.md.
 
 import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/detect";
-import { configFingerprint, dataFilePath } from "@/utils/file";
+import { configFingerprint, dataFilePath, resolveScoped } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import fs from "fs";
 
@@ -183,11 +183,7 @@ export function loadWords(guildId: string): CompiledWords {
  * @returns The {@link CompiledWords} for matching and reacting.
  */
 function compileWords(guildId: string): CompiledWords {
-  const guildCfg = readWordsFile(guildId);
-  const cfg =
-    guildCfg?.words && Object.keys(guildCfg.words).length > 0
-      ? guildCfg
-      : (readWordsFile("global") ?? {});
+  const cfg = resolveScoped(guildId, readWordsFile) ?? {};
 
   const types = cfg.types ?? {};
 

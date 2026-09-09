@@ -13,7 +13,7 @@
 
 import { compileItems, countMatches, normalise, type DetectList } from "@/tracking/detect";
 import { parseJsonc } from "@/tracking/words";
-import { configFingerprint, dataFilePath, guildDataDir } from "@/utils/file";
+import { configFingerprint, dataFilePath, guildDataDir, resolveScoped } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import { COMMON_WORDS } from "@/voice/commonWords";
 import { doubleMetaphone } from "double-metaphone";
@@ -461,14 +461,7 @@ export function loadSounds(guildId: string): CompiledSounds {
   const cached = cache.get(guildId);
   if (cached?.fingerprint === current) return cached.compiled;
 
-  // A guild file counts when it declares anything the bot can act on. Testing
-  // only for triggers would silently fall back to the global config for a
-  // server that wanted ambient sounds and nothing else.
-  const guildCfg = readSounds(guildId);
-  const guildDeclares = Boolean(
-    guildCfg && ((guildCfg.triggers?.length ?? 0) > 0 || guildCfg.ambient),
-  );
-  const cfg = guildDeclares ? guildCfg! : (readSounds("global") ?? {});
+  const cfg = resolveScoped(guildId, readSounds) ?? {};
   const compiled = compileSounds(cfg);
   cache.set(guildId, { fingerprint: current, compiled });
   return compiled;

@@ -1042,8 +1042,17 @@ function checkMentions(): void {
       readInsults(SMOKE_GUILD)?.insults.length === 0,
     );
 
+    // A file that is there counts, whatever it holds; only an absent one falls
+    // through to the next scope.
     writeFileSync(path.join(dir, INSULTS_FILE), JSON.stringify({ spam: "enough" }), "utf-8");
-    check("mentions", "a file with no pool falls through", readInsults(SMOKE_GUILD) === null);
+    check(
+      "mentions",
+      "a file present but listing nothing still counts",
+      readInsults(SMOKE_GUILD)?.insults.length === 0,
+    );
+
+    rmSync(path.join(dir, INSULTS_FILE), { force: true });
+    check("mentions", "only an absent file falls through", readInsults(SMOKE_GUILD) === null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1215,10 +1224,19 @@ function checkDefinitions(): void {
       readDefinitions(SMOKE_GUILD)?.entries.length === 0,
     );
 
+    // A file that is there counts, whatever it holds; only an absent one falls
+    // through to the next scope.
     writeFileSync(file, JSON.stringify({ prompt: "?" }), "utf-8");
     check(
       "definitions",
-      "a file with no entries falls through",
+      "a file present but listing nothing still counts",
+      readDefinitions(SMOKE_GUILD)?.entries.length === 0,
+    );
+
+    rmSync(file, { force: true });
+    check(
+      "definitions",
+      "only an absent file falls through",
       readDefinitions(SMOKE_GUILD) === null,
     );
   } finally {

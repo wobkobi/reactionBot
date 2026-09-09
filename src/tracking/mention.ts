@@ -13,7 +13,7 @@ import {
   RESPONSE_SPAM_WINDOW_MS,
 } from "@/tracking/responses";
 import { getUserTotal, incrementCounts } from "@/tracking/store";
-import { loadData } from "@/utils/file";
+import { readIfPresent, resolveScoped } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import { recordReply } from "@/utils/replyStore";
 import { Message } from "discord.js";
@@ -54,9 +54,9 @@ const spamHits = new Map<string, number[]>();
  * @returns The config, or null when this scope has no usable file.
  */
 export function readInsults(scope: string): InsultsConfig | null {
-  const cfg = loadData<Partial<InsultsConfig> | null>(scope, INSULTS_FILE, { soft: true });
-  if (!Array.isArray(cfg?.insults)) return null;
-  return { insults: cfg.insults, spam: cfg.spam };
+  const cfg = readIfPresent<Partial<InsultsConfig>>(scope, INSULTS_FILE);
+  if (!cfg) return null;
+  return { insults: Array.isArray(cfg.insults) ? cfg.insults : [], spam: cfg.spam };
 }
 
 /**
@@ -66,7 +66,7 @@ export function readInsults(scope: string): InsultsConfig | null {
  * @returns The resolved {@link InsultsConfig}.
  */
 function loadInsults(guildId: string): InsultsConfig {
-  return readInsults(guildId) ?? readInsults("global") ?? NO_INSULTS;
+  return resolveScoped(guildId, readInsults) ?? NO_INSULTS;
 }
 
 /**
