@@ -90,6 +90,7 @@ import { pickChannel } from "@/voice/autojoin";
 import { shouldPlay } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
+  type CompiledTrigger,
   compileSounds,
   isIgnoredTranscript,
   matchTrigger,
@@ -2022,6 +2023,14 @@ function checkVoiceAudio(): void {
  * Whisper mishearing and tight enough not to fire on ordinary speech.
  */
 function checkVoiceSounds(): void {
+  /**
+   * Reads the first clip name off a compiled trigger backed by a literal list.
+   * @param t - The matched trigger, or null.
+   * @returns The clip name, or undefined.
+   */
+  const firstClip = (t: CompiledTrigger | null): string | undefined =>
+    t && t.source.kind === "list" ? t.source.files[0] : undefined;
+
   const config: SoundsConfig = {
     pools: {
       shutup: ["a.ogg", "b.ogg"],
@@ -2033,7 +2042,7 @@ function checkVoiceSounds(): void {
       { words: ["swag"], pool: "shutup" },
       { words: ["drip"], pool: "shutup" },
       { words: ["shut up"], pool: "airhorn" },
-      { words: ["nope"], pool: "missing" },
+      { words: [], pool: "missing" },
       { words: [], pool: "shutup" },
       { words: ["blank"], pool: "empty" },
     ],
@@ -2042,7 +2051,7 @@ function checkVoiceSounds(): void {
 
   check(
     "voice/sounds",
-    "unusable triggers are dropped (unknown pool, no words, empty pool)",
+    "triggers with no words or no clips are dropped",
     compiled.triggers.length === 3,
   );
 
@@ -2052,7 +2061,10 @@ function checkVoiceSounds(): void {
   check(
     "voice/sounds",
     "several distinct words share one pool",
-    swag?.files.join() === "a.ogg,b.ogg" && drip?.files.join() === "a.ogg,b.ogg",
+    swag?.source.kind === "list" &&
+      swag.source.files.join() === "a.ogg,b.ogg" &&
+      drip?.source.kind === "list" &&
+      drip.source.files.join() === "a.ogg,b.ogg",
   );
 
   check(
@@ -2068,8 +2080,8 @@ function checkVoiceSounds(): void {
   check(
     "voice/sounds",
     "a phrase matches both spaced and collapsed forms",
-    matchTrigger("just shut up", compiled)?.files[0] === "horn.ogg" &&
-      matchTrigger("just shutup", compiled)?.files[0] === "horn.ogg",
+    firstClip(matchTrigger("just shut up", compiled)) === "horn.ogg" &&
+      firstClip(matchTrigger("just shutup", compiled)) === "horn.ogg",
   );
 
   // Tier two: vowel-mangled mishearings hit ...
@@ -2134,7 +2146,8 @@ function checkVoiceSounds(): void {
   check(
     "voice/ambient",
     "the ambient pool resolves to its clips and range",
-    amb.ambient?.files.join() === "a.ogg,b.ogg" &&
+    amb.ambient?.source.kind === "list" &&
+      amb.ambient.source.files.join() === "a.ogg,b.ogg" &&
       amb.ambient?.minMs === 300_000 &&
       amb.ambient?.maxMs === 1_200_000,
   );
@@ -2142,7 +2155,7 @@ function checkVoiceSounds(): void {
     "voice/ambient",
     "ambient is off without a block, and off for a missing pool",
     compileSounds({ pools: {}, triggers: [] }).ambient === null &&
-      compileSounds({ pools: {}, ambient: { pool: "nope" }, triggers: [] }).ambient === null,
+      compileSounds({ pools: {}, ambient: {}, triggers: [] }).ambient === null,
   );
   check(
     "voice/ambient",

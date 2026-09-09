@@ -35,10 +35,15 @@ export const SOUNDS_DIR = "sounds";
  */
 export const MIN_PHONETIC_LENGTH = 4;
 
-/** One spoken trigger and the pool it fires. */
+/**
+ * One spoken trigger and the clips it fires. Name a `pool` (a folder under
+ * data/sounds, or a key in the optional `pools` block) or list `sounds`
+ * inline; a trigger with neither plays nothing.
+ */
 export interface SoundTrigger {
   words: string[];
-  pool: string;
+  pool?: string;
+  sounds?: string[];
   fuzzy?: boolean;
   phonetic?: boolean;
   cooldownMs?: number;
@@ -46,7 +51,8 @@ export interface SoundTrigger {
 
 /** Occasional unprompted sounds while the bot is sitting in a channel. */
 export interface AmbientConfig {
-  pool: string;
+  pool?: string;
+  sounds?: string[];
   minMinutes?: number;
   maxMinutes?: number;
 }
@@ -73,18 +79,25 @@ interface PhoneticKey {
   initial: string;
 }
 
-/** A trigger compiled for matching, with its resolved clip list. */
+/**
+ * Where a trigger's clips come from. A named pool is resolved against the
+ * filesystem when it is about to play rather than when the config is read, so
+ * dropping a file into the folder takes effect without touching the JSON.
+ */
+export type ClipSource = { kind: "list"; files: string[] } | { kind: "folder"; name: string };
+
+/** A trigger compiled for matching, with the clips it will draw from. */
 export interface CompiledTrigger {
   trigger: SoundTrigger;
-  files: string[];
+  source: ClipSource;
   list: DetectList;
   phonetic: PhoneticKey[];
   cooldownMs?: number;
 }
 
-/** Ambient playback resolved to files and a gap range, or null when off. */
+/** Ambient playback: where its clips come from and how far apart they fall. */
 export interface CompiledAmbient {
-  files: string[];
+  source: ClipSource;
   minMs: number;
   maxMs: number;
 }
@@ -108,10 +121,35 @@ export const AMBIENT_MAX_MS = 20 * 60_000;
 export const AMBIENT_FLOOR_MS = 10_000;
 
 /**
- * Resolves the ambient block against the pools, or null when it is absent or
- * unusable.
+ * Works out where a trigger or the ambient block draws its clips from. Inline
+ * `sounds` win, then an explicit `pools` entry, and otherwise the name is taken
+ * as a folder under data/sounds and read when it is about to play.
+ * @param named - The `pool` name, if one was given.
+ * @param inline - Clips listed directly on the entry, if any.
+ * @param pools - The optional `pools` block.
+ * @returns Where the clips come from, or null when neither was given.
+ */
+function clipSource(
+  named: string | undefined,
+  inline: string[] | undefined,
+  pools: Record<string, string[]>,
+): ClipSource | null {
+  const listed = (inline ?? []).map(safeClipName).filter((n): n is string => n !== null);
+  if (listed.length > 0) return { kind: "list", files: listed };
+  if (!named) return null;
+
+  const explicit = pools[named];
+  if (explicit) {
+    const files = explicit.map(safeClipName).filter((n): n is string => n !== null);
+    return files.length > 0 ? { kind: "list", files } : null;
+  }
+  return safeClipName(named) ? { kind: "folder", name: named } : null;
+}
+
+/**
+ * Resolves the ambient block, or null when it is absent or names nothing.
  * @param config - The parsed config.
- * @param pools - Clip pools, already filtered to safe names.
+ * @param pools - The optional `pools` block.
  * @returns The compiled ambient settings, or null when ambient is off.
  */
 function compileAmbient(
@@ -121,11 +159,9 @@ function compileAmbient(
   const ambient = config.ambient;
   if (!ambient) return null;
 
-  const files = (pools[ambient.pool] ?? [])
-    .map(safeClipName)
-    .filter((n): n is string => n !== null);
-  if (files.length === 0) {
-    log.warn("ambient names a missing or empty pool", { pool: ambient.pool });
+  const source = clipSource(ambient.pool, ambient.sounds, pools);
+  if (!source) {
+    log.warn("ambient names no clips", { pool: ambient.pool });
     return null;
   }
 
@@ -133,7 +169,7 @@ function compileAmbient(
   // A max below the min would otherwise produce a negative range; treat the
   // pair as one value rather than refusing the whole block.
   const maxMs = Math.max(minMs, (ambient.maxMinutes ?? 20) * 60_000);
-  return { files, minMs, maxMs };
+  return { source, minMs, maxMs };
 }
 
 /**
@@ -241,22 +277,13 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
   for (const trigger of config.triggers ?? []) {
     const words = (trigger.words ?? []).filter((word) => typeof word === "string" && word.trim());
     if (words.length === 0) {
-      log.warn("trigger has no words", { pool: trigger.pool });
+      log.warn("trigger has no words", { pool: trigger.pool ?? "(inline)" });
       continue;
     }
 
-    const rawFiles = pools[trigger.pool];
-    if (!rawFiles) {
-      log.warn("trigger names an unknown pool", { pool: trigger.pool, words });
-      continue;
-    }
-
-    const files = rawFiles.map(safeClipName).filter((name): name is string => name !== null);
-    if (files.length !== rawFiles.length) {
-      log.warn("pool dropped unsafe clip names", { pool: trigger.pool });
-    }
-    if (files.length === 0) {
-      log.warn("trigger names an empty pool", { pool: trigger.pool, words });
+    const source = clipSource(trigger.pool, trigger.sounds, pools);
+    if (!source) {
+      log.warn("trigger names no clips", { pool: trigger.pool, words });
       continue;
     }
 
@@ -272,7 +299,7 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
 
     triggers.push({
       trigger,
-      files,
+      source,
       list: compileItems(forms.map((word) => ({ word, fuzzy: trigger.fuzzy }))),
       phonetic,
       cooldownMs: trigger.cooldownMs,
@@ -324,6 +351,57 @@ export function isIgnoredTranscript(text: string, compiled: CompiledSounds): boo
 export function pickClip(files: string[], randomIndex: number): string | null {
   if (files.length === 0) return null;
   return files[Math.abs(Math.trunc(randomIndex)) % files.length] ?? null;
+}
+
+/**
+ * Extensions treated as clips when reading a pool folder. Everything else in
+ * there (notes, artwork, half-finished edits) is ignored rather than queued up
+ * to fail at playback.
+ */
+const CLIP_EXTENSIONS = new Set([".ogg", ".opus", ".webm", ".mp3", ".wav", ".m4a", ".flac"]);
+
+/**
+ * Lists the clips in a pool folder, looked up under the guild's own sounds
+ * folder first and then the shared one. Reading the folder each time is what
+ * lets someone add a clip without editing any JSON.
+ * @param guildId - Discord guild (server) ID.
+ * @param name - Folder name, relative to a sounds folder.
+ * @returns Clip names relative to the sounds folder, sorted for a stable order.
+ */
+export function readPoolFolder(guildId: string, name: string): string[] {
+  const safe = safeClipName(name);
+  if (!safe) return [];
+
+  // Same order as a single clip: the guild's own folder first, then the shared
+  // one, so a server can replace a whole pool without copying the rest.
+  const candidates = [
+    path.join(guildDataDir(guildId), SOUNDS_DIR, safe),
+    path.join(guildDataDir(SOUNDS_DIR), safe),
+  ];
+  for (const folder of candidates) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const files = entries
+      .filter((e) => e.isFile() && CLIP_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
+      .map((e) => `${safe}/${e.name}`)
+      .sort();
+    if (files.length > 0) return files;
+  }
+  return [];
+}
+
+/**
+ * Resolves a clip source to the names it can play right now.
+ * @param guildId - Discord guild (server) ID.
+ * @param source - Where the clips come from.
+ * @returns Clip names, empty when the folder is missing or holds no audio.
+ */
+export function resolveClips(guildId: string, source: ClipSource): string[] {
+  return source.kind === "list" ? source.files : readPoolFolder(guildId, source.name);
 }
 
 /**

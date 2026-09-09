@@ -10,7 +10,13 @@
 import { isCalm } from "@/tracking/calm";
 import { createLogger } from "@/utils/log";
 import { isPlaying, playAmbient } from "@/voice/playback";
-import { loadSounds, nextAmbientDelay, pickClip, resolveClipPath } from "@/voice/sounds";
+import {
+  loadSounds,
+  nextAmbientDelay,
+  pickClip,
+  resolveClipPath,
+  resolveClips,
+} from "@/voice/sounds";
 import type { VoiceConnection } from "@discordjs/voice";
 
 const log = createLogger("voice/ambient");
@@ -75,7 +81,12 @@ async function fire(guildId: string, connection: VoiceConnection): Promise<void>
     return;
   }
 
-  const name = pickClip(ambient.files, Math.floor(Math.random() * ambient.files.length));
+  const clips = resolveClips(guildId, ambient.source);
+  if (clips.length === 0) {
+    log.warn("ambient pool holds no clips", { guildId });
+    return;
+  }
+  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
   if (!name) return;
   const clipPath = resolveClipPath(guildId, name);
   if (!clipPath) {
@@ -99,7 +110,7 @@ export function startAmbient(guildId: string, connection: VoiceConnection): void
   active.add(guildId);
   log.info("ambient sounds on", {
     guildId,
-    clips: ambient.files.length,
+    clips: resolveClips(guildId, ambient.source).length,
     everyMs: `${ambient.minMs}-${ambient.maxMs}`,
   });
   arm(guildId, connection);

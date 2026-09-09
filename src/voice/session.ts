@@ -27,6 +27,7 @@ import {
   matchTrigger,
   pickClip,
   resolveClipPath,
+  resolveClips,
 } from "@/voice/sounds";
 import { startStt, transcribe } from "@/voice/stt";
 import {
@@ -107,7 +108,15 @@ async function handleUtterance(
     return;
   }
 
-  const name = pickClip(match.files, Math.floor(Math.random() * match.files.length));
+  const clips = resolveClips(guildId, match.source);
+  if (clips.length === 0) {
+    log.warn("trigger matched but its pool holds no clips", {
+      guildId,
+      pool: match.trigger.pool ?? "(inline)",
+    });
+    return;
+  }
+  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
   if (!name) return;
   const clipPath = resolveClipPath(guildId, name);
   if (!clipPath) {
