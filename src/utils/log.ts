@@ -1,31 +1,18 @@
 // src/utils/log.ts
 
-// Supported log levels
+// Every record is emitted. There is no threshold to configure: a level names
+// the line and picks the stream, nothing more. A debug line saying why a clip
+// was dropped is then in the log that recorded the drop, rather than behind a
+// setting that had to be turned on before the thing worth reading happened.
+
+/** Supported log levels. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
-// Numeric weights for filtering
-const LEVELS: Record<LogLevel, number> = {
-  error: 40,
-  warn: 30,
-  info: 20,
-  debug: 10,
-};
-
-// Every setting below is read at the point of use rather than captured in a
+// The settings below are read at the point of use rather than captured in a
 // module constant. This module is imported by nearly every other one, so a
 // constant here would be read before `dotenv.config()` runs in index.ts -
-// ESM evaluates imports before the importing module's body - and LOG_LEVEL,
-// LOG_FORMAT and NO_COLOR could never be set from .env at all.
-
-/**
- * The lowest level that gets emitted, from LOG_LEVEL.
- * @returns The level's numeric weight; "info" when LOG_LEVEL is unset or is
- * not a level name.
- */
-function minLevel(): number {
-  const level = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
-  return LEVELS[level] ?? LEVELS.info;
-}
+// ESM evaluates imports before the importing module's body - and LOG_FORMAT
+// and NO_COLOR could never be set from .env at all.
 
 /**
  * The output format, from LOG_FORMAT.
@@ -129,15 +116,6 @@ function jsonLine(ns: string, level: LogLevel, msg: string, ctx?: Record<string,
 }
 
 /**
- * Determines if a message at the provided level should be emitted.
- * @param level - Severity level to test.
- * @returns True when the level meets the current minimum threshold.
- */
-function shouldLog(level: LogLevel): boolean {
-  return (LEVELS[level] ?? 0) >= minLevel();
-}
-
-/**
  * Emits a log record using the configured output format.
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
@@ -145,7 +123,6 @@ function shouldLog(level: LogLevel): boolean {
  * @param [ctx] - Optional structured context to include.
  */
 function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
-  if (!shouldLog(level)) return;
   const line =
     format() === "json" ? jsonLine(ns, level, msg, ctx) : prettyLine(ns, level, msg, ctx);
   // Problems go to stderr so a collector can tell them apart from ordinary
@@ -157,12 +134,11 @@ function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unk
 
 /**
  * Reports the logging settings actually in force, so a run can say how it was
- * configured rather than leaving someone to guess why a level is missing.
- * @returns The resolved level and output format.
+ * configured rather than leaving someone to guess.
+ * @returns The resolved output format.
  */
-export function logSettings(): { level: LogLevel; format: "pretty" | "json" } {
-  const name = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || "info";
-  return { level: name in LEVELS ? name : "info", format: format() };
+export function logSettings(): { format: "pretty" | "json" } {
+  return { format: format() };
 }
 
 export interface Logger {

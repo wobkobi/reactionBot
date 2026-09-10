@@ -55,8 +55,9 @@ docker compose up -d --build
 ```
 
 Logs go to `docker compose logs -f`, timestamped, with warnings and errors on stderr so they can be
-read on their own. `LOG_LEVEL=debug` adds the per-utterance voice decisions, and `LOG_FORMAT=json`
-switches to one JSON object per line for a collector.
+read on their own. Everything is logged, per-utterance voice decisions included, so a log of a run
+where something misbehaved already says why; there is no level to have had turned on first.
+`LOG_FORMAT=json` switches to one JSON object per line for a collector.
 
 The image sets `ONNXRUNTIME_NODE_INSTALL=skip`. Without it, the speech recognition package downloads
 a CUDA execution provider on linux/x64 that nothing here uses, since transcription runs on the CPU.

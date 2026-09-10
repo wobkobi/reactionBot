@@ -10,9 +10,7 @@ services:
     environment:
       # Pretty output carries a timestamp whenever it is not attached to a
       # terminal, so `docker compose logs` reads correctly as it stands. Set
-      # LOG_FORMAT=json to feed a collector instead, and LOG_LEVEL=debug to see
-      # per-utterance voice decisions.
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # LOG_FORMAT=json to feed a collector instead.
       LOG_FORMAT: ${LOG_FORMAT:-pretty}
 
     volumes:

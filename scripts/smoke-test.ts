@@ -88,7 +88,7 @@ import {
   utteranceVerdict,
 } from "@/voice/audio";
 import { pickChannel, REJOIN_COOLDOWN_MS, VOICE_SWEEP_INTERVAL_MS } from "@/voice/autojoin";
-import { shouldPlay } from "@/voice/playback";
+import { clipVerdict } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
   type CompiledTrigger,
@@ -1935,7 +1935,7 @@ function checkDeletionLogPruning(): void {
  */
 function checkEnvTiming(): void {
   const previousId = process.env.YOUR_ID;
-  const previousLevel = process.env.LOG_LEVEL;
+  const previousFormat = process.env.LOG_FORMAT;
   try {
     // A guild they do not own, without Manage Server: the owner grant is the
     // only branch that can allow them.
@@ -1953,7 +1953,7 @@ function checkEnvTiming(): void {
     delete process.env.YOUR_ID;
     check("env", "an unset YOUR_ID grants nobody", !isAdmin(asOwner));
 
-    process.env.LOG_LEVEL = "debug";
+    process.env.LOG_FORMAT = "json";
     const lines: string[] = [];
     const realLog = console.log;
     console.log = (line: string): void => {
@@ -1964,12 +1964,20 @@ function checkEnvTiming(): void {
     } finally {
       console.log = realLog;
     }
-    check("env", "the log level reads LOG_LEVEL where it is used", lines.length === 1);
+    const record = JSON.parse(lines[0] ?? "{}") as { level?: string; msg?: string };
+    check(
+      "env",
+      "the output format reads LOG_FORMAT where it is used",
+      lines.length === 1 && record.msg === "visible",
+    );
+    // The threshold is gone, so a debug record carries no precondition: no
+    // level is set here and it still has to arrive.
+    check("env", "a debug record is emitted with nothing configured", record.level === "debug");
   } finally {
     if (previousId === undefined) delete process.env.YOUR_ID;
     else process.env.YOUR_ID = previousId;
-    if (previousLevel === undefined) delete process.env.LOG_LEVEL;
-    else process.env.LOG_LEVEL = previousLevel;
+    if (previousFormat === undefined) delete process.env.LOG_FORMAT;
+    else process.env.LOG_FORMAT = previousFormat;
   }
 }
 
@@ -2342,18 +2350,26 @@ function checkVoiceJoinRules(): void {
   check(
     "voice/play",
     "a clip is refused while one is playing",
-    !shouldPlay(true, 99_999, 99_999, 8_000, 20_000),
+    clipVerdict(true, 99_999, 99_999, 8_000, 20_000) === "playing",
   );
   check(
     "voice/play",
     "a clip is refused inside either cooldown",
-    !shouldPlay(false, 1_000, 99_999, 8_000, 20_000) &&
-      !shouldPlay(false, 99_999, 1_000, 8_000, 20_000),
+    clipVerdict(false, 1_000, 99_999, 8_000, 20_000) === "guild-cooldown" &&
+      clipVerdict(false, 99_999, 1_000, 8_000, 20_000) === "user-cooldown",
   );
   check(
     "voice/play",
     "a clip plays once both cooldowns have elapsed",
-    shouldPlay(false, 99_999, 99_999, 8_000, 20_000),
+    clipVerdict(false, 99_999, 99_999, 8_000, 20_000) === "play",
+  );
+  // The verdict is what a refusal gets logged as, so the reasons have to stay
+  // in this order: blaming a cooldown that had already elapsed would send
+  // someone reading the log after the wrong setting.
+  check(
+    "voice/play",
+    "a busy player is blamed ahead of any elapsed cooldown",
+    clipVerdict(true, 1_000, 1_000, 8_000, 20_000) === "playing",
   );
 
   // An Ogg Vorbis file handed to StreamType.OggOpus plays silence rather than
