@@ -1,9 +1,15 @@
 // src/voice/transcode.ts
 
-// Prepares clip files for playback. Discord accepts Opus and nothing else, so
-// a file already holding Opus frames only needs its container unwrapped: Ogg
-// and WebM both demux straight to packets, with no ffmpeg or encoder per play.
-// Anything else is converted once with ffmpeg and cached.
+// Prepares clip files for playback, converting each one once with ffmpeg and
+// caching the result, so only a clip's first play pays for it.
+//
+// Discord accepts Opus and nothing else, and a file already holding Opus frames
+// only needs its container unwrapped - Ogg and WebM both demux straight to
+// packets. Asking for a loudness target gives up that shortcut, because
+// normalising a clip means re-encoding it. It buys the thing no amount of
+// per-file care does: clips that arrive at the same volume as each other, for
+// one conversion per clip rather than one per play. Callers that would rather
+// have the shortcut than the guarantee pass no target.
 
 import { guildDataDir } from "@/utils/file";
 import { createLogger } from "@/utils/log";
@@ -26,6 +32,33 @@ const HEAD_BYTES = 8192;
 
 /** EBML magic, the first four bytes of every Matroska and WebM file. */
 const EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
+
+/**
+ * Integrated loudness a trigger clip is normalised to, in LUFS. Below
+ * broadcast standard, because a sound bite lands in the middle of a
+ * conversation rather than replacing it.
+ */
+export const TRIGGER_LUFS = -20;
+
+/**
+ * Integrated loudness an ambient clip is normalised to, in LUFS. Lower than
+ * {@link TRIGGER_LUFS}: nobody asked for it, so it has to sit under the talking
+ * rather than alongside it.
+ */
+export const AMBIENT_LUFS = -26;
+
+/**
+ * True peak ceiling, in dBTP. Clips arrive mastered to within a whisker of
+ * full scale, and leaving no headroom is what turns a loud clip into a
+ * distorted one once Opus has rounded it.
+ */
+const PEAK_CEILING_DBTP = -1.5;
+
+/**
+ * Loudness range passed to loudnorm, in LU. The default of 7 flattens a clip
+ * hard enough to hear; 11 keeps some dynamics while still pinning the level.
+ */
+const LOUDNESS_RANGE_LU = 11;
 
 let ffmpegChecked = false;
 let ffmpegOk = false;
@@ -58,14 +91,25 @@ export function detectOpusContainer(head: Uint8Array): OpusContainer | null {
 }
 
 /**
+ * Names the loudnorm filter for a target, which doubles as the part of the
+ * cache key that says how a clip was converted.
+ * @param targetLufs - Integrated loudness to normalise to, in LUFS.
+ * @returns The ffmpeg filter string.
+ */
+export function loudnormFilter(targetLufs: number): string {
+  return `loudnorm=I=${targetLufs}:TP=${PEAK_CEILING_DBTP}:LRA=${LOUDNESS_RANGE_LU}`;
+}
+
+/**
  * Builds the ffmpeg arguments that produce a Discord-ready Ogg Opus file.
  * The sample rate and channel count are what Discord expects; getting either
  * wrong plays at the wrong speed instead of failing.
  * @param input - Source file path.
  * @param output - Destination .ogg path.
+ * @param targetLufs - Integrated loudness to normalise to, in LUFS.
  * @returns The full argument list.
  */
-export function ffmpegArgs(input: string, output: string): string[] {
+export function ffmpegArgs(input: string, output: string, targetLufs: number): string[] {
   return [
     "-hide_banner",
     "-loglevel",
@@ -76,6 +120,10 @@ export function ffmpegArgs(input: string, output: string): string[] {
     "-vn",
     "-map",
     "a:0",
+    // Normalise before the encoder sees it, so the peak ceiling is what Opus
+    // rounds rather than something it has already clipped.
+    "-af",
+    loudnormFilter(targetLufs),
     "-c:a",
     "libopus",
     "-ar",
@@ -102,15 +150,26 @@ export function ffmpegArgs(input: string, output: string): string[] {
  * Names the cached conversion of a source file. Keyed on the path, size and
  * modification time, so replacing a clip with a different file of the same name
  * produces a new cache entry rather than playing the stale one.
+ *
+ * The conversion recipe is in the key as well. Without it, changing a loudness
+ * target would leave every clip already in the cache playing at the old level
+ * for good, which looks exactly like the change having no effect. It also
+ * separates the ambient and trigger copies of a clip used by both.
  * @param sourcePath - Absolute path of the original clip.
  * @param mtimeMs - The original's modification time.
  * @param size - The original's size in bytes.
+ * @param targetLufs - Integrated loudness it is normalised to, in LUFS.
  * @returns Absolute path of the cached .ogg.
  */
-export function cachedOggPath(sourcePath: string, mtimeMs: number, size: number): string {
+export function cachedOggPath(
+  sourcePath: string,
+  mtimeMs: number,
+  size: number,
+  targetLufs: number,
+): string {
   const hash = crypto
     .createHash("sha1")
-    .update(`${sourcePath}:${mtimeMs}:${size}`)
+    .update(`${sourcePath}:${mtimeMs}:${size}:${loudnormFilter(targetLufs)}`)
     .digest("hex")
     .slice(0, 16);
   return path.join(CACHE_DIR, `${hash}.ogg`);
@@ -136,7 +195,7 @@ export async function ffmpegAvailable(): Promise<boolean> {
     proc.on("error", () => resolve(false));
     proc.on("close", (code) => resolve(code === 0));
   });
-  if (!ffmpegOk) log.warn("ffmpeg not found, only Ogg Opus clips can play");
+  if (!ffmpegOk) log.warn("ffmpeg not found, no clip can be prepared");
   return ffmpegOk;
 }
 
@@ -144,13 +203,14 @@ export async function ffmpegAvailable(): Promise<boolean> {
  * Runs one conversion.
  * @param input - Source file path.
  * @param output - Destination .ogg path.
+ * @param targetLufs - Integrated loudness to normalise to, in LUFS.
  * @returns `true` when ffmpeg exited cleanly and produced a file.
  */
-async function convert(input: string, output: string): Promise<boolean> {
+async function convert(input: string, output: string, targetLufs: number): Promise<boolean> {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   const partial = `${output}.${process.pid}.tmp`;
   const { ok, stderr } = await new Promise<{ ok: boolean; stderr: string }>((resolve) => {
-    const proc = spawn(ffmpegBin(), ffmpegArgs(input, partial), {
+    const proc = spawn(ffmpegBin(), ffmpegArgs(input, partial, targetLufs), {
       stdio: ["ignore", "ignore", "pipe"],
     });
     let err = "";
@@ -185,29 +245,39 @@ export interface Playable {
 }
 
 /**
- * Prepares a clip for playback, converting and caching it only when it is not
- * already in a container Discord can take as-is.
+ * Prepares a clip for playback, converting and caching it when it needs it.
+ *
+ * With a loudness target every clip is converted, Opus included: normalising
+ * one means re-encoding it, so the container shortcut cannot apply. Without a
+ * target, a clip already holding Opus frames is streamed untouched.
  * @param sourcePath - Absolute path of the clip to play.
+ * @param targetLufs - Integrated loudness to normalise to, in LUFS, or null to
+ * stream an Opus clip as it is.
  * @returns The path to stream and its container, or null when the file cannot
  * be prepared.
  */
-export async function ensurePlayable(sourcePath: string): Promise<Playable | null> {
+export async function ensurePlayable(
+  sourcePath: string,
+  targetLufs: number | null,
+): Promise<Playable | null> {
   const stat = fs.statSync(sourcePath, { throwIfNoEntry: false });
   if (!stat) return null;
 
-  const head = Buffer.alloc(HEAD_BYTES);
-  const fd = fs.openSync(sourcePath, "r");
-  let read = 0;
-  try {
-    read = fs.readSync(fd, head, 0, HEAD_BYTES, 0);
-  } finally {
-    fs.closeSync(fd);
+  if (targetLufs === null) {
+    const head = Buffer.alloc(HEAD_BYTES);
+    const fd = fs.openSync(sourcePath, "r");
+    let read = 0;
+    try {
+      read = fs.readSync(fd, head, 0, HEAD_BYTES, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const container = detectOpusContainer(head.subarray(0, read));
+    if (container) return { path: sourcePath, container };
   }
 
-  const container = detectOpusContainer(head.subarray(0, read));
-  if (container) return { path: sourcePath, container };
-
-  const cached = cachedOggPath(sourcePath, stat.mtimeMs, stat.size);
+  const target = targetLufs ?? TRIGGER_LUFS;
+  const cached = cachedOggPath(sourcePath, stat.mtimeMs, stat.size, target);
   if (fs.existsSync(cached)) return { path: cached, container: "ogg/opus" };
 
   if (!(await ffmpegAvailable())) {
@@ -215,8 +285,8 @@ export async function ensurePlayable(sourcePath: string): Promise<Playable | nul
     return null;
   }
 
-  log.info("converting clip to ogg opus", { sourcePath });
-  if (!(await convert(sourcePath, cached))) {
+  log.info("converting clip to ogg opus", { sourcePath, targetLufs: target });
+  if (!(await convert(sourcePath, cached, target))) {
     log.warn("clip conversion failed", { sourcePath });
     return null;
   }

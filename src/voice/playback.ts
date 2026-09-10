@@ -9,7 +9,7 @@
 // buffer to police.
 
 import { createLogger } from "@/utils/log";
-import { ensurePlayable, type OpusContainer } from "@/voice/transcode";
+import { AMBIENT_LUFS, ensurePlayable, TRIGGER_LUFS, type OpusContainer } from "@/voice/transcode";
 import {
   AudioPlayerStatus,
   createAudioPlayer,
@@ -116,14 +116,16 @@ export function clipAllowed(guildId: string, userId: string, guildCooldownMs: nu
  * @param connection - The guild's live voice connection.
  * @param guildId - Discord guild (server) ID.
  * @param filePath - Absolute path of the clip to play.
+ * @param targetLufs - Integrated loudness to normalise it to, in LUFS.
  * @returns `true` when playback started.
  */
 async function startPlayback(
   connection: VoiceConnection,
   guildId: string,
   filePath: string,
+  targetLufs: number,
 ): Promise<boolean> {
-  const playable = await ensurePlayable(filePath).catch((err: unknown) => {
+  const playable = await ensurePlayable(filePath, targetLufs).catch((err: unknown) => {
     log.warn("could not prepare clip", {
       filePath,
       error: err instanceof Error ? err.message : String(err),
@@ -136,8 +138,9 @@ async function startPlayback(
     const player = getPlayer(guildId);
     connection.subscribe(player);
     // Both containers demux straight to Opus packets, so playback needs no
-    // encoder and no inline volume (which would force a PCM transcode); clip
-    // loudness is normalised at conversion time instead.
+    // encoder and no inline volume, which would force a PCM transcode on every
+    // play. Loudness is normalised into the cached file instead, so levelling a
+    // clip costs one conversion rather than one decode per play.
     player.play(
       createAudioResource(fs.createReadStream(playable.path), {
         inputType: STREAM_TYPES[playable.container],
@@ -179,7 +182,7 @@ export async function playClip(
   userId: string,
   filePath: string,
 ): Promise<boolean> {
-  const started = await startPlayback(connection, guildId, filePath);
+  const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
   if (!started) return false;
   const now = Date.now();
   lastGuildClip.set(guildId, now);
@@ -201,5 +204,5 @@ export async function playAmbient(
   guildId: string,
   filePath: string,
 ): Promise<boolean> {
-  return startPlayback(connection, guildId, filePath);
+  return startPlayback(connection, guildId, filePath, AMBIENT_LUFS);
 }

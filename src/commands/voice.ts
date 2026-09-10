@@ -149,7 +149,7 @@ async function statusLines(guildId: string): Promise<string[]> {
     `**Ambient:** ${ambientDescription(compiled, guildId)}`,
     `**Speech recognition:** ${sttStatus()} (${sttModel()})`,
     `**Opus decoder:** ${decoder ?? "none loaded"}`,
-    `**ffmpeg:** ${(await ffmpegAvailable()) ? "available" : "missing (Ogg Opus clips only)"}`,
+    `**ffmpeg:** ${(await ffmpegAvailable()) ? "available" : "missing (no clip can play)"}`,
   ];
 }
 
