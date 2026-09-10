@@ -190,7 +190,7 @@ rather than sitting in the log.
 | `ambient.pool` / `.sounds` | Where the unprompted sounds come from. Remove the block to switch them off. |
 | `ambient.minMinutes` / `maxMinutes` | Gap either side of each sound, re-rolled every time. Defaults to 5 and 20; under 10 seconds is refused. |
 | `minMembers` | People a channel needs before the bot joins. Default 1. |
-| `guildCooldownMs` | Minimum gap between clips for the whole server. Defaults to 30 seconds. The per-speaker gap is fixed at 20 seconds and cannot be set here. |
+| `guildCooldownMs` | Default gap between clips from the same pool. Defaults to 30 seconds; a trigger's own `cooldownMs` overrides it. Pools each keep their own gap, so one firing does not silence the rest, and a fixed 5 second floor stops any two clips running together. |
 | `phonetic` | Automatic soundalike matching. Default true. |
 | `ignore` | Phrases that never count. |
 | `logTranscripts` | Echo what was heard. Off by default: it writes what people say in voice chat to the log. |

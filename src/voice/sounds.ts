@@ -58,7 +58,6 @@ export interface SoundsConfig {
   enabled?: boolean;
   minMembers?: number;
   guildCooldownMs?: number;
-  userCooldownMs?: number;
   phonetic?: boolean;
   logTranscripts?: boolean;
   ignore?: string[];
@@ -398,6 +397,18 @@ export function readPoolFolder(guildId: string, name: string): string[] {
  */
 export function resolveClips(guildId: string, source: ClipSource): string[] {
   return source.kind === "list" ? source.files : readPoolFolder(guildId, source.name);
+}
+
+/**
+ * Identifies the pool a trigger draws from, so its cooldown is shared with
+ * every other trigger playing the same clips and with nothing else. Two
+ * triggers pointing at one folder are the same sound to whoever is listening,
+ * and letting them take turns would double how often it plays.
+ * @param source - Where the trigger's clips come from.
+ * @returns A key stable across reloads for the same set of clips.
+ */
+export function poolKey(source: ClipSource): string {
+  return source.kind === "folder" ? `folder:${source.name}` : `list:${source.files.join("|")}`;
 }
 
 /**

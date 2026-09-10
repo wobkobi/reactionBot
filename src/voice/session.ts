@@ -24,14 +24,15 @@ import {
   clipStatus,
   dropPlayer,
   getPlayer,
-  GUILD_CLIP_COOLDOWN_MS,
   playClip,
+  POOL_CLIP_COOLDOWN_MS,
 } from "@/voice/playback";
 import {
   isIgnoredTranscript,
   loadSounds,
   matchTrigger,
   pickClip,
+  poolKey,
   resolveClipPath,
   resolveClips,
 } from "@/voice/sounds";
@@ -104,14 +105,16 @@ async function handleUtterance(
     return;
   }
 
-  const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? GUILD_CLIP_COOLDOWN_MS;
+  const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? POOL_CLIP_COOLDOWN_MS;
+  const pool = poolKey(match.source);
   // Named rather than destructured: utteranceVerdict already owns `verdict`
   // in this scope.
-  const gate = clipStatus(guildId, userId, cooldownMs);
+  const gate = clipStatus(guildId, pool, cooldownMs);
   if (gate.verdict !== "play") {
     log.debug("clip not played", {
       guildId,
       userId,
+      pool,
       verdict: gate.verdict,
       remainingMs: gate.remainingMs,
     });
@@ -136,7 +139,7 @@ async function handleUtterance(
 
   const session = sessions.get(guildId);
   if (!session) return;
-  await playClip(session.connection, guildId, userId, clipPath);
+  await playClip(session.connection, guildId, pool, clipPath);
 }
 
 /**

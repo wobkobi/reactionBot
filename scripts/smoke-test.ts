@@ -98,6 +98,7 @@ import {
   matchTrigger,
   nextAmbientDelay,
   pickClip,
+  poolKey,
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
@@ -2350,26 +2351,46 @@ function checkVoiceJoinRules(): void {
   check(
     "voice/play",
     "a clip is refused while one is playing",
-    clipVerdict(true, 99_999, 99_999, 8_000, 20_000) === "playing",
+    clipVerdict(true, 99_999, 99_999, 30_000, 5_000) === "playing",
   );
   check(
     "voice/play",
-    "a clip is refused inside either cooldown",
-    clipVerdict(false, 1_000, 99_999, 8_000, 20_000) === "guild-cooldown" &&
-      clipVerdict(false, 99_999, 1_000, 8_000, 20_000) === "user-cooldown",
+    "a clip is refused inside its own pool gap",
+    clipVerdict(false, 1_000, 99_999, 30_000, 5_000) === "pool-cooldown",
   );
   check(
     "voice/play",
-    "a clip plays once both cooldowns have elapsed",
-    clipVerdict(false, 99_999, 99_999, 8_000, 20_000) === "play",
+    "a clip is refused inside the guild floor",
+    clipVerdict(false, 99_999, 1_000, 30_000, 5_000) === "guild-floor",
+  );
+  check(
+    "voice/play",
+    "a clip plays once both gaps have elapsed",
+    clipVerdict(false, 99_999, 99_999, 30_000, 5_000) === "play",
+  );
+  // The whole point of the pool gap. A sound that has not played is not held
+  // back by one that just did, once the floor between any two clips is clear.
+  check(
+    "voice/play",
+    "an untouched pool plays while another is still cooling down",
+    clipVerdict(false, 99_999, 6_000, 30_000, 5_000) === "play",
   );
   // The verdict is what a refusal gets logged as, so the reasons have to stay
-  // in this order: blaming a cooldown that had already elapsed would send
-  // someone reading the log after the wrong setting.
+  // in this order: blaming a gap that had already elapsed would send someone
+  // reading the log after the wrong setting.
   check(
     "voice/play",
-    "a busy player is blamed ahead of any elapsed cooldown",
-    clipVerdict(true, 1_000, 1_000, 8_000, 20_000) === "playing",
+    "a busy player is blamed ahead of any elapsed gap",
+    clipVerdict(true, 1_000, 1_000, 30_000, 5_000) === "playing",
+  );
+  // The gap follows the clips, not the trigger: two triggers on one folder are
+  // one sound to whoever is listening, and a different folder is not.
+  check(
+    "voice/play",
+    "triggers sharing a pool share a cooldown key",
+    poolKey({ kind: "folder", name: "water" }) === poolKey({ kind: "folder", name: "water" }) &&
+      poolKey({ kind: "folder", name: "water" }) !== poolKey({ kind: "folder", name: "kirk" }) &&
+      poolKey({ kind: "list", files: ["a.ogg"] }) !== poolKey({ kind: "folder", name: "a.ogg" }),
   );
 
   // An Ogg Vorbis file handed to StreamType.OggOpus plays silence rather than
