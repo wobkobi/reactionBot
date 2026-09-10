@@ -63,6 +63,7 @@
   "allowScripts": {
     "esbuild": false,
     "onnxruntime-node": true,
+    "protobufjs": false,
     "simple-git-hooks": true
   }
 }
