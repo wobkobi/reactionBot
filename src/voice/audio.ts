@@ -24,8 +24,13 @@ const GROUP = DECIMATION * SOURCE_CHANNELS;
 /** Full-scale magnitude of a signed 16-bit sample. */
 const INT16_SCALE = 32_768;
 
-/** Shortest utterance worth transcribing: 400ms at the target rate. */
-export const MIN_UTTERANCE_SAMPLES = TARGET_RATE * 0.4;
+/**
+ * Shortest utterance worth transcribing: 250ms at the target rate. A single
+ * word is the whole point of the bot, and a monosyllable said on its own runs
+ * 350ms or less, so the floor is set to catch one rather than to save the
+ * transcription. It sits above a cough or a click, which is all it is for.
+ */
+export const MIN_UTTERANCE_SAMPLES = TARGET_RATE * 0.25;
 
 /** Longest utterance held before flushing: 12s at the target rate. */
 export const MAX_UTTERANCE_SAMPLES = TARGET_RATE * 12;

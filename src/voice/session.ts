@@ -17,6 +17,7 @@ import {
   MAX_UTTERANCE_SAMPLES,
   pcmToInt16,
   rms,
+  TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
@@ -48,8 +49,17 @@ import type { VoiceBasedChannel } from "discord.js";
 
 const log = createLogger("voice/session");
 
-/** Silence that ends an utterance. Long enough to survive a pause mid-sentence. */
-export const SILENCE_END_MS = 800;
+/**
+ * Silence that ends an utterance, and the largest single part of the wait
+ * between a trigger word and its clip: nothing is transcribed until Discord
+ * has heard this much quiet.
+ *
+ * Short enough to keep the whole wait under a second, and still above the
+ * gaps between words in fluent speech, which run nearer 200ms. What it costs
+ * is split utterances: a pause longer than this inside a phrase ends the
+ * capture, and "bad to the bone" heard as two halves matches neither.
+ */
+export const SILENCE_END_MS = 350;
 
 /** How long to wait for a connection to become usable. */
 const READY_TIMEOUT_MS = 20_000;
@@ -72,15 +82,20 @@ const sessions = new Map<string, Session>();
  * @param guildId - Discord guild (server) ID.
  * @param userId - Who spoke.
  * @param samples - The utterance as mono 16kHz float samples.
+ * @param spokeUntil - When the speaker stopped, epoch ms, for timing the wait.
  */
 async function handleUtterance(
   guildId: string,
   userId: string,
   samples: Float32Array,
+  spokeUntil: number,
 ): Promise<void> {
+  const durationMs = Math.round((samples.length / TARGET_RATE) * 1000);
   const verdict = utteranceVerdict(samples.length, rms(samples));
   if (verdict !== "keep") {
-    log.debug("utterance dropped", { guildId, userId, verdict });
+    // Logged with the length: a run of drops just under the floor means the
+    // floor is eating words, and a run well under it means it is doing its job.
+    log.debug("utterance dropped", { guildId, userId, verdict, durationMs });
     return;
   }
 
@@ -139,7 +154,15 @@ async function handleUtterance(
 
   const session = sessions.get(guildId);
   if (!session) return;
-  await playClip(session.connection, guildId, pool, clipPath);
+  if (!(await playClip(session.connection, guildId, pool, clipPath))) return;
+  // Timed from the last word rather than from the flush, so the number is the
+  // one someone in the call actually waited through.
+  log.debug("clip latency", {
+    guildId,
+    pool,
+    durationMs,
+    waitedMs: Date.now() - spokeUntil,
+  });
 }
 
 /**
@@ -158,13 +181,16 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
 
   /**
    * Sends what has been captured so far for transcription and resets the buffer.
+   * @param silenceMs - Quiet already waited out before this flush, backed out
+   * of the timestamp so the wait is measured from the speaker's last word.
    */
-  const flush = (): void => {
+  const flush = (silenceMs: number): void => {
     if (total === 0) return;
     const samples = concatFloat32(chunks, total);
     chunks = [];
     total = 0;
-    void handleUtterance(guildId, userId, samples).catch((err: unknown) => {
+    const spokeUntil = Date.now() - silenceMs;
+    void handleUtterance(guildId, userId, samples, spokeUntil).catch((err: unknown) => {
       log.warn("utterance handling failed", {
         guildId,
         error: err instanceof Error ? err.message : String(err),
@@ -185,7 +211,8 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
       // heard as two halves and matches neither.
       if (total >= MAX_UTTERANCE_SAMPLES) {
         log.debug("utterance hit the length cap, cutting mid-speech", { guildId, userId });
-        flush();
+        // Still mid-sentence, so no silence has been waited out.
+        flush(0);
       }
     } catch (err) {
       log.debug("opus decode failed", {
@@ -197,7 +224,7 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
 
   stream.once("end", () => {
     session.capturing.delete(userId);
-    flush();
+    flush(SILENCE_END_MS);
   });
 
   stream.once("error", (err: Error) => {
