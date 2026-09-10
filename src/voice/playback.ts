@@ -23,8 +23,13 @@ import fs from "node:fs";
 
 const log = createLogger("voice/playback");
 
-/** Minimum gap between clips in one guild. */
-export const GUILD_CLIP_COOLDOWN_MS = 8_000;
+/**
+ * Minimum gap between clips in one guild, and the default a trigger takes when
+ * neither it nor the config names one. Long enough that a word said on repeat
+ * earns one clip rather than a barrage, which is the whole point of having it:
+ * the gap is what stops a trigger being worth spamming.
+ */
+export const GUILD_CLIP_COOLDOWN_MS = 30_000;
 
 /** Minimum gap between clips triggered by the same speaker. */
 export const USER_CLIP_COOLDOWN_MS = 20_000;
