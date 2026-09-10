@@ -30,13 +30,14 @@ empty.
 
 ## Formats
 
-**Opus plays as-is**, in either an Ogg (`.ogg`, `.opus`) or a WebM (`.webm`) container. Discord
-accepts Opus and nothing else, so a file that already holds Opus frames just has its container
-unwrapped: no conversion, no ffmpeg, nothing to wait for.
+**Drop in whatever you have** - mp3, wav, m4a, flac, Ogg Vorbis, or Opus in an Ogg (`.ogg`,
+`.opus`) or WebM (`.webm`) container. Each one is converted once with ffmpeg, normalised, and
+cached in `.cache/`; only the first play pays for it and every play after is a cache hit.
 
-Anything else - mp3, wav, m4a, and Ogg **Vorbis** - has to be decoded and re-encoded, so it is
-converted once with ffmpeg and cached in `.cache/`. Only the first play pays for it. That needs
-ffmpeg installed; without it those files are skipped with a warning and only Opus works.
+Opus files are converted too, even though Discord takes Opus directly and their container could
+just be unwrapped. Normalising a clip means re-encoding it, and a guarantee about volume that
+skipped one format would not be worth much. **So ffmpeg is required** - without it no clip plays
+at all, and each one is skipped with a warning.
 
 Watch out for Ogg Vorbis: it has the same `.ogg` extension as Ogg Opus but is a different codec, so
 the extension alone does not tell you which you have. The bot reads the file header rather than
@@ -51,12 +52,12 @@ ffmpeg -i input.mp3 -vn -c:a libopus -ar 48000 -ac 2 -b:a 96k \
 
 ## Practical notes
 
-- **Ambient clips want to be quiet.** A pool used by the `ambient` block plays
-  unprompted, so anything loud stops being atmosphere and becomes an
-  interruption. Mix them lower than the trigger clips.
+- **Volume is not your problem.** Every clip is normalised on the way into the
+  cache, so a quiet clip and a clip mastered to full scale come out at the same
+  level. Ambient clips are taken lower than trigger clips (-26 LUFS against
+  -20), because nobody asked for them and they have to sit under the talking.
+  Nothing to mix by hand, and a loud file is not worth re-encoding yourself.
 - **Keep clips short.** A trigger fired while a clip is playing is dropped, not queued, so a long
   clip means missing the next few.
-- **Match the volume across clips.** There is no normalisation at playback. If one is much louder
-  than the rest, fix the file: add `-af loudnorm` to the ffmpeg command above.
 - **Nothing here is in git.** This folder is gitignored apart from this file, so clips live only on
   the machine running the bot. Keep a copy somewhere.

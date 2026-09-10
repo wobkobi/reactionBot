@@ -30,9 +30,11 @@
   // How many people a channel needs before the bot joins it.
   "minMembers": 1,
 
-  // Minimum gap between clips, for the whole server and for one speaker.
-  "guildCooldownMs": 8000,
-  "userCooldownMs": 20000,
+  // Minimum gap between clips for the whole server. Defaults to 30 seconds, so
+  // set this only to widen or narrow that; a single trigger can override it
+  // with its own "cooldownMs". The per-speaker gap is fixed at 20 seconds and
+  // is not read from here.
+  "guildCooldownMs": 30000,
 
   // Match mishearings automatically ("swig" for "swag"). Per-trigger override
   // with "phonetic": false when a word needs to be exact.

@@ -102,7 +102,13 @@ import {
   type SoundsConfig,
 } from "@/voice/sounds";
 import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
-import { cachedOggPath, detectOpusContainer, ffmpegArgs } from "@/voice/transcode";
+import {
+  AMBIENT_LUFS,
+  cachedOggPath,
+  detectOpusContainer,
+  ffmpegArgs,
+  TRIGGER_LUFS,
+} from "@/voice/transcode";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
   type ChatInputCommandInteraction,
@@ -2372,7 +2378,7 @@ function checkVoiceJoinRules(): void {
     "the codec marker is only trusted behind the container magic",
     detectOpusContainer(Buffer.from("ID3 OpusHead A_OPUS")) === null,
   );
-  const args = ffmpegArgs("in.mp3", "out.ogg").join(" ");
+  const args = ffmpegArgs("in.mp3", "out.ogg", TRIGGER_LUFS).join(" ");
   check(
     "voice/play",
     "ffmpeg converts to 48kHz stereo opus",
@@ -2381,11 +2387,34 @@ function checkVoiceJoinRules(): void {
   // The output goes to a .tmp path, and ffmpeg refuses a job whose extension it
   // does not recognise unless the muxer is named.
   check("voice/play", "the ogg muxer is named rather than inferred", args.includes("-f ogg"));
+  // Clips arrive mastered near full scale, so the ceiling matters as much as
+  // the target: normalising up to 0 dBTP distorts once Opus rounds it.
+  check(
+    "voice/play",
+    "loudness is normalised to the target with peak headroom",
+    args.includes(`loudnorm=I=${TRIGGER_LUFS}`) && args.includes("TP=-1.5"),
+  );
+  // Nobody asked for an ambient sound, so it has to sit under the talking.
+  check(
+    "voice/play",
+    "ambient clips are normalised quieter than triggers",
+    AMBIENT_LUFS < TRIGGER_LUFS,
+  );
   check(
     "voice/play",
     "the conversion cache key follows the source file's mtime",
-    cachedOggPath("/a/b.mp3", 1, 10) === cachedOggPath("/a/b.mp3", 1, 10) &&
-      cachedOggPath("/a/b.mp3", 2, 10) !== cachedOggPath("/a/b.mp3", 1, 10),
+    cachedOggPath("/a/b.mp3", 1, 10, TRIGGER_LUFS) ===
+      cachedOggPath("/a/b.mp3", 1, 10, TRIGGER_LUFS) &&
+      cachedOggPath("/a/b.mp3", 2, 10, TRIGGER_LUFS) !==
+        cachedOggPath("/a/b.mp3", 1, 10, TRIGGER_LUFS),
+  );
+  // Without this a target change would leave every clip already converted
+  // playing at the old level for good, which looks like the change not working.
+  check(
+    "voice/play",
+    "the cache key follows the loudness target too",
+    cachedOggPath("/a/b.mp3", 1, 10, AMBIENT_LUFS) !==
+      cachedOggPath("/a/b.mp3", 1, 10, TRIGGER_LUFS),
   );
 }
 

@@ -20,7 +20,13 @@ import {
   utteranceVerdict,
 } from "@/voice/audio";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
-import { clipAllowed, dropPlayer, getPlayer, playClip } from "@/voice/playback";
+import {
+  clipAllowed,
+  dropPlayer,
+  getPlayer,
+  GUILD_CLIP_COOLDOWN_MS,
+  playClip,
+} from "@/voice/playback";
 import {
   isIgnoredTranscript,
   loadSounds,
@@ -49,9 +55,6 @@ const READY_TIMEOUT_MS = 20_000;
 
 /** Speakers captured at once in one channel, so a busy call cannot swamp the queue. */
 export const MAX_CAPTURED_SPEAKERS = 8;
-
-/** Default gap between clips when the config does not say. */
-const DEFAULT_GUILD_COOLDOWN_MS = 8_000;
 
 /** A live capture session. */
 interface Session {
@@ -101,8 +104,7 @@ async function handleUtterance(
     return;
   }
 
-  const cooldownMs =
-    match.cooldownMs ?? compiled.config.guildCooldownMs ?? DEFAULT_GUILD_COOLDOWN_MS;
+  const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? GUILD_CLIP_COOLDOWN_MS;
   if (!clipAllowed(guildId, userId, cooldownMs)) {
     log.debug("clip on cooldown or already playing", { guildId, userId });
     return;
