@@ -44,26 +44,31 @@ const players = new Map<string, AudioPlayer>();
 const lastGuildClip = new Map<string, number>();
 const lastUserClip = new Map<string, number>();
 
+/** Why a trigger did or did not earn a clip. */
+export type ClipVerdict = "play" | "playing" | "guild-cooldown" | "user-cooldown";
+
 /**
- * Decides whether a trigger earns a clip right now.
+ * Decides whether a trigger earns a clip right now, and names what stopped
+ * it when it does not. All three refusals look the same from outside - no
+ * sound - so a caller told only "no" can never say which gap swallowed a clip.
  * @param playing - Whether a clip is already playing in the guild.
  * @param sinceGuildMs - Time since the guild's last clip.
  * @param sinceUserMs - Time since this speaker's last clip.
  * @param guildCooldownMs - Minimum gap for the guild.
  * @param userCooldownMs - Minimum gap for the speaker.
- * @returns `true` when the clip should play.
+ * @returns `"play"` when the clip should play, otherwise the reason it did not.
  */
-export function shouldPlay(
+export function clipVerdict(
   playing: boolean,
   sinceGuildMs: number,
   sinceUserMs: number,
   guildCooldownMs: number,
   userCooldownMs: number,
-): boolean {
-  if (playing) return false;
-  if (sinceGuildMs < guildCooldownMs) return false;
-  if (sinceUserMs < userCooldownMs) return false;
-  return true;
+): ClipVerdict {
+  if (playing) return "playing";
+  if (sinceGuildMs < guildCooldownMs) return "guild-cooldown";
+  if (sinceUserMs < userCooldownMs) return "user-cooldown";
+  return "play";
 }
 
 /**
@@ -98,21 +103,35 @@ export function isPlaying(guildId: string): boolean {
 }
 
 /**
- * Applies both cooldowns and the busy check for a would-be trigger.
+ * Applies both cooldowns and the busy check for a would-be trigger, and says
+ * how much of a cooldown is left, so a refusal in the log reads as a gap with
+ * a length rather than as the bot ignoring someone.
  * @param guildId - Discord guild (server) ID.
  * @param userId - Speaker who said the trigger.
  * @param guildCooldownMs - Minimum gap for the guild.
- * @returns `true` when a clip may play now.
+ * @returns The verdict from {@link clipVerdict}, with the milliseconds left on
+ * whichever cooldown refused it; 0 for every other verdict.
  */
-export function clipAllowed(guildId: string, userId: string, guildCooldownMs: number): boolean {
+export function clipStatus(
+  guildId: string,
+  userId: string,
+  guildCooldownMs: number,
+): { verdict: ClipVerdict; remainingMs: number } {
   const now = Date.now();
-  return shouldPlay(
+  const sinceGuildMs = now - (lastGuildClip.get(guildId) ?? 0);
+  const sinceUserMs = now - (lastUserClip.get(`${guildId}:${userId}`) ?? 0);
+  const verdict = clipVerdict(
     isPlaying(guildId),
-    now - (lastGuildClip.get(guildId) ?? 0),
-    now - (lastUserClip.get(`${guildId}:${userId}`) ?? 0),
+    sinceGuildMs,
+    sinceUserMs,
     guildCooldownMs,
     USER_CLIP_COOLDOWN_MS,
   );
+  if (verdict === "guild-cooldown") return { verdict, remainingMs: guildCooldownMs - sinceGuildMs };
+  if (verdict === "user-cooldown") {
+    return { verdict, remainingMs: USER_CLIP_COOLDOWN_MS - sinceUserMs };
+  }
+  return { verdict, remainingMs: 0 };
 }
 
 /**

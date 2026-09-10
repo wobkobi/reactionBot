@@ -21,7 +21,7 @@ import {
 } from "@/voice/audio";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
 import {
-  clipAllowed,
+  clipStatus,
   dropPlayer,
   getPlayer,
   GUILD_CLIP_COOLDOWN_MS,
@@ -105,8 +105,16 @@ async function handleUtterance(
   }
 
   const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? GUILD_CLIP_COOLDOWN_MS;
-  if (!clipAllowed(guildId, userId, cooldownMs)) {
-    log.debug("clip on cooldown or already playing", { guildId, userId });
+  // Named rather than destructured: utteranceVerdict already owns `verdict`
+  // in this scope.
+  const gate = clipStatus(guildId, userId, cooldownMs);
+  if (gate.verdict !== "play") {
+    log.debug("clip not played", {
+      guildId,
+      userId,
+      verdict: gate.verdict,
+      remainingMs: gate.remainingMs,
+    });
     return;
   }
 
@@ -169,8 +177,13 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
       chunks.push(mono);
       total += mono.length;
       // Flush and keep listening rather than ending the stream: destroying it
-      // would not re-fire speaking.start for someone still mid-sentence.
-      if (total >= MAX_UTTERANCE_SAMPLES) flush();
+      // would not re-fire speaking.start for someone still mid-sentence. The
+      // cut falls wherever the cap lands, so a trigger word straddling it is
+      // heard as two halves and matches neither.
+      if (total >= MAX_UTTERANCE_SAMPLES) {
+        log.debug("utterance hit the length cap, cutting mid-speech", { guildId, userId });
+        flush();
+      }
     } catch (err) {
       log.debug("opus decode failed", {
         guildId,
@@ -244,7 +257,14 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
 
   connection.receiver.speaking.on("start", (userId: string) => {
     if (session.capturing.has(userId)) return;
-    if (session.capturing.size >= MAX_CAPTURED_SPEAKERS) return;
+    if (session.capturing.size >= MAX_CAPTURED_SPEAKERS) {
+      log.debug("speaker not captured, already at the cap", {
+        guildId,
+        userId,
+        capturing: session.capturing.size,
+      });
+      return;
+    }
     if (channel.client.users.cache.get(userId)?.bot) return;
     session.capturing.add(userId);
     captureSpeaker(session, guildId, userId);

@@ -193,7 +193,7 @@ rather than sitting in the log.
 | `guildCooldownMs` | Minimum gap between clips for the whole server. Defaults to 30 seconds. The per-speaker gap is fixed at 20 seconds and cannot be set here. |
 | `phonetic` | Automatic soundalike matching. Default true. |
 | `ignore` | Phrases that never count. |
-| `logTranscripts` | Echo what was heard at debug level. |
+| `logTranscripts` | Echo what was heard. Off by default: it writes what people say in voice chat to the log. |
 | `enabled` | Config-wide default for the per-guild switch. `/voice enable` overrides it. |
 
 **Several words, one sound.** Point as many triggers as you like at the same
