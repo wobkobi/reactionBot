@@ -24,15 +24,23 @@ import fs from "node:fs";
 const log = createLogger("voice/playback");
 
 /**
- * Minimum gap between clips in one guild, and the default a trigger takes when
- * neither it nor the config names one. Long enough that a word said on repeat
- * earns one clip rather than a barrage, which is the whole point of having it:
- * the gap is what stops a trigger being worth spamming.
+ * Minimum gap between clips drawn from the same pool, and the default a trigger
+ * takes when neither it nor the config names one. Long enough that a word said
+ * on repeat earns one clip rather than a barrage.
+ *
+ * Per pool rather than per guild: two triggers pointing at different sounds are
+ * different jokes, and one firing is no reason to swallow the other. Triggers
+ * sharing a pool do share the gap, since they play the same clips and a
+ * listener cannot tell which of them fired.
  */
-export const GUILD_CLIP_COOLDOWN_MS = 30_000;
+export const POOL_CLIP_COOLDOWN_MS = 30_000;
 
-/** Minimum gap between clips triggered by the same speaker. */
-export const USER_CLIP_COOLDOWN_MS = 20_000;
+/**
+ * Shortest gap between any two clips in a guild, whatever pools they came from.
+ * The per-pool gap alone would let a run of different triggers fire back to
+ * back, which is the same barrage arriving from a different direction.
+ */
+export const GUILD_CLIP_FLOOR_MS = 5_000;
 
 /** Stream type to declare for each container that plays without transcoding. */
 const STREAM_TYPES: Record<OpusContainer, StreamType> = {
@@ -41,33 +49,33 @@ const STREAM_TYPES: Record<OpusContainer, StreamType> = {
 };
 
 const players = new Map<string, AudioPlayer>();
+const lastPoolClip = new Map<string, number>();
 const lastGuildClip = new Map<string, number>();
-const lastUserClip = new Map<string, number>();
 
 /** Why a trigger did or did not earn a clip. */
-export type ClipVerdict = "play" | "playing" | "guild-cooldown" | "user-cooldown";
+export type ClipVerdict = "play" | "playing" | "pool-cooldown" | "guild-floor";
 
 /**
  * Decides whether a trigger earns a clip right now, and names what stopped
  * it when it does not. All three refusals look the same from outside - no
  * sound - so a caller told only "no" can never say which gap swallowed a clip.
  * @param playing - Whether a clip is already playing in the guild.
- * @param sinceGuildMs - Time since the guild's last clip.
- * @param sinceUserMs - Time since this speaker's last clip.
- * @param guildCooldownMs - Minimum gap for the guild.
- * @param userCooldownMs - Minimum gap for the speaker.
+ * @param sincePoolMs - Time since this pool's last clip.
+ * @param sinceGuildMs - Time since any clip in the guild.
+ * @param poolCooldownMs - Minimum gap for the pool.
+ * @param guildFloorMs - Shortest gap between any two clips.
  * @returns `"play"` when the clip should play, otherwise the reason it did not.
  */
 export function clipVerdict(
   playing: boolean,
+  sincePoolMs: number,
   sinceGuildMs: number,
-  sinceUserMs: number,
-  guildCooldownMs: number,
-  userCooldownMs: number,
+  poolCooldownMs: number,
+  guildFloorMs: number,
 ): ClipVerdict {
   if (playing) return "playing";
-  if (sinceGuildMs < guildCooldownMs) return "guild-cooldown";
-  if (sinceUserMs < userCooldownMs) return "user-cooldown";
+  if (sincePoolMs < poolCooldownMs) return "pool-cooldown";
+  if (sinceGuildMs < guildFloorMs) return "guild-floor";
   return "play";
 }
 
@@ -107,29 +115,29 @@ export function isPlaying(guildId: string): boolean {
  * how much of a cooldown is left, so a refusal in the log reads as a gap with
  * a length rather than as the bot ignoring someone.
  * @param guildId - Discord guild (server) ID.
- * @param userId - Speaker who said the trigger.
- * @param guildCooldownMs - Minimum gap for the guild.
+ * @param pool - Key of the pool the trigger draws from.
+ * @param poolCooldownMs - Minimum gap for that pool.
  * @returns The verdict from {@link clipVerdict}, with the milliseconds left on
- * whichever cooldown refused it; 0 for every other verdict.
+ * whichever gap refused it; 0 for every other verdict.
  */
 export function clipStatus(
   guildId: string,
-  userId: string,
-  guildCooldownMs: number,
+  pool: string,
+  poolCooldownMs: number,
 ): { verdict: ClipVerdict; remainingMs: number } {
   const now = Date.now();
+  const sincePoolMs = now - (lastPoolClip.get(`${guildId}:${pool}`) ?? 0);
   const sinceGuildMs = now - (lastGuildClip.get(guildId) ?? 0);
-  const sinceUserMs = now - (lastUserClip.get(`${guildId}:${userId}`) ?? 0);
   const verdict = clipVerdict(
     isPlaying(guildId),
+    sincePoolMs,
     sinceGuildMs,
-    sinceUserMs,
-    guildCooldownMs,
-    USER_CLIP_COOLDOWN_MS,
+    poolCooldownMs,
+    GUILD_CLIP_FLOOR_MS,
   );
-  if (verdict === "guild-cooldown") return { verdict, remainingMs: guildCooldownMs - sinceGuildMs };
-  if (verdict === "user-cooldown") {
-    return { verdict, remainingMs: USER_CLIP_COOLDOWN_MS - sinceUserMs };
+  if (verdict === "pool-cooldown") return { verdict, remainingMs: poolCooldownMs - sincePoolMs };
+  if (verdict === "guild-floor") {
+    return { verdict, remainingMs: GUILD_CLIP_FLOOR_MS - sinceGuildMs };
   }
   return { verdict, remainingMs: 0 };
 }
@@ -192,25 +200,25 @@ export function dropPlayer(guildId: string): void {
 }
 
 /**
- * Plays a clip fired by something someone said, and records it against both
- * cooldowns.
+ * Plays a clip fired by something someone said, and records it against its
+ * pool's gap and the guild floor.
  * @param connection - The guild's live voice connection.
  * @param guildId - Discord guild (server) ID.
- * @param userId - Speaker who triggered it, for the per-user cooldown.
+ * @param pool - Key of the pool it came from, which holds its own gap.
  * @param filePath - Absolute path of the clip to play.
  * @returns `true` when playback started.
  */
 export async function playClip(
   connection: VoiceConnection,
   guildId: string,
-  userId: string,
+  pool: string,
   filePath: string,
 ): Promise<boolean> {
   const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
   if (!started) return false;
   const now = Date.now();
+  lastPoolClip.set(`${guildId}:${pool}`, now);
   lastGuildClip.set(guildId, now);
-  lastUserClip.set(`${guildId}:${userId}`, now);
   return true;
 }
 

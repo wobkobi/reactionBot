@@ -30,9 +30,12 @@ export type SttOut =
   | { type: "fatal"; message: string };
 
 /**
- * Default Whisper checkpoint. The English-only base model is the balance point:
- * small enough to stay ahead of conversation on a CPU, accurate enough for
- * keyword spotting. VOICE_MODEL overrides it, and whisper-tiny.en roughly
- * halves the inference cost.
+ * Default Whisper checkpoint. Transcription sits in the middle of the wait
+ * between a word being said and its clip playing, and on base.en that measured
+ * about 770ms per utterance - most of a second the joke spends landing. The
+ * tiny English-only model roughly halves it. It mishears more, which the
+ * phonetic tier and the per-trigger word lists exist to absorb, and a config
+ * that would rather have the accuracy than the second sets VOICE_MODEL back to
+ * Xenova/whisper-base.en.
  */
-export const DEFAULT_MODEL = "Xenova/whisper-base.en";
+export const DEFAULT_MODEL = "Xenova/whisper-tiny.en";

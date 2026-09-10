@@ -79,8 +79,9 @@ something to roll back to.
 Config is not code: `words.json`, `sounds.json` and the clips are read from the volume and picked up
 without a restart, and the Whisper model cache survives an update rather than downloading again.
 
-Voice wants roughly 4 GB and 4 cores on the default model. On a smaller box set
-`VOICE_MODEL=Xenova/whisper-tiny.en`. Without voice the bot is happy in a few hundred MB.
+Voice wants roughly 4 GB and 4 cores. The default model is `whisper-tiny.en`, chosen for how quickly
+a clip arrives after the word; set `VOICE_MODEL=Xenova/whisper-base.en` to mishear less at about
+400ms more delay. Without voice the bot is happy in a few hundred MB.
 
 ## Commands
 
