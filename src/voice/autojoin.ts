@@ -32,6 +32,9 @@ export const JOIN_DEBOUNCE_MS = 1_500;
 /** How long a guild is left alone after the bot leaves a channel. */
 export const REJOIN_COOLDOWN_MS = 10_000;
 
+/** Gap between periodic re-sweeps, which is what notices a config edit. */
+export const VOICE_SWEEP_INTERVAL_MS = 60_000;
+
 /** What pickChannel needs to know about one candidate channel. */
 export interface ChannelSnapshot {
   channelId: string;
@@ -45,6 +48,9 @@ export interface ChannelSnapshot {
 
 const debounces = new Map<string, NodeJS.Timeout>();
 const leftAt = new Map<string, number>();
+
+/** The periodic re-sweep, cleared by {@link shutdownVoice}. */
+let sweepTimer: NodeJS.Timeout | null = null;
 
 /**
  * Chooses the channel the bot should be in, or null for none.
@@ -226,9 +232,46 @@ export async function sweepGuilds(
 }
 
 /**
+ * Re-evaluates one guild now, for a change the gateway cannot announce.
+ * @param guild - The guild to re-evaluate.
+ */
+export async function refreshGuild(guild: Guild): Promise<void> {
+  await reconcile(guild).catch((err: unknown) => {
+    log.warn("voice refresh failed", {
+      guildId: guild.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
+/**
+ * Starts the periodic re-sweep, replacing one already running.
+ *
+ * Whether a channel is worth joining depends on sounds.json as much as on who
+ * is in it, and a config edit emits no gateway event. Without this the bot
+ * only reconsiders at startup or when someone moves between channels, so
+ * adding the first trigger to a live bot appears to do nothing until it is
+ * restarted. The sweep is a few stat calls per guild, so it can afford to run
+ * on the minute.
+ * @param client - The logged-in client.
+ * @param inScope - Guild filter, so a dev instance stays in its own server.
+ */
+export function startVoiceSweep(client: Client, inScope: (guildId: string) => boolean): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = setInterval(() => {
+    void sweepGuilds(client, inScope);
+  }, VOICE_SWEEP_INTERVAL_MS);
+  // Unref'd so a sweep pending on an otherwise idle bot never holds the
+  // process open on its own.
+  sweepTimer.unref();
+}
+
+/**
  * Leaves every channel and stops the transcriber.
  */
 export function shutdownVoice(): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
   for (const timer of debounces.values()) clearTimeout(timer);
   debounces.clear();
   closeAllSessions("shutting down");

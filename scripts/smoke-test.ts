@@ -87,7 +87,7 @@ import {
   SILENCE_RMS,
   utteranceVerdict,
 } from "@/voice/audio";
-import { pickChannel } from "@/voice/autojoin";
+import { pickChannel, REJOIN_COOLDOWN_MS, VOICE_SWEEP_INTERVAL_MS } from "@/voice/autojoin";
 import { shouldPlay } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
@@ -2208,6 +2208,15 @@ function checkVoiceSounds(): void {
         ambient: { pool: "ambience", minMinutes: 0, maxMinutes: 0 },
         triggers: [],
       }).ambient?.minMs === AMBIENT_FLOOR_MS,
+  );
+
+  // The sweep is what notices a config edit, since one emits no gateway event.
+  // Slower than the rejoin cooldown would leave the bot out of a channel for
+  // longer than the guard that cooldown exists to enforce.
+  check(
+    "voice/ambient",
+    "the config re-sweep runs often enough to notice an edit",
+    VOICE_SWEEP_INTERVAL_MS >= REJOIN_COOLDOWN_MS && VOICE_SWEEP_INTERVAL_MS <= 300_000,
   );
 
   check(
