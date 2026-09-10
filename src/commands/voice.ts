@@ -3,10 +3,12 @@
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { ambientRunning } from "@/voice/ambient";
+import { refreshGuild } from "@/voice/autojoin";
 import { opusDecoderName } from "@/voice/opus";
 import { closeSession, sessionChannelId } from "@/voice/session";
 import { isVoiceEnabled, setVoiceEnabled } from "@/voice/settings";
 import {
+  hasSomethingToPlay,
   loadSounds,
   resolveClipPath,
   resolveClips,
@@ -103,9 +105,13 @@ function checkLines(guildId: string): string[] {
   const lines: string[] = [];
   let problems = 0;
 
-  if (compiled.triggers.length === 0) {
-    lines.push("⚠️ No usable triggers. Nothing will fire.");
+  // An ambient-only config has no triggers on purpose, so only a config with
+  // nothing at all behind it is a problem worth counting.
+  if (!hasSomethingToPlay(compiled)) {
+    lines.push("⚠️ Nothing is configured to play.");
     problems += 1;
+  } else if (compiled.triggers.length === 0) {
+    lines.push("No triggers configured; ambient sounds only.");
   }
   for (const t of compiled.triggers) {
     const { line, problem } = checkSource(guildId, t.trigger.words.join(", "), t.source);
@@ -183,14 +189,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (sub === "enable") {
     setVoiceEnabled(guildId, true);
     const compiled = loadSounds(guildId);
-    const warning =
-      compiled.triggers.length === 0
-        ? "\n⚠️ No triggers are configured yet, so nothing will play. See `data/readme.md`."
-        : "";
+    // Ambient sounds need no triggers, so asking for triggers alone would warn
+    // that nothing will play while atmosphere is configured and working.
+    const warning = hasSomethingToPlay(compiled)
+      ? ""
+      : "\n⚠️ Nothing is configured to play yet, so the bot will stay out of voice. See `data/readme.md`.";
     await respond(interaction, {
       content: `🎙️ Listening enabled. The bot will join voice channels that have people in them.${warning}`,
       flags: MessageFlags.Ephemeral,
     });
+    // Enabling emits no voice state update, so without this the reply promises
+    // a join that nothing carries out until someone moves channel.
+    if (interaction.guild) await refreshGuild(interaction.guild);
     return;
   }
 

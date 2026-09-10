@@ -13,7 +13,7 @@ import { checkDataRoot } from "@/utils/file";
 import { createLogger, logSettings } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { onVoiceStateUpdate, shutdownVoice, sweepGuilds } from "@/voice/autojoin";
+import { onVoiceStateUpdate, shutdownVoice, startVoiceSweep, sweepGuilds } from "@/voice/autojoin";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
@@ -127,20 +127,29 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
         body: commandData,
       });
       boot.info("commands registered", { count: commandData.length });
-
-      // Anyone already sitting in a call when the bot restarts emits no voice
-      // state update, so without this sweep the bot waits for the next person
-      // to move before it joins anything.
-      void sweepGuilds(client, guildInScope).catch((err: unknown) => {
-        log.warn("startup voice sweep failed", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
     } catch (err) {
       boot.error("command registration failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+
+    // Outside the try above: a rate-limited command registration says nothing
+    // about whether the bot should be in a voice channel, and taking voice
+    // down with it is the kind of failure that looks like a dead bot.
+
+    // Anyone already sitting in a call when the bot restarts emits no voice
+    // state update, so without this sweep the bot waits for the next person
+    // to move before it joins anything.
+    void sweepGuilds(client, guildInScope).catch((err: unknown) => {
+      log.warn("startup voice sweep failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // A config edit emits no gateway event either, so the decision is re-made
+    // on a timer as well: without it, adding the first trigger to a running
+    // bot does nothing until someone moves channel or it is restarted.
+    startVoiceSweep(client, guildInScope);
   });
 }
 
