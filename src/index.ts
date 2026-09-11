@@ -13,6 +13,7 @@ import { checkDataRoot } from "@/utils/file";
 import { createLogger, logSettings } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
+import { seedAllGuilds, seedGuildData } from "@/utils/seedGuild";
 import { onVoiceStateUpdate, shutdownVoice, startVoiceSweep, sweepGuilds } from "@/voice/autojoin";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
@@ -150,8 +151,22 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
     // on a timer as well: without it, adding the first trigger to a running
     // bot does nothing until someone moves channel or it is restarted.
     startVoiceSweep(client, guildInScope);
+
+    // Joining fires guildCreate, but already being in a server fires nothing,
+    // so servers the bot joined before this existed would never get a folder.
+    // Creates only what is missing, so it costs a stat per file after the
+    // first run.
+    const seeded = seedAllGuilds(client.guilds.cache.keys(), guildInScope);
+    if (seeded > 0) boot.info("seeded guild data folders", { guilds: seeded });
   });
 }
+
+client.on("guildCreate", (guild) => {
+  if (!guildInScope(guild.id)) return;
+  // Nothing here is read by the bot; it is a folder and a set of templates so
+  // configuring the server is renaming a file rather than knowing what to make.
+  seedGuildData(guild.id);
+});
 
 client.on("messageCreate", async (message: Message) => {
   if (message.author.bot) return;
