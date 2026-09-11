@@ -6,9 +6,37 @@ import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { InteractionContextType } from "discord-api-types/v10";
-import { ChannelType, ChatInputCommandInteraction, MessageFlags, TextChannel } from "discord.js";
+import {
+  ChannelType,
+  ChatInputCommandInteraction,
+  MessageFlags,
+  PermissionFlagsBits,
+  PermissionsBitField,
+  TextChannel,
+} from "discord.js";
 
 const log = createLogger("cmd/setmediachannel");
+
+/**
+ * What the bot needs in a media channel to move a post into it, paired with
+ * the name Discord shows in its own permission editor so a refusal names the
+ * checkbox to tick rather than a flag.
+ */
+const MEDIA_PERMISSIONS = [
+  { flag: PermissionFlagsBits.ViewChannel, label: "View Channel" },
+  { flag: PermissionFlagsBits.SendMessages, label: "Send Messages" },
+] as const;
+
+/**
+ * Names the permissions the bot is short of in a prospective media channel.
+ * Storing a channel it cannot post in breaks every move made afterwards, and
+ * does so silently at the far end of a flow nobody is watching.
+ * @param perms - The bot's resolved permissions in the channel.
+ * @returns The missing permission names, empty when the channel is usable.
+ */
+export function missingMediaPermissions(perms: Readonly<PermissionsBitField>): string[] {
+  return MEDIA_PERMISSIONS.filter((p) => !perms.has(p.flag)).map((p) => p.label);
+}
 
 /**
  * Command definition for /setmediachannel. The picker only offers text
@@ -49,6 +77,37 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   log.debug("invoked", { guildId, userId, targetChannelId: channel.id });
+
+  // Read the bot's own permissions off the cached channel rather than the
+  // option, which Discord resolves without overwrites applied. Being unable to
+  // read them is not the same as their being absent, so an unresolvable
+  // channel is saved and left to the runtime notice - refusing there would
+  // block a legitimate config over the bot's own missing cache.
+  const resolved = interaction.guild?.channels.cache.get(channel.id);
+  const me = interaction.guild?.members.me;
+  const perms = resolved && me ? resolved.permissionsFor(me) : null;
+  if (perms) {
+    const missing = missingMediaPermissions(perms);
+    if (missing.length > 0) {
+      log.warn("refused a channel the bot cannot post in", {
+        guildId,
+        channelId: channel.id,
+        missing,
+      });
+      await respond(interaction, {
+        content:
+          `❌ I can't post in ${channel} - I'm missing **${missing.join("** and **")}** there.\n` +
+          `Grant me those in that channel and run this again.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  } else {
+    log.warn("could not read own permissions, saving unchecked", {
+      guildId,
+      channelId: channel.id,
+    });
+  }
 
   try {
     const settings = loadSettings(guildId);
