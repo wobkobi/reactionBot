@@ -79,6 +79,7 @@ import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/
 import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
 import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
+import { GUILD_README, seedGuildData, TEMPLATE_SUFFIX } from "@/utils/seedGuild";
 import {
   downsampleToMono16k,
   isSilenceFrame,
@@ -123,7 +124,7 @@ import {
   PermissionsBitField,
   type RepliableInteraction,
 } from "discord.js";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -603,6 +604,63 @@ function checkMediaChannelPermissions(): void {
     "a channel the bot cannot see names both permissions",
     missingMediaPermissions(none).length === 2,
   );
+}
+
+/**
+ * Verifies a newly-joined server gets a folder it can be configured from,
+ * without any of that switching the server off the global config. The
+ * templates are inert by name: every loader asks for an exact filename, so a
+ * template sitting beside it is never read.
+ */
+function checkGuildSeeding(): void {
+  const guild = "__smoketest_seed__";
+  const dir = path.join(ROOT, "data", guild);
+  rmSync(dir, { recursive: true, force: true });
+  try {
+    const templates = readdirSync(path.join(ROOT, "data", "global")).filter((f) =>
+      f.endsWith(TEMPLATE_SUFFIX),
+    );
+    check("seed", "there are templates in data/global to copy", templates.length > 0);
+
+    const created = seedGuildData(guild);
+    check("seed", "seeding creates the folder", existsSync(dir));
+    check("seed", "seeding writes a readme", existsSync(path.join(dir, GUILD_README)));
+    check(
+      "seed",
+      "seeding copies every global template",
+      templates.every((t) => existsSync(path.join(dir, t))),
+    );
+    check("seed", "seeding reports what it wrote", created.length === templates.length + 1);
+
+    // The trap the whole feature has to avoid: a live config name here would
+    // stop the server falling back to data/global, whatever the file held.
+    const live = [
+      "words.json",
+      "sounds.json",
+      "responses.json",
+      "insults.json",
+      "definitions.json",
+    ];
+    check(
+      "seed",
+      "seeding creates no live config file",
+      live.every((f) => !existsSync(path.join(dir, f))),
+    );
+
+    check("seed", "seeding again writes nothing", seedGuildData(guild).length === 0);
+
+    // A template someone has started editing must survive the next sweep.
+    const edited = path.join(dir, templates[0]!);
+    writeFileSync(edited, "// edited by hand\n{}", "utf-8");
+    seedGuildData(guild);
+    check(
+      "seed",
+      "seeding never overwrites an existing file",
+      readFileSync(edited, "utf-8").startsWith("// edited by hand"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -2610,6 +2668,7 @@ void (async () => {
     await checkRepostOrdering();
     await checkRepostFailureReporting();
     checkMediaChannelPermissions();
+    checkGuildSeeding();
     checkRepostStore();
     checkDeletionLogPruning();
     checkRetention();

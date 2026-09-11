@@ -5,6 +5,12 @@ each server gets its own `data/<guildId>/` folder for settings, counters and
 repost records (all managed by the bot - you normally only edit the global
 config).
 
+The bot creates that folder when it joins a server, and fills it with a copy of
+every `.example.jsonc` template plus a note explaining them. Nothing it puts
+there is read: the templates are a starting point for the overrides below, and
+renaming one is what switches it on. It only ever creates what is missing, so a
+file you have edited is never touched.
+
 ## How a server overrides the global config
 
 One rule, the same for every config file below:
