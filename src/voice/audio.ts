@@ -32,8 +32,22 @@ const INT16_SCALE = 32_768;
  */
 export const MIN_UTTERANCE_SAMPLES = TARGET_RATE * 0.25;
 
-/** Longest utterance held before flushing: 12s at the target rate. */
-export const MAX_UTTERANCE_SAMPLES = TARGET_RATE * 12;
+/**
+ * Fresh speech between cuts while someone keeps talking: 1.5s at the target
+ * rate. Whisper pads every call to 30s, so a chunk costs the same ~400ms as a
+ * whole utterance, and this sets the trade: a word inside a sentence fires
+ * within about a chunk plus that, and each speaker costs about a third of a
+ * core while talking. Halving it roughly doubles the load.
+ */
+export const CHUNK_SAMPLES = TARGET_RATE * 1.5;
+
+/**
+ * Tail of one chunk repeated at the start of the next: 0.6s at the target
+ * rate, longer than a spoken word, so a word cut in half by a chunk boundary
+ * is heard whole in the next chunk. A trigger inside the overlap can match
+ * twice; the pool cooldown floor absorbs the second.
+ */
+export const CHUNK_OVERLAP_SAMPLES = TARGET_RATE * 0.6;
 
 /**
  * Loudness below which an utterance counts as silence. Whisper invents fixed
