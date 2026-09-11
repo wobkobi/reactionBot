@@ -6,11 +6,14 @@
 //
 //   npx tsx scripts/smoke-test.ts [--verbose]   # --verbose echoes every check
 
+import { data as autoJoin } from "@/commands/autojoin";
 import { data as calmDown } from "@/commands/calmdown";
 import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
 import { buildListLines } from "@/commands/gif";
 import { buildHelpFields } from "@/commands/help";
+import { data as joinCommand } from "@/commands/join";
+import { data as kickCommand, mayKick } from "@/commands/kick";
 import { data as myDelay, resolvePref } from "@/commands/mydelay";
 import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
 import { missingMediaPermissions, data as setMediaChannel } from "@/commands/setmediachannel";
@@ -89,7 +92,15 @@ import {
   SILENCE_RMS,
   utteranceVerdict,
 } from "@/voice/audio";
-import { pickChannel, REJOIN_COOLDOWN_MS, VOICE_SWEEP_INTERVAL_MS } from "@/voice/autojoin";
+import {
+  CONTEST_COOLDOWN_MS,
+  CONTEST_THRESHOLD,
+  CONTEST_WINDOW_MS,
+  contestVerdict,
+  pickChannel,
+  REJOIN_COOLDOWN_MS,
+  VOICE_SWEEP_INTERVAL_MS,
+} from "@/voice/autojoin";
 import { clipVerdict } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
@@ -1742,6 +1753,9 @@ function checkCommandVisibility(): void {
     swearsCommand,
     slursCommand,
     voiceCommand,
+    autoJoin,
+    kickCommand,
+    joinCommand,
   ];
   // Registering any default permission would silently reinstate the gate the
   // owner grant cannot beat, so this is the invariant the rest rests on.
@@ -2528,6 +2542,104 @@ function checkVoiceJoinRules(): void {
     "voice/join",
     "leaving is chosen when nothing qualifies",
     pickChannel([{ ...ok, humans: 0 }], 1, "100") === null,
+  );
+
+  // /join asks from a channel, and the answer has to be that channel: picking
+  // the busiest one instead puts the bot everywhere except where it was asked.
+  const busier = { ...base, channelId: "200", humans: 9 };
+  check(
+    "voice/join",
+    "the caller's channel wins over a busier one",
+    pickChannel([ok, busier], 1, null, "100") === "100",
+  );
+  check(
+    "voice/join",
+    "the caller's channel pulls the bot out of another call",
+    pickChannel([ok, busier], 1, "200", "100") === "100",
+  );
+  // Being asked is the signal minMembers stands in for, so it gives way.
+  check(
+    "voice/join",
+    "the caller's channel beats minMembers",
+    pickChannel([{ ...ok, humans: 1 }], 5, null, "100") === "100",
+  );
+  check(
+    "voice/join",
+    "a caller's channel the bot cannot use falls back to the busiest",
+    pickChannel([{ ...ok, canConnect: false }, busier], 1, null, "100") === "200" &&
+      pickChannel([{ ...ok, isAfk: true }, busier], 1, null, "100") === "200",
+  );
+  // The caller can leave between running the command and this deciding.
+  check(
+    "voice/join",
+    "a caller's channel that emptied is not joined",
+    pickChannel([{ ...ok, humans: 0 }], 1, null, "100") === null,
+  );
+  check(
+    "voice/join",
+    "a request changes nothing when the caller is in no channel",
+    pickChannel([ok, busier], 1, null, null) === "200",
+  );
+
+  // Being in the call is what earns the right to end it; without this anyone
+  // in the server can boot the bot out of a call they are not part of.
+  check("voice/kick", "someone in the call may kick", mayKick("100", "100", false));
+  check("voice/kick", "someone in another call may not", !mayKick("200", "100", false));
+  check("voice/kick", "someone in no call at all may not", !mayKick(null, "100", false));
+  check(
+    "voice/kick",
+    "an admin may kick without joining the call",
+    mayKick(null, "100", true) && mayKick("200", "100", true),
+  );
+
+  // Asking the bot to come or go is ordinary, and stays ordinary. The coin is
+  // only for a server using the pair to tug the bot back and forth.
+  // One run per millisecond, which is as contested as a call gets.
+  const spam = Array.from({ length: CONTEST_THRESHOLD }, (_, i) => i);
+  const settled = spam[spam.length - 1]! + CONTEST_COOLDOWN_MS;
+
+  check(
+    "voice/contest",
+    "the first run just does as it is told",
+    contestVerdict([], 0, 0.99) === "allowed",
+  );
+  check(
+    "voice/contest",
+    "a run short of the threshold is still not a contest",
+    contestVerdict(spam.slice(1), settled, 0.99) === "allowed",
+  );
+  check(
+    "voice/contest",
+    "the coin takes over once the threshold is passed",
+    contestVerdict(spam, settled, 0) === "won" && contestVerdict(spam, settled, 0.99) === "lost",
+  );
+  check(
+    "voice/contest",
+    "the coin is even",
+    contestVerdict(spam, settled, 0.49) === "won" && contestVerdict(spam, settled, 0.5) === "lost",
+  );
+  // The wait is what stops the coin being tossed until it agrees with you.
+  check(
+    "voice/contest",
+    "a contested call waits between tosses, however the roll falls",
+    contestVerdict(spam, spam[spam.length - 1]! + 1, 0) === "cooldown" &&
+      contestVerdict(spam, spam[spam.length - 1]! + 1, 0.99) === "cooldown",
+  );
+  // Otherwise a quiet server would stay contested for good over a spat weeks ago.
+  check(
+    "voice/contest",
+    "runs that have aged out stop counting",
+    contestVerdict(spam, CONTEST_WINDOW_MS + spam.length, 0.99) === "allowed",
+  );
+  // The pairing the whole thing rests on. Let the wait outlive the window and
+  // the runs that made a call contested age out while people sit through it,
+  // so every attempt comes back "allowed" and the coin is never tossed - a
+  // dead feature that nothing else here would notice.
+  check(
+    "voice/contest",
+    "the window outlives the wait, so a contest survives its own cooldown",
+    CONTEST_WINDOW_MS > CONTEST_COOLDOWN_MS &&
+      contestVerdict(spam, spam[spam.length - 1]! + CONTEST_COOLDOWN_MS, 0) === "won",
   );
 
   check(

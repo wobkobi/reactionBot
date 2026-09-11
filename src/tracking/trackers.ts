@@ -36,7 +36,7 @@ export const SWEARS: Tracker = {
   name: "swears",
   noun: "swear",
   verbPast: "said",
-  description: "Swear and insult tracking",
+  description: "🤬 Swear and insult tracking",
   topTitle: "Swearboard",
   wordsTitle: "Most-used swears",
 };
@@ -48,7 +48,7 @@ export const SLURS: Tracker = {
   name: "slurs",
   noun: "slur",
   verbPast: "said",
-  description: "Slur tracking",
+  description: "🚫 Slur tracking",
   topTitle: "Slur offenders",
   wordsTitle: "Most-used slurs",
 };

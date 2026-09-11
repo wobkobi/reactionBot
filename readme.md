@@ -114,18 +114,18 @@ Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete p
 
 ### Voice
 
-| Command          | What it does                                            |
-| ---------------- | ------------------------------------------------------- |
-| `/voice enable`  | Let the bot join voice channels here and listen (admin) |
-| `/voice disable` | Stop listening here (admin)                             |
-| `/voice leave`   | Leave the current channel, keeping the setting (admin)  |
-| `/voice status`  | Channel, model, decoder and trigger count (admin)       |
-| `/voice check`   | Report any sound config that does not resolve (admin)   |
+| Command             | What it does                                                           |
+| ------------------- | ---------------------------------------------------------------------- |
+| `/autojoin on\|off` | Whether the bot joins calls on its own (admin)                         |
+| `/voice status`     | Autojoin state, channel, model, decoder and trigger count (admin)      |
+| `/voice check`      | Report any sound config that does not resolve (admin)                  |
+| `/kick`             | Throw the bot out of your call; a tug of war gets settled by coin toss |
+| `/join`             | Bring the bot into your own call, autojoin or not                      |
 
-Once enabled it joins any channel with people in it and leaves when they go. Expect a second or two
-between the word and the clip, since it waits for the speaker to stop before transcribing. Several
-trigger words can share one clip pool, and mishearings are handled automatically, so there is no
-list of variants to maintain.
+With autojoin on it joins any channel with people in it and leaves when they go. Speech is
+transcribed in short chunks as it arrives, so a word inside a long sentence fires about a second
+after it is said rather than after the sentence ends. Several trigger words can share one clip pool,
+and mishearings are handled automatically, so there is no list of variants to maintain.
 
 ## Development
 

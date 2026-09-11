@@ -30,7 +30,13 @@ function botOwnerId(): string | undefined {
  * without Manage Server. Authorisation is {@link requireAdmin} at runtime
  * instead, and `/help` uses this list to keep them out of a member's listing.
  */
-export const ADMIN_COMMANDS: string[] = ["calmdown", "setdelay", "setmediachannel", "voice"];
+export const ADMIN_COMMANDS: string[] = [
+  "autojoin",
+  "calmdown",
+  "setdelay",
+  "setmediachannel",
+  "voice",
+];
 
 /**
  * Subcommands that need admin on commands that are otherwise open to everyone,
