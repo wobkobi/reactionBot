@@ -6,6 +6,27 @@ import { GuildTextBasedChannel, Message, TextChannel } from "discord.js";
 const log = createLogger("media/repost");
 
 /**
+ * API error codes that mean the target has refused the bot: 50001 Missing
+ * Access (it cannot see the channel), 50013 Missing Permissions (it can see it
+ * but may not post). Both apply to the channel, not to the payload, so every
+ * send to that channel fails identically until someone changes a permission.
+ */
+const BLOCKED_CODES = new Set<number | string>([50001, 50013]);
+
+/**
+ * Whether a send failure is one a differently-shaped retry cannot fix. Nothing
+ * is assumed about the rejection's shape: anything can be thrown, and a
+ * cross-realm DiscordAPIError fails an `instanceof` check.
+ * @param err - The rejection from the failed send.
+ * @returns `true` when the target refused the bot rather than the payload.
+ */
+export function blocksRetry(err: unknown): boolean {
+  if (typeof err !== "object" || err === null || !("code" in err)) return false;
+  const code = (err as { code: unknown }).code;
+  return (typeof code === "number" || typeof code === "string") && BLOCKED_CODES.has(code);
+}
+
+/**
  * Build the moved-message content for the target channel. Includes the
  * rewritten text (which contains the transformed link) so Discord renders the
  * embed.
@@ -59,8 +80,8 @@ export function buildPointerContent(
  * @param source Source channel.
  * @param target Target channel.
  * @param withStub When true and channels differ, leave a pointer in the source channel.
- * @returns The moved message, optional pointer, and link URL; all empty when
- * the post could not be made and nothing was moved.
+ * @returns The moved message, optional pointer, and link URL; or a `failure`
+ * alone when the post could not be made and nothing was moved.
  */
 export async function repostWithOptionalStub(
   original: Message<true>,
@@ -88,18 +109,23 @@ export async function repostWithOptionalStub(
   // target - and deleting first would destroy the poster's message with
   // nothing put back in its place.
   let moved: Message<true> | undefined;
+  let blocked = false;
   try {
     moved = await (target as TextChannel).send(files.length ? { ...payload, files } : payload);
   } catch (err) {
+    blocked = blocksRetry(err);
     log.warn("repost send failed", {
       targetId: target.id,
       files: files.length,
+      blocked,
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  if (!moved && files.length) {
+  if (!moved && files.length && !blocked) {
     // Re-upload can fail on its own (e.g. a file over the bot's upload
-    // limit); fall back to appending the CDN links so nothing is lost.
+    // limit); fall back to appending the CDN links so nothing is lost. A
+    // target that refused the first send refuses this one too, so a blocked
+    // send skips it rather than spending a request on a certain failure.
     moved = await (target as TextChannel)
       .send({ ...payload, content: `${payload.content}\n${files.join("\n")}` })
       .catch(() => undefined);
@@ -108,8 +134,9 @@ export async function repostWithOptionalStub(
     log.error("repost failed, original left in place", {
       targetId: target.id,
       originalId: original.id,
+      blocked,
     });
-    return {};
+    return { failure: blocked ? "blocked" : "failed" };
   }
   log.info("posted moved message", { movedId: moved.id, targetId: target.id });
 

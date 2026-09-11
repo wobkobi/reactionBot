@@ -96,6 +96,12 @@ export interface RepostOutcome {
   moved?: Message<true>;
   stub?: Message<true>;
   linkUrl?: string;
+  /**
+   * Why nothing was posted, absent when the move went through. "blocked" means
+   * the target refused the bot outright, which is the one cause an admin can
+   * fix and so is worth naming to the poster; "failed" is everything else.
+   */
+  failure?: "blocked" | "failed";
 }
 
 export interface ApprovalOptions {

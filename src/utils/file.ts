@@ -97,7 +97,11 @@ export function loadData<T>(guildId: string, fileName: string, opts?: LoadOption
 
   if (!fs.existsSync(filePath)) {
     if (opts?.soft) {
-      log.debug("missing file, returning default", { filePath });
+      // Not logged: a soft read treats absence as the normal state and has a
+      // default ready for it, so nothing has gone wrong worth recording. The
+      // callers include per-minute polls against guilds that have never been
+      // configured, which would otherwise fill the log with a line a minute
+      // saying a file nobody asked for is still not there.
       return (opts.defaultValue ?? ({} as T)) as T;
     }
     log.error("data file not found", { filePath });

@@ -65,6 +65,22 @@ export function copyHintFor(isTrackingClean: boolean, sameChannel: boolean): str
 }
 
 /**
+ * Wording for a move that could not be made. The poster approved something
+ * that then did not happen, and their message is still sitting where they put
+ * it, so silence reads as the bot having ignored them - they answer the next
+ * prompt the same way and get the same nothing. A refused target names the
+ * permission, since that is the one cause somebody reading can act on.
+ * @param target - Channel mention of the destination, or null for a rewrite in place.
+ * @param blocked - Whether the destination refused the bot outright.
+ * @returns The notice to post under the poster's message.
+ */
+export function buildFailureNotice(target: string | null, blocked: boolean): string {
+  const what = target ? `move that to ${target}` : "rewrite that here";
+  const why = blocked ? ` - I'm missing permission to post ${target ? "there" : "here"}` : "";
+  return `⚠️ I couldn't ${what}${why}. Your message has been left where it is.`;
+}
+
+/**
  * Handles a message: detect media links, get approval, and repost/notify.
  *
  * Special-case when target == source:
@@ -163,23 +179,43 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     target,
     !sameChannel,
   );
+
+  // A move that did not happen is not a complete one, and the poster is owed
+  // the reason. The notice is a reply so it sits under the message it is about,
+  // and pings nobody - not even through the reply itself.
+  if (!outcome.moved) {
+    log.warn("repost did not happen", {
+      guildId: message.guildId!,
+      from: source.id,
+      to: target.id,
+      failure: outcome.failure ?? "failed",
+    });
+    await message
+      .reply({
+        content: buildFailureNotice(
+          sameChannel ? null : `<#${target.id}>`,
+          outcome.failure === "blocked",
+        ),
+        allowedMentions: { parse: [], repliedUser: false },
+      })
+      .catch((err: unknown) => {
+        log.warn("failure notice send failed", {
+          sourceId: source.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return;
+  }
+
   log.info("repost complete", {
     guildId: message.guildId!,
     from: source.id,
     to: target.id,
-    movedId: outcome.moved?.id ?? null,
+    movedId: outcome.moved.id,
     stubId: outcome.stub?.id ?? null,
   });
 
   // Author-only Edit/Delete buttons with audit + stub cleanup (persisted, so
   // they keep working after restarts)
-  if (outcome.moved) {
-    registerRepostActions(
-      outcome.moved,
-      message.author.id,
-      message.id,
-      source.id,
-      outcome.stub?.id,
-    );
-  }
+  registerRepostActions(outcome.moved, message.author.id, message.id, source.id, outcome.stub?.id);
 }

@@ -13,7 +13,7 @@ import { buildListLines } from "@/commands/gif";
 import { buildHelpFields } from "@/commands/help";
 import { data as myDelay, resolvePref } from "@/commands/mydelay";
 import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
-import { data as setMediaChannel } from "@/commands/setmediachannel";
+import { missingMediaPermissions, data as setMediaChannel } from "@/commands/setmediachannel";
 import { data as slursCommand } from "@/commands/slurs";
 import { data as swearsCommand } from "@/commands/swears";
 import { data as voiceCommand } from "@/commands/voice";
@@ -24,6 +24,7 @@ import { buildCopyMessage } from "@/media/copyLink";
 import { matchAny } from "@/media/match";
 import { clampPref, clearPref, loadPref, savePref } from "@/media/prefs";
 import {
+  blocksRetry,
   buildMovedContent,
   buildPointerContent,
   collectMentions,
@@ -34,7 +35,7 @@ import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/med
 import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
-import { copyHintFor } from "@/media/workflow";
+import { buildFailureNotice, copyHintFor } from "@/media/workflow";
 import { trackerCommand } from "@/tracking/commands";
 import {
   compileEntries,
@@ -118,6 +119,8 @@ import {
   type Message,
   type MessageContextMenuCommandInteraction,
   MessageFlags,
+  PermissionFlagsBits,
+  PermissionsBitField,
   type RepliableInteraction,
 } from "discord.js";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -418,34 +421,59 @@ function checkRepostContent(): void {
  * Builds the fakes {@link repostWithOptionalStub} touches, with a scripted send.
  * @param send - Stands in for the target channel's send, resolving with a moved
  * message or rejecting the way Discord would.
- * @returns The fake original and channels, plus a reader for whether the
- * original ended up deleted.
+ * @param attachmentUrl - CDN URL of one attachment on the original, omitted
+ * for a message that carries none.
+ * @returns The fake original and channels, plus readers for whether the
+ * original ended up deleted and how many sends the target took.
  */
-function fakeMove(send: () => Promise<unknown>): {
+function fakeMove(
+  send: () => Promise<unknown>,
+  attachmentUrl?: string,
+): {
   original: Message<true>;
   source: GuildTextBasedChannel;
   target: GuildTextBasedChannel;
   deleted: () => boolean;
+  sends: () => number;
 } {
   let deleted = false;
+  let sends = 0;
   const original = {
     id: "orig1",
     author: { id: "1" },
     content: "look https://x.com/a/status/1",
-    attachments: new Map(),
+    attachments: attachmentUrl ? new Map([["a1", { url: attachmentUrl }]]) : new Map(),
     delete: async () => {
       deleted = true;
       return original;
     },
   };
   const source = { id: "c1", send: async () => ({ id: "stub1" }) };
-  const target = { id: "c2", send };
+  const target = {
+    id: "c2",
+    send: async () => {
+      sends += 1;
+      return send();
+    },
+  };
   return {
     original: original as unknown as Message<true>,
     source: source as unknown as GuildTextBasedChannel,
     target: target as unknown as GuildTextBasedChannel,
     deleted: () => deleted,
+    sends: () => sends,
   };
+}
+
+/**
+ * Builds the rejection discord.js raises for an API refusal, which carries the
+ * numeric code the retry decision reads.
+ * @param code - Discord API error code, e.g. 50001 for Missing Access.
+ * @param message - The message Discord returned.
+ * @returns A rejection shaped like a DiscordAPIError.
+ */
+function apiError(code: number, message: string): Error & { code: number } {
+  return Object.assign(new Error(message), { code });
 }
 
 /**
@@ -479,6 +507,102 @@ async function checkRepostOrdering(): Promise<void> {
   check("repost", "a successful post returns the moved message", done.moved?.id === "moved1");
   check("repost", "a successful post deletes the original", working.deleted());
   check("repost", "a successful cross-channel post leaves a pointer", done.stub?.id === "stub1");
+}
+
+/**
+ * Verifies what a failed move reports and what it retries. A target that
+ * refuses the bot refuses the attachment fallback in exactly the same way, so
+ * spending a second request on it only delays telling the poster.
+ */
+async function checkRepostFailureReporting(): Promise<void> {
+  const blocked = fakeMove(
+    () => Promise.reject(apiError(50001, "Missing Access")),
+    "https://cdn.discordapp.com/a.png",
+  );
+  const refused = await repostWithOptionalStub(
+    blocked.original,
+    "look https://fixupx.com/a/status/1",
+    blocked.source,
+    blocked.target,
+    true,
+  );
+  check("repost", "a refused target is reported as blocked", refused.failure === "blocked");
+  check("repost", "a refused target is not retried with links", blocked.sends() === 1);
+
+  const tooBig = fakeMove(
+    () => Promise.reject(apiError(40005, "Request entity too large")),
+    "https://cdn.discordapp.com/big.mov",
+  );
+  await repostWithOptionalStub(
+    tooBig.original,
+    "look https://fixupx.com/a/status/1",
+    tooBig.source,
+    tooBig.target,
+    true,
+  );
+  check("repost", "an oversized upload falls back to the CDN links", tooBig.sends() === 2);
+
+  const broken = fakeMove(() => Promise.reject(new Error("content too long")));
+  const failed = await repostWithOptionalStub(
+    broken.original,
+    "look https://fixupx.com/a/status/1",
+    broken.source,
+    broken.target,
+    true,
+  );
+  check("repost", "any other failure is reported as failed", failed.failure === "failed");
+
+  check(
+    "repost",
+    "codes a retry cannot fix block it",
+    blocksRetry(apiError(50001, "Missing Access")) &&
+      blocksRetry(apiError(50013, "Missing Permissions")) &&
+      !blocksRetry(apiError(40005, "Request entity too large")) &&
+      !blocksRetry(new Error("content too long")),
+  );
+
+  check(
+    "repost",
+    "a blocked move names the channel and the reason",
+    buildFailureNotice("<#2>", true).includes("<#2>") &&
+      buildFailureNotice("<#2>", true).includes("permission") &&
+      !buildFailureNotice("<#2>", false).includes("permission"),
+  );
+  check(
+    "repost",
+    "a same-channel failure names no channel",
+    !buildFailureNotice(null, true).includes("<#"),
+  );
+}
+
+/**
+ * Verifies /setmediachannel names every permission it needs before saving.
+ * A channel the bot cannot post in silently breaks every move made afterwards.
+ */
+function checkMediaChannelPermissions(): void {
+  const all = new PermissionsBitField([
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+  ]);
+  check(
+    "media-channel",
+    "a fully permitted channel is accepted",
+    missingMediaPermissions(all).length === 0,
+  );
+
+  const viewOnly = new PermissionsBitField([PermissionFlagsBits.ViewChannel]);
+  check(
+    "media-channel",
+    "a channel the bot cannot post in names Send Messages",
+    missingMediaPermissions(viewOnly).join() === "Send Messages",
+  );
+
+  const none = new PermissionsBitField();
+  check(
+    "media-channel",
+    "a channel the bot cannot see names both permissions",
+    missingMediaPermissions(none).length === 2,
+  );
 }
 
 /**
@@ -2484,6 +2608,8 @@ void (async () => {
     checkLinkTransforms();
     checkRepostContent();
     await checkRepostOrdering();
+    await checkRepostFailureReporting();
+    checkMediaChannelPermissions();
     checkRepostStore();
     checkDeletionLogPruning();
     checkRetention();
