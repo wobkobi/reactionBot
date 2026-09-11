@@ -18,7 +18,7 @@ const ADMIN_MARK = "🔒";
 /** Slash command definition for `/help`. */
 export const data = new SlashCommandBuilder()
   .setName("help")
-  .setDescription("Show all commands and what they do")
+  .setDescription("❓ Show all commands and what they do")
   .setContexts(InteractionContextType.Guild);
 
 /**

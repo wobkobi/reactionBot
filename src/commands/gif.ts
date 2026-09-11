@@ -25,11 +25,11 @@ import {
 /** Slash command definition for `/gif` and its subcommands. */
 export const data = new SlashCommandBuilder()
   .setName("gif")
-  .setDescription("Manage the GIFs the bot replies with")
+  .setDescription("🖼️ Manage the GIFs the bot replies with")
   .addSubcommand((sub) =>
     sub
       .setName("add")
-      .setDescription("Add a reply GIF to a category - anyone can do this")
+      .setDescription("Add a reply GIF to a category")
       .addStringOption((opt) =>
         opt
           .setName("category")

@@ -159,8 +159,15 @@ The bot can sit in a voice channel, listen to what people say, and play a clip
 back when it hears a trigger. Speech is transcribed locally with Whisper; no
 audio and no transcript leaves the machine or is written to disk.
 
-Off until someone runs `/voice enable` in the server. Once on, the bot joins any
-voice channel that has people in it and leaves when the channel empties.
+Off until an admin runs `/autojoin on` in the server. Once on, the bot joins any
+voice channel that has people in it and leaves when the channel empties. `/join`
+brings it into your own channel on request either way. Anyone sitting in the
+call can `/kick` it out, and an admin can from anywhere.
+
+Both commands simply do as they are told. If they are used over and over, the
+bot reads it as two people tugging at it and starts settling each one with a
+coin toss, two and a half minutes apart, so there is nothing to be won by
+asking again. It goes back to answering plainly once the flurry dies down.
 
 `sounds.example.jsonc` is the template, and it explains every setting inline.
 Copy it to `sounds.json` here, or to `data/<guildId>/sounds.json` for one
@@ -200,7 +207,7 @@ rather than sitting in the log.
 | `phonetic` | Automatic soundalike matching. Default true. |
 | `ignore` | Phrases that never count. |
 | `logTranscripts` | Echo what was heard. Off by default: it writes what people say in voice chat to the log. |
-| `enabled` | Config-wide default for the per-guild switch. `/voice enable` overrides it. |
+| `enabled` | Config-wide default for the per-guild switch. `/autojoin on` overrides it. |
 
 **Several words, one sound.** Point as many triggers as you like at the same
 pool. Three unrelated words sharing one set of clips is the normal case, not a
@@ -259,7 +266,7 @@ is converted once with ffmpeg and cached.
 - `models/` - the downloaded Whisper model (a few hundred MB, fetched on first
   use). Safe to delete; it is re-downloaded. Set `VOICE_MODEL_DIR` to move it.
 - `<guildId>/voice.json` - whether voice listening is on for that server
-  (managed by `/voice enable` and `/voice disable`).
+  (managed by `/autojoin on` and `/autojoin off`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
 - `<guildId>/calm.json` - the calm-mode window (managed by the bot and

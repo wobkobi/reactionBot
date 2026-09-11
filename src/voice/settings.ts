@@ -1,9 +1,9 @@
 // src/voice/settings.ts
 
-// Per-guild switch for voice listening. Defaults to off: the bot auto-joins
-// populated channels and transcribes whoever is in them, which is the most
-// intrusive thing it does, so a server opts in once with /voice enable rather
-// than finding the bot already sitting in a call.
+// Per-guild autojoin switch. Defaults to off: turning up in populated channels
+// uninvited and transcribing whoever is in them is the most intrusive thing the
+// bot does, so a server opts in once with /autojoin on rather than finding the
+// bot already sitting in a call. /join works either way.
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
@@ -11,12 +11,15 @@ import { loadSounds } from "@/voice/sounds";
 
 const log = createLogger("voice/settings");
 
-/** Storage filename for the per-guild voice switch. */
+/** Storage filename for the per-guild autojoin switch. */
 export const VOICE_FILE = "voice.json";
 
 /** Stored voice state for one guild. */
 export interface VoiceSettings {
-  /** Explicit opt-in or opt-out; absent falls back to the sounds config. */
+  /**
+   * Explicit autojoin opt-in or opt-out; absent falls back to the sounds
+   * config. Stored as `enabled`, the key the file has always used.
+   */
   enabled?: boolean;
 }
 
@@ -30,25 +33,25 @@ export function readVoiceSettings(guildId: string): VoiceSettings {
 }
 
 /**
- * Checks whether the bot may listen in a guild. An explicit `/voice enable` or
- * `/voice disable` always wins; with neither, the sounds config's own `enabled`
- * decides, which lets someone running their own instance switch it on for every
- * guild at once.
+ * Checks whether the bot joins calls in a guild on its own. An explicit
+ * `/autojoin on` or `/autojoin off` always wins; with neither, the sounds
+ * config's own `enabled` decides, which lets someone running their own
+ * instance switch it on for every guild at once.
  * @param guildId - Discord guild (server) ID.
- * @returns `true` when voice listening is on for the guild.
+ * @returns `true` when the bot may join populated channels uninvited.
  */
-export function isVoiceEnabled(guildId: string): boolean {
+export function isAutojoin(guildId: string): boolean {
   const stored = readVoiceSettings(guildId).enabled;
   if (typeof stored === "boolean") return stored;
   return loadSounds(guildId).config.enabled ?? false;
 }
 
 /**
- * Stores a guild's voice switch.
+ * Stores a guild's autojoin switch.
  * @param guildId - Discord guild (server) ID.
- * @param enabled - Whether the bot may listen.
+ * @param enabled - Whether the bot may join populated channels uninvited.
  */
-export function setVoiceEnabled(guildId: string, enabled: boolean): void {
+export function setAutojoin(guildId: string, enabled: boolean): void {
   saveData<VoiceSettings>(guildId, VOICE_FILE, { ...readVoiceSettings(guildId), enabled });
-  log.info("voice switch saved", { guildId, enabled });
+  log.info("autojoin switch saved", { guildId, enabled });
 }
