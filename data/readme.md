@@ -237,6 +237,35 @@ someone earned.
 The short version: Opus in an Ogg or WebM container plays as-is, anything else
 is converted once with ffmpeg and cached.
 
+## entrances.json - entrance posts
+
+A message dropped in a text channel the first time the bot hears someone speak
+in voice each day. `entrances.example.jsonc` is the template; copy it to
+`entrances.json` here, or to `data/<guildId>/entrances.json` for one server.
+
+```jsonc
+{
+  "channelId": "123456789012345678",
+  "entrances": [{ "users": ["987654321098765432"], "message": "https://tenor.com/view/woody-gif" }]
+}
+```
+
+| Key         | What it does                                                             |
+| ----------- | ------------------------------------------------------------------------ |
+| `channelId` | Text channel the entrances are posted in. Nothing posts without one.     |
+| `users`     | Discord user IDs sharing this entrance.                                  |
+| `message`   | What to post. A link on its own embeds. An empty one switches it off.    |
+
+Speech is what fires it, not the join, so sitting in a channel silently never
+triggers one. The bot only hears people in the channel it is sitting in, so an
+entrance needs the bot already in the call: with `/autojoin on` it will be
+there as soon as somebody is, and otherwise someone has to run `/join` first.
+
+Once per person per calendar day, on the machine's local clock, and silenced
+during calm mode along with every other reply. Mentions in the message never
+ping. If the channel is missing or the bot cannot write to it, the day is not
+counted as spent and the next thing they say tries again.
+
 ## Other files
 
 - `global/responses.json` - reply pools per word type (`responses.example.jsonc`
@@ -269,6 +298,9 @@ is converted once with ffmpeg and cached.
   (managed by `/autojoin on` and `/autojoin off`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
+- `<guildId>/entrances_seen.json` - who has already had their entrance today,
+  so a restart does not hand it out again (managed by the bot). Yesterday's
+  entries are dropped as it writes.
 - `<guildId>/calm.json` - the calm-mode window (managed by the bot and
   `/calmdown`).
 - `<guildId>/*_counts.json` - tracker counters, including

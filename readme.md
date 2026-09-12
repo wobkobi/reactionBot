@@ -21,6 +21,8 @@ hears a word.
   was meant, and the bot posts that definition.
 - **Voice sound bites** - the bot listens in voice channels, transcribes locally with Whisper, and
   plays a clip when it hears a trigger word.
+- **Entrances** - a configured member gets a video posted in a text channel the first time the bot
+  hears them speak each day.
 
 Replies are rate-limited per person and go quiet during calm mode. Reactions and counting carry on
 regardless.
@@ -39,8 +41,8 @@ npm start              # or: npm run dev
 ```
 
 Configuration and per-server data live in `data/`, as JSON, relative to the working directory. Word
-lists, replies and voice triggers are all hand-edited files, picked up without a restart. See
-[data/readme.md](data/readme.md) for every file and its format.
+lists, replies, voice triggers and entrances are all hand-edited files, picked up without a restart.
+See [data/readme.md](data/readme.md) for every file and its format.
 
 `data/global/words.json` is gitignored because it contains the slur list, so bring your own on a
 fresh deploy.

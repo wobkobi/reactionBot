@@ -24,6 +24,7 @@ import {
   TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
+import { announceEntrance } from "@/voice/entrance";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
 import {
   clipStatus,
@@ -330,6 +331,12 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
   });
 
   connection.receiver.speaking.on("start", (userId: string) => {
+    if (channel.client.users.cache.get(userId)?.bot) return;
+    // Ahead of the capture guards: someone's entrance should not depend on
+    // whether there was room left to transcribe them, and announceEntrance
+    // does nothing after the first time it fires for them today.
+    void announceEntrance(channel.guild, userId);
+
     if (session.capturing.has(userId)) return;
     if (session.capturing.size >= MAX_CAPTURED_SPEAKERS) {
       log.debug("speaker not captured, already at the cap", {
@@ -339,7 +346,6 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
       });
       return;
     }
-    if (channel.client.users.cache.get(userId)?.bot) return;
     session.capturing.add(userId);
     captureSpeaker(session, guildId, userId);
   });
