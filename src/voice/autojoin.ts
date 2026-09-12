@@ -8,6 +8,7 @@
 // cooldown, the session cap - only decides when to ask.
 
 import { createLogger } from "@/utils/log";
+import { noteJoin } from "@/voice/entrance";
 import {
   activeSessions,
   closeAllSessions,
@@ -15,6 +16,7 @@ import {
   joiningChannelId,
   openSession,
   sessionChannelId,
+  sessionConnection,
 } from "@/voice/session";
 import { isAutojoin } from "@/voice/settings";
 import { hasSomethingToPlay, loadSounds } from "@/voice/sounds";
@@ -330,6 +332,15 @@ export async function onVoiceStateUpdate(
   const guild = newState.guild ?? oldState.guild;
   if (!guild) return;
   if (newState.member?.user.bot && oldState.member?.user.bot) return;
+
+  // Arriving somewhere, rather than leaving: an entrance is owed either to the
+  // channel the bot is already in, or to the one this join is about to bring it
+  // to. The reconcile below is what does the bringing.
+  const userId = newState.member?.id;
+  if (newState.channelId && userId && !newState.member?.user.bot) {
+    const here = sessionChannelId(guild.id) === newState.channelId;
+    void noteJoin(guild, userId, newState.channelId, here ? sessionConnection(guild.id) : null);
+  }
   scheduleReconcile(guild);
 }
 

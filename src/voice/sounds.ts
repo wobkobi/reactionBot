@@ -45,6 +45,33 @@ export interface SoundTrigger {
   cooldownMs?: number;
 }
 
+/** One person's entrance: what plays as they arrive, and what gets posted. */
+export interface Entrance {
+  /** Discord user IDs this applies to; several can share one entrance. */
+  users: string[];
+  /** Text to post. A link on its own line embeds; anything else is sent as written. */
+  message?: string;
+  /**
+   * A file to attach, named relative to the entrances folder. Preferred over a
+   * link for anything that has to keep working: a Discord CDN URL is signed and
+   * dies after 24 hours, and any other host can go away on its own schedule.
+   */
+  file?: string;
+  /**
+   * A clip folder under the sounds directory, played as they arrive. The same
+   * pools the triggers draw on, so a clip need not be kept twice.
+   */
+  pool?: string;
+}
+
+/** Entrances, and the one channel their posts go to. */
+export interface EntrancesConfig {
+  /** Text channel the posts are made in. Nothing is posted without one. */
+  channelId?: string;
+  /** Who gets an entrance, and what. */
+  list?: Entrance[];
+}
+
 /** Occasional unprompted sounds while the bot is sitting in a channel. */
 export interface AmbientConfig {
   pool?: string;
@@ -64,6 +91,7 @@ export interface SoundsConfig {
   pools?: Record<string, string[]>;
   triggers?: SoundTrigger[];
   ambient?: AmbientConfig;
+  entrances?: EntrancesConfig;
 }
 
 /** A trigger word reduced to what the phonetic tier compares. */
@@ -352,8 +380,24 @@ export function pickClip(files: string[], randomIndex: number): string | null {
  * Extensions treated as clips when reading a pool folder. Everything else in
  * there (notes, artwork, half-finished edits) is ignored rather than queued up
  * to fail at playback.
+ *
+ * Video containers are in the list because the conversion already drops the
+ * picture - ffmpegArgs passes `-vn -map a:0` - so a clip saved as the video it
+ * was cut from plays its audio without anyone having to strip it first. WebM
+ * was always here and is one of them.
  */
-const CLIP_EXTENSIONS = new Set([".ogg", ".opus", ".webm", ".mp3", ".wav", ".m4a", ".flac"]);
+const CLIP_EXTENSIONS = new Set([
+  ".ogg",
+  ".opus",
+  ".webm",
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".flac",
+  ".mp4",
+  ".mov",
+  ".mkv",
+]);
 
 /**
  * Lists the clips in a pool folder, looked up under the guild's own sounds

@@ -21,8 +21,8 @@ hears a word.
   was meant, and the bot posts that definition.
 - **Voice sound bites** - the bot listens in voice channels, transcribes locally with Whisper, and
   plays a clip when it hears a trigger word.
-- **Entrances** - a configured member gets a video posted in a text channel the first time the bot
-  hears them speak each day.
+- **Entrances** - a configured member gets a clip played as they join voice, and a video or message
+  posted in a text channel the first time the bot hears them speak. Once a day each.
 
 Replies are rate-limited per person and go quiet during calm mode. Reactions and counting carry on
 regardless.

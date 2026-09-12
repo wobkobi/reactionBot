@@ -45,6 +45,48 @@
   // or is not firing.
   "logTranscripts": false,
 
-  // Turns voice on for every server without needing /voice enable in each.
-  "enabled": false
+  // Turns voice on for every server without needing /autojoin on in each.
+  "enabled": false,
+
+  // Entrances: a clip played as someone arrives, and a post dropped in a text
+  // channel the first time the bot hears them speak. Both fire at most once a
+  // day per person, counted separately, and both are silenced by calm mode.
+  //
+  // The bot has to be in the call either way - it neither hears nor plays
+  // anything in a channel it is not in. A join into an empty channel is what
+  // brings it there, and the clip is held for up to 30 seconds and played once
+  // the connection is ready.
+  "entrances": {
+    // Where the posts go. Right-click the channel > Copy Channel ID, which
+    // needs Developer Mode on. Without this, only the clip half works.
+    "channelId": "000000000000000000",
+
+    "list": [
+      {
+        // Right-click a member > Copy User ID. Several IDs here share the one
+        // entrance, which is how a group gets a single one between them.
+        "users": ["000000000000000000"],
+
+        // Plays a clip from data/sounds/woody/ as they join. The same pools
+        // the triggers use, so a clip need not be kept twice.
+        "pool": "woody",
+
+        // A file the bot uploads, from data/entrances/ or
+        // data/<guildId>/entrances/. Prefer this to a link for anything meant
+        // to keep working: a cdn.discordapp.com URL is signed and stops working
+        // 24 hours after it was issued.
+        "file": "woody.mp4"
+      },
+
+      {
+        // Text on its own is fine. A link alone embeds, so a GIF needs no extra
+        // syntax, and mentions never ping.
+        "users": ["000000000000000001", "000000000000000002"],
+        "message": "look who finally turned up"
+      }
+
+      // An entry with no "pool", "file" or "message" is skipped, so an entrance
+      // can be switched off without losing who it was for.
+    ]
+  }
 }

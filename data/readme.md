@@ -237,34 +237,52 @@ someone earned.
 The short version: Opus in an Ogg or WebM container plays as-is, anything else
 is converted once with ffmpeg and cached.
 
-## entrances.json - entrance posts
+### Entrances
 
-A message dropped in a text channel the first time the bot hears someone speak
-in voice each day. `entrances.example.jsonc` is the template; copy it to
-`entrances.json` here, or to `data/<guildId>/entrances.json` for one server.
+An `entrances` block inside `sounds.json` gives someone a clip as they arrive
+and a post in a text channel:
 
 ```jsonc
-{
+"entrances": {
   "channelId": "123456789012345678",
-  "entrances": [{ "users": ["987654321098765432"], "message": "https://tenor.com/view/woody-gif" }]
+  "list": [{ "users": ["987654321098765432"], "pool": "woody", "file": "woody.mp4" }]
 }
 ```
 
-| Key         | What it does                                                             |
-| ----------- | ------------------------------------------------------------------------ |
-| `channelId` | Text channel the entrances are posted in. Nothing posts without one.     |
-| `users`     | Discord user IDs sharing this entrance.                                  |
-| `message`   | What to post. A link on its own embeds. An empty one switches it off.    |
+| Key         | What it does                                                                |
+| ----------- | --------------------------------------------------------------------------- |
+| `channelId` | Text channel the posts go in. Only the clip half works without it.          |
+| `users`     | Discord user IDs sharing this entrance.                                     |
+| `pool`      | Clip folder under `data/sounds/`, played in voice as they arrive.           |
+| `file`      | A file the bot uploads, named relative to the entrances folder.             |
+| `message`   | Text to post. A link on its own embeds. Can be used with `file` or instead. |
 
-Speech is what fires it, not the join, so sitting in a channel silently never
-triggers one. The bot only hears people in the channel it is sitting in, so an
-entrance needs the bot already in the call: with `/autojoin on` it will be
-there as soon as somebody is, and otherwise someone has to run `/join` first.
+`pool` draws at random from the same pools the triggers use, so a clip need not
+be kept twice. It plays at trigger loudness but leaves the trigger cooldowns
+alone, so somebody walking in never costs the room its next sound bite.
 
-Once per person per calendar day, on the machine's local clock, and silenced
-during calm mode along with every other reply. Mentions in the message never
-ping. If the channel is missing or the bot cannot write to it, the day is not
-counted as spent and the next thing they say tries again.
+Entrance files live in `data/entrances/` for every server, or
+`data/<guildId>/entrances/` for one. Prefer a file to a link for anything meant
+to keep working: a `cdn.discordapp.com` URL is signed and stops working 24
+hours after it was issued, and re-copying it only buys another day. An entry
+with no `pool`, `file` or `message` is skipped.
+
+The two halves hang off different moments. The clip plays as they join, since a
+sound a minute after someone walked in is not an entrance. The post waits until
+the bot hears them speak, so sitting in a channel silently never triggers one.
+Each fires at most once a day and they are counted separately, so a quiet
+arrival still gets its post later.
+
+Either way the bot has to be connected to the channel, since it neither hears
+nor plays anything in a call it is not in. With `/autojoin on` it arrives as
+soon as somebody is there; otherwise someone has to run `/join` first. A join
+into an empty channel is what brings it in, and the clip is held for up to
+30 seconds and played once the connection is ready.
+
+Silenced during calm mode along with every other reply, and mentions never
+ping. If the channel is missing, the bot cannot write to it, or the file or
+pool is not on disk, the day is not counted as spent and they get another go.
+`/voice check` reports an entrance pool or file that does not resolve.
 
 ## Other files
 
@@ -298,6 +316,9 @@ counted as spent and the next thing they say tries again.
   (managed by `/autojoin on` and `/autojoin off`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
+- `entrances/` - files posted as entrances, shared across servers. A
+  `<guildId>/entrances/` folder overrides one by name. Configured in the
+  `entrances` block of `sounds.json`.
 - `<guildId>/entrances_seen.json` - who has already had their entrance today,
   so a restart does not hand it out again (managed by the bot). Yesterday's
   entries are dropped as it writes.
