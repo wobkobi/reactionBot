@@ -9,9 +9,22 @@
 // a call it is not in.
 
 import { isCalm } from "@/tracking/calm";
-import { configFingerprint, loadData, readIfPresent, resolveScoped, saveData } from "@/utils/file";
+import {
+  configFingerprint,
+  guildDataDir,
+  loadData,
+  readIfPresent,
+  resolveScoped,
+  saveData,
+} from "@/utils/file";
 import { createLogger } from "@/utils/log";
+// Same job as it does for clips: a name out of a hand-edited config reaching
+// the filesystem. Shared rather than copied, since a path-traversal guard is
+// the last thing that should exist twice and drift.
+import { safeClipName } from "@/voice/sounds";
 import { ChannelType, PermissionFlagsBits, type Guild } from "discord.js";
+import fs from "node:fs";
+import path from "node:path";
 
 const log = createLogger("voice/entrance");
 
@@ -21,12 +34,29 @@ export const ENTRANCES_FILE = "entrances.json";
 /** Where the last day each person was announced is kept, per guild. */
 export const ENTRANCE_STATE_FILE = "entrances_seen.json";
 
+/** Folder holding entrance files, under a guild's data dir or the shared root. */
+export const ENTRANCES_DIR = "entrances";
+
 /** One person's entrance, and what gets posted for it. */
 export interface Entrance {
   /** Discord user IDs this applies to; several can share one entrance. */
   users: string[];
-  /** What to post. A link on its own line embeds; any other text is sent as written. */
-  message: string;
+  /** Text to post. A link on its own line embeds; anything else is sent as written. */
+  message?: string;
+  /**
+   * A file to attach, named relative to the entrances folder. Preferred over a
+   * link for anything that has to keep working: a Discord CDN URL is signed and
+   * dies after 24 hours, and any other host can go away on its own schedule.
+   */
+  file?: string;
+}
+
+/** What to post for someone. At least one of the two is set. */
+export interface EntrancePost {
+  /** Text to send, if the entrance has any. */
+  message?: string;
+  /** File to attach, as named in the config, if the entrance has one. */
+  file?: string;
 }
 
 /** Parsed entrances.json. */
@@ -93,14 +123,38 @@ export function localDay(now: Date): string {
  * Finds the entrance configured for one person.
  * @param config - The guild's entrances config.
  * @param userId - Who was heard.
- * @returns What to post, or null when they have no entrance. An entry with no
- * message is treated as having none, so blanking the text switches one off
- * without deleting the entry.
+ * @returns What to post, or null when they have no entrance. An entry with
+ * neither text nor file is treated as having none, so emptying both switches
+ * one off without deleting who it was for.
  */
-export function entranceFor(config: EntrancesConfig, userId: string): string | null {
+export function entranceFor(config: EntrancesConfig, userId: string): EntrancePost | null {
   const entry = (config.entrances ?? []).find((e) => (e.users ?? []).includes(userId));
-  const message = entry?.message?.trim();
-  return message ? message : null;
+  if (!entry) return null;
+  const message = entry.message?.trim();
+  const file = entry.file?.trim();
+  if (!message && !file) return null;
+  const post: EntrancePost = {};
+  if (message) post.message = message;
+  if (file) post.file = file;
+  return post;
+}
+
+/**
+ * Resolves an entrance file to a path on disk, preferring a guild's own copy
+ * over the shared folder so one server can swap a file without touching the
+ * rest.
+ * @param guildId - Discord guild (server) ID.
+ * @param name - File name from the config.
+ * @returns An absolute path to an existing file, or null.
+ */
+export function resolveEntranceFile(guildId: string, name: string): string | null {
+  const safe = safeClipName(name);
+  if (!safe) return null;
+  const candidates = [
+    path.join(guildDataDir(guildId), ENTRANCES_DIR, safe),
+    path.join(guildDataDir(ENTRANCES_DIR), safe),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
 /**
@@ -165,13 +219,25 @@ function releaseToday(guildId: string, userId: string): void {
  */
 export async function announceEntrance(guild: Guild, userId: string): Promise<void> {
   const config = loadEntrances(guild.id);
-  const message = entranceFor(config, userId);
-  if (!message) return;
+  const post = entranceFor(config, userId);
+  if (!post) return;
 
   const channelId = config.channelId;
   if (!channelId) {
     log.warn("entrance configured with no channel to post it in", { guildId: guild.id, userId });
     return;
+  }
+
+  // Resolved before the day is claimed: a file named in the config but not on
+  // disk is a typo to fix, not an entrance to spend, and it would otherwise be
+  // found only after the claim had already been made and released.
+  let filePath: string | null = null;
+  if (post.file) {
+    filePath = resolveEntranceFile(guild.id, post.file);
+    if (!filePath) {
+      log.warn("entrance file is not on disk", { guildId: guild.id, userId, file: post.file });
+      return;
+    }
   }
 
   // Calm mode silences replies across the bot, and an entrance is a reply to
@@ -209,12 +275,22 @@ export async function announceEntrance(guild: Guild, userId: string): Promise<vo
 
     // Nothing here is a reply to a message, so mentions are suppressed outright
     // rather than narrowed: an entrance naming a role should not ping it.
-    await channel.send({ content: message, allowedMentions: { parse: [] } });
-    log.info("posted entrance", { guildId: guild.id, userId, channelId });
+    await channel.send({
+      ...(post.message ? { content: post.message } : {}),
+      ...(filePath ? { files: [filePath] } : {}),
+      allowedMentions: { parse: [] },
+    });
+    log.info("posted entrance", { guildId: guild.id, userId, channelId, file: post.file });
   } catch (err) {
+    // The size is logged with the failure because an upload over the server's
+    // limit is the likeliest way this fails, and Discord's own wording for it
+    // says nothing about which file or how big.
+    const size = filePath ? fs.statSync(filePath, { throwIfNoEntry: false })?.size : undefined;
     log.warn("failed to post entrance", {
       guildId: guild.id,
       userId,
+      file: post.file,
+      bytes: size,
       error: err instanceof Error ? err.message : String(err),
     });
     releaseToday(guild.id, userId);

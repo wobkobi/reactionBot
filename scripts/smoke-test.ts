@@ -101,7 +101,7 @@ import {
   REJOIN_COOLDOWN_MS,
   VOICE_SWEEP_INTERVAL_MS,
 } from "@/voice/autojoin";
-import { entranceFor, localDay } from "@/voice/entrance";
+import { entranceFor, localDay, resolveEntranceFile } from "@/voice/entrance";
 import { clipVerdict } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
@@ -2649,23 +2649,58 @@ function checkVoiceJoinRules(): void {
     entrances: [
       { users: ["331744864385630240"], message: "https://example.invalid/woody" },
       { users: ["1", "2"], message: "shared" },
-      { users: ["3"], message: "   " },
+      { users: ["3"], message: "   ", file: "  " },
+      { users: ["4"], file: "woody.mp4" },
+      { users: ["5"], message: "look who it is", file: "woody.mp4" },
     ],
   };
   check(
     "voice/entrance",
     "a configured user gets their entrance",
-    entranceFor(entrances, "331744864385630240") === "https://example.invalid/woody",
+    entranceFor(entrances, "331744864385630240")?.message === "https://example.invalid/woody",
   );
   check(
     "voice/entrance",
     "everyone listed on one entry shares the message",
-    entranceFor(entrances, "1") === "shared" && entranceFor(entrances, "2") === "shared",
+    entranceFor(entrances, "1")?.message === "shared" &&
+      entranceFor(entrances, "2")?.message === "shared",
   );
   check("voice/entrance", "anyone else gets nothing", entranceFor(entrances, "999") === null);
-  // So an entrance can be switched off without losing who it was for.
-  check("voice/entrance", "a blank message is no entrance", entranceFor(entrances, "3") === null);
   check("voice/entrance", "an empty config is no entrance", entranceFor({}, "1") === null);
+
+  // A file is what makes an entrance outlive a link. Discord CDN URLs are
+  // signed and die after 24 hours, so the video has to be the bot's own copy.
+  const fileOnly = entranceFor(entrances, "4");
+  check(
+    "voice/entrance",
+    "an entrance can be a file with no text",
+    fileOnly?.file === "woody.mp4" && fileOnly.message === undefined,
+  );
+  const both = entranceFor(entrances, "5");
+  check(
+    "voice/entrance",
+    "an entrance can carry text and a file together",
+    both?.file === "woody.mp4" && both.message === "look who it is",
+  );
+  // So an entrance can be switched off without losing who it was for.
+  check(
+    "voice/entrance",
+    "blanking both text and file is no entrance",
+    entranceFor(entrances, "3") === null,
+  );
+
+  // The name reaches the filesystem straight from a hand-edited config.
+  check(
+    "voice/entrance",
+    "an entrance file cannot escape its folder",
+    resolveEntranceFile("g", "../../secrets.env") === null &&
+      resolveEntranceFile("g", "/etc/passwd") === null,
+  );
+  check(
+    "voice/entrance",
+    "a file that is not on disk resolves to nothing",
+    resolveEntranceFile("g", "definitely-not-here.mp4") === null,
+  );
 
   // The day has to come off the local clock. toISOString would roll the day
   // over at UTC midnight, handing a server in another timezone its fresh

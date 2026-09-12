@@ -246,15 +246,22 @@ in voice each day. `entrances.example.jsonc` is the template; copy it to
 ```jsonc
 {
   "channelId": "123456789012345678",
-  "entrances": [{ "users": ["987654321098765432"], "message": "https://tenor.com/view/woody-gif" }]
+  "entrances": [{ "users": ["987654321098765432"], "file": "woody.mp4" }]
 }
 ```
 
-| Key         | What it does                                                             |
-| ----------- | ------------------------------------------------------------------------ |
-| `channelId` | Text channel the entrances are posted in. Nothing posts without one.     |
-| `users`     | Discord user IDs sharing this entrance.                                  |
-| `message`   | What to post. A link on its own embeds. An empty one switches it off.    |
+| Key         | What it does                                                                |
+| ----------- | --------------------------------------------------------------------------- |
+| `channelId` | Text channel the entrances are posted in. Nothing posts without one.        |
+| `users`     | Discord user IDs sharing this entrance.                                     |
+| `file`      | A file the bot uploads, named relative to the entrances folder.             |
+| `message`   | Text to post. A link on its own embeds. Can be used with `file` or instead. |
+
+Entrance files live in `data/entrances/` for every server, or
+`data/<guildId>/entrances/` for one, the same way clips do. Prefer a file to a
+link for anything meant to keep working: a `cdn.discordapp.com` URL is signed
+and stops working 24 hours after it was issued, and re-copying it only buys
+another day. An entry with neither `message` nor `file` is skipped.
 
 Speech is what fires it, not the join, so sitting in a channel silently never
 triggers one. The bot only hears people in the channel it is sitting in, so an
@@ -263,8 +270,9 @@ there as soon as somebody is, and otherwise someone has to run `/join` first.
 
 Once per person per calendar day, on the machine's local clock, and silenced
 during calm mode along with every other reply. Mentions in the message never
-ping. If the channel is missing or the bot cannot write to it, the day is not
-counted as spent and the next thing they say tries again.
+ping. If the channel is missing, the bot cannot write to it, or the file is not
+on disk, the day is not counted as spent and the next thing they say tries
+again.
 
 ## Other files
 
@@ -298,6 +306,8 @@ counted as spent and the next thing they say tries again.
   (managed by `/autojoin on` and `/autojoin off`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`
   settings.
+- `entrances/` - files posted as entrances, shared across servers. A
+  `<guildId>/entrances/` folder overrides one by name.
 - `<guildId>/entrances_seen.json` - who has already had their entrance today,
   so a restart does not hand it out again (managed by the bot). Yesterday's
   entries are dropped as it writes.

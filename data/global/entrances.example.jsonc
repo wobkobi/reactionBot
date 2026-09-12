@@ -21,20 +21,34 @@
   "entrances": [
     {
       // Right-click a member > Copy User ID. Several IDs here share the one
-      // message, which is how a group gets a single entrance between them.
+      // entrance, which is how a group gets a single one between them.
       "users": ["000000000000000000"],
 
-      // A link on its own embeds, so a video or GIF needs no extra syntax.
-      // Any other text is posted as written. Mentions never ping.
-      "message": "https://tenor.com/view/woody-entrance-gif"
+      // A file the bot uploads itself, named relative to the entrances folder:
+      // data/entrances/ for every server, or data/<guildId>/entrances/ for one.
+      //
+      // Prefer this to a link for anything meant to keep working. A
+      // cdn.discordapp.com URL is signed and stops working 24 hours after it
+      // was issued, and re-copying it only buys another day.
+      "file": "woody.mp4"
     },
 
     {
       "users": ["000000000000000001", "000000000000000002"],
+
+      // Text on its own is fine too. A link alone embeds, so a GIF needs no
+      // extra syntax. Mentions never ping.
       "message": "look who finally turned up"
+    },
+
+    {
+      // Both together post the text with the file attached.
+      "users": ["000000000000000003"],
+      "message": "look who it is",
+      "file": "woody.mp4"
     }
 
-    // An entry with an empty "message" is skipped, so an entrance can be
-    // switched off for a while without losing who it was for.
+    // An entry with neither "message" nor "file" is skipped, so an entrance can
+    // be switched off for a while without losing who it was for.
   ]
 }
