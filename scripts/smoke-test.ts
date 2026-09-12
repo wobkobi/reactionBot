@@ -2652,6 +2652,8 @@ function checkVoiceJoinRules(): void {
       { users: ["3"], message: "   ", file: "  " },
       { users: ["4"], file: "woody.mp4" },
       { users: ["5"], message: "look who it is", file: "woody.mp4" },
+      { users: ["6"], pool: "woody" },
+      { users: ["7"], pool: "  " },
     ],
   };
   check(
@@ -2688,6 +2690,16 @@ function checkVoiceJoinRules(): void {
     "blanking both text and file is no entrance",
     entranceFor(entrances, "3") === null,
   );
+
+  // The clip half. It hangs off the join rather than the first word, because a
+  // sound played a minute after someone walked in is not an entrance.
+  const soundOnly = entranceFor(entrances, "6");
+  check(
+    "voice/entrance",
+    "an entrance can be a clip pool with nothing else",
+    soundOnly?.pool === "woody" && soundOnly.message === undefined && soundOnly.file === undefined,
+  );
+  check("voice/entrance", "a blank pool is no entrance", entranceFor(entrances, "7") === null);
 
   // The name reaches the filesystem straight from a hand-edited config.
   check(

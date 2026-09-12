@@ -19,8 +19,9 @@ data/sounds/
   .cache/           converted copies, made automatically, safe to delete
 ```
 
-Only audio files count (`.ogg .opus .webm .mp3 .wav .m4a .flac`), so a readme or
-a stray artwork file in a pool folder is ignored rather than queued up to fail.
+Only media files count (`.ogg .opus .webm .mp3 .wav .m4a .flac .mp4 .mov .mkv`),
+so a readme or a stray artwork file in a pool folder is ignored rather than
+queued up to fail.
 
 To override one clip, or a whole pool, for a single server, put the same name
 under `data/<guildId>/sounds/`. That is checked first.
@@ -33,6 +34,10 @@ empty.
 **Drop in whatever you have** - mp3, wav, m4a, flac, Ogg Vorbis, or Opus in an Ogg (`.ogg`,
 `.opus`) or WebM (`.webm`) container. Each one is converted once with ffmpeg, normalised, and
 cached in `.cache/`; only the first play pays for it and every play after is a cache hit.
+
+**A video works too.** Drop in an `.mp4`, `.mov`, `.mkv` or `.webm` and the conversion takes its
+audio and throws the picture away, so a clip cut from a video needs nothing stripped out of it
+first. The file is only read for its sound; nothing is ever played back as video.
 
 Opus files are converted too, even though Discord takes Opus directly and their container could
 just be unwrapped. Normalising a clip means re-encoding it, and a guarantee about volume that

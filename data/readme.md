@@ -256,17 +256,30 @@ in voice each day. `entrances.example.jsonc` is the template; copy it to
 | `users`     | Discord user IDs sharing this entrance.                                     |
 | `file`      | A file the bot uploads, named relative to the entrances folder.             |
 | `message`   | Text to post. A link on its own embeds. Can be used with `file` or instead. |
+| `pool`      | Clip folder under `data/sounds/`, played in voice as they arrive.           |
 
 Entrance files live in `data/entrances/` for every server, or
 `data/<guildId>/entrances/` for one, the same way clips do. Prefer a file to a
 link for anything meant to keep working: a `cdn.discordapp.com` URL is signed
 and stops working 24 hours after it was issued, and re-copying it only buys
-another day. An entry with neither `message` nor `file` is skipped.
+another day. An entry with no `message`, `file` or `pool` is skipped.
 
-Speech is what fires it, not the join, so sitting in a channel silently never
-triggers one. The bot only hears people in the channel it is sitting in, so an
-entrance needs the bot already in the call: with `/autojoin on` it will be
-there as soon as somebody is, and otherwise someone has to run `/join` first.
+`pool` draws at random from a folder under `data/sounds/`, the same pools
+`sounds.json` uses, so a clip need not be kept twice. It plays at trigger
+loudness but leaves the trigger cooldowns alone, so somebody walking in never
+costs the room its next sound bite.
+
+The two halves hang off different moments. The clip plays as they join, since a
+sound a minute after someone walked in is not an entrance. The post waits until
+the bot hears them speak, so sitting in a channel silently never triggers one.
+Each fires at most once a day and they are counted separately, so a quiet
+arrival still gets its post later.
+
+Either way the bot has to be connected to the channel, since it neither hears
+nor plays anything in a call it is not in. With `/autojoin on` it arrives as
+soon as somebody is there; otherwise someone has to run `/join` first. A join
+into an empty channel is what brings it in, and the clip is held for up to
+30 seconds and played once the connection is ready.
 
 Once per person per calendar day, on the machine's local clock, and silenced
 during calm mode along with every other reply. Mentions in the message never

@@ -223,6 +223,25 @@ export async function playClip(
 }
 
 /**
+ * Plays someone's entrance as they arrive. Loud as a trigger, since it is a
+ * deliberate sound rather than atmosphere, but it leaves the cooldowns alone
+ * like an ambient one: it fires at most once a day per person, so it cannot be
+ * spammed, and letting it block the next real trigger for a whole cooldown
+ * would punish the room for somebody else walking in.
+ * @param connection - The guild's live voice connection.
+ * @param guildId - Discord guild (server) ID.
+ * @param filePath - Absolute path of the clip to play.
+ * @returns `true` when playback started.
+ */
+export async function playEntrance(
+  connection: VoiceConnection,
+  guildId: string,
+  filePath: string,
+): Promise<boolean> {
+  return startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
+}
+
+/**
  * Plays an unprompted ambient sound. Deliberately leaves the cooldowns alone:
  * they exist to stop people spamming triggers, and an ambient sound blocking
  * the next real trigger for the whole cooldown would be the wrong trade.

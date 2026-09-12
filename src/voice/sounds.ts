@@ -352,8 +352,24 @@ export function pickClip(files: string[], randomIndex: number): string | null {
  * Extensions treated as clips when reading a pool folder. Everything else in
  * there (notes, artwork, half-finished edits) is ignored rather than queued up
  * to fail at playback.
+ *
+ * Video containers are in the list because the conversion already drops the
+ * picture - ffmpegArgs passes `-vn -map a:0` - so a clip saved as the video it
+ * was cut from plays its audio without anyone having to strip it first. WebM
+ * was always here and is one of them.
  */
-const CLIP_EXTENSIONS = new Set([".ogg", ".opus", ".webm", ".mp3", ".wav", ".m4a", ".flac"]);
+const CLIP_EXTENSIONS = new Set([
+  ".ogg",
+  ".opus",
+  ".webm",
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".flac",
+  ".mp4",
+  ".mov",
+  ".mkv",
+]);
 
 /**
  * Lists the clips in a pool folder, looked up under the guild's own sounds

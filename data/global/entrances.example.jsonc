@@ -46,9 +46,20 @@
       "users": ["000000000000000003"],
       "message": "look who it is",
       "file": "woody.mp4"
+    },
+
+    {
+      // "pool" plays a clip in voice as they arrive, drawn at random from a
+      // folder under data/sounds/ - the same pools sounds.json uses, so a clip
+      // need not be kept twice. This one plays data/sounds/woody/.
+      //
+      // The clip goes on the join; the post above waits until they speak. Both
+      // fire at most once a day, counted separately.
+      "users": ["000000000000000004"],
+      "pool": "woody"
     }
 
-    // An entry with neither "message" nor "file" is skipped, so an entrance can
-    // be switched off for a while without losing who it was for.
+    // An entry with no "message", "file" or "pool" is skipped, so an entrance
+    // can be switched off for a while without losing who it was for.
   ]
 }

@@ -24,7 +24,7 @@ import {
   TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
-import { announceEntrance } from "@/voice/entrance";
+import { announceEntrance, flushPendingEntrance, forgetPendingEntrance } from "@/voice/entrance";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
 import {
   clipStatus,
@@ -320,6 +320,9 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
   sessions.set(guildId, session);
   connection.subscribe(getPlayer(guildId));
   startAmbient(guildId, connection);
+  // Somebody's arrival is what brought the bot here, and this is the first
+  // moment there is anything to play their clip through.
+  void flushPendingEntrance(channel.guild, channel.id, connection);
 
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     // A disconnect is often a region move rather than a real drop, so give the
@@ -360,6 +363,9 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
  * @param reason - Why the session ended, for the log.
  */
 export function closeSession(guildId: string, reason: string): void {
+  // Whatever arrival was waiting on this connection is not getting its clip:
+  // the call it was owed to is the one being left.
+  forgetPendingEntrance(guildId);
   // A join in flight has no session yet, but the caller means it just the same.
   const joining = pending.get(guildId);
   if (joining) {
@@ -392,6 +398,17 @@ export function closeSession(guildId: string, reason: string): void {
  */
 export function sessionChannelId(guildId: string): string | null {
   return sessions.get(guildId)?.channelId ?? null;
+}
+
+/**
+ * Hands out a guild's live connection, so something outside this module can
+ * play through it. Returned rather than the session itself: the capture state
+ * is nobody else's business.
+ * @param guildId - Discord guild (server) ID.
+ * @returns The connection, or null when there is no live session.
+ */
+export function sessionConnection(guildId: string): VoiceConnection | null {
+  return sessions.get(guildId)?.connection ?? null;
 }
 
 /**
