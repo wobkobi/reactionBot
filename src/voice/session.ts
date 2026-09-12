@@ -32,15 +32,17 @@ import {
   getPlayer,
   playClip,
   POOL_CLIP_COOLDOWN_MS,
+  type ClipVerdict,
 } from "@/voice/playback";
 import {
   isIgnoredTranscript,
   loadSounds,
-  matchTrigger,
-  pickClip,
+  matchTriggers,
+  pickOne,
   poolKey,
   resolveClipPath,
   resolveClips,
+  type CompiledTrigger,
 } from "@/voice/sounds";
 import { startStt, transcribe } from "@/voice/stt";
 import {
@@ -97,6 +99,50 @@ interface PendingJoin {
  */
 const pending = new Map<string, PendingJoin>();
 
+/** A pool ready to play, or the gap that stopped every candidate. */
+type PoolChoice =
+  | { trigger: CompiledTrigger; pool: string }
+  | { pool: string; verdict: ClipVerdict; remainingMs: number };
+
+/**
+ * Chooses which pool a word plays from when it fires several, with even odds
+ * across the ones that are free right now.
+ *
+ * Gated pools drop out before the roll rather than after it, so a word that
+ * fires two pools plays the other one instead of going quiet while the first
+ * cools off. When nothing is free the refusal that frees up soonest is the one
+ * reported, since that is the gap someone in the call is actually waiting on.
+ * @param guildId - Discord guild (server) ID.
+ * @param matches - Every trigger the transcript fired.
+ * @param guildCooldownMs - The guild's configured gap, if it set one.
+ * @returns The pool to play from, or why none of them could.
+ */
+function pickFreePool(
+  guildId: string,
+  matches: CompiledTrigger[],
+  guildCooldownMs: number | undefined,
+): PoolChoice {
+  const free: { trigger: CompiledTrigger; pool: string }[] = [];
+  let refused: { pool: string; verdict: ClipVerdict; remainingMs: number } | null = null;
+
+  for (const trigger of matches) {
+    const pool = poolKey(trigger.source);
+    const gapMs = trigger.cooldownMs ?? guildCooldownMs ?? POOL_CLIP_COOLDOWN_MS;
+    const gate = clipStatus(guildId, pool, gapMs);
+    if (gate.verdict === "play") {
+      free.push({ trigger, pool });
+    } else if (!refused || gate.remainingMs < refused.remainingMs) {
+      refused = { pool, verdict: gate.verdict, remainingMs: gate.remainingMs };
+    }
+  }
+
+  const choice = pickOne(free, Math.floor(Math.random() * free.length));
+  if (choice) return choice;
+  // Unreachable with a non-empty match list, since every candidate either went
+  // into `free` or set `refused`; typed out rather than asserted.
+  return refused ?? { pool: "(none)", verdict: "playing", remainingMs: 0 };
+}
+
 /**
  * Handles one finished utterance: transcribe it, match it, and play the clip.
  * @param guildId - Discord guild (server) ID.
@@ -130,8 +176,8 @@ async function handleUtterance(
     return;
   }
 
-  const match = matchTrigger(text, compiled);
-  if (!match) return;
+  const matches = matchTriggers(text, compiled);
+  if (matches.length === 0) return;
 
   // Calm mode silences replies across the bot; a sound bite is a reply that
   // everyone in the call has to hear, so it obeys the same window.
@@ -140,21 +186,12 @@ async function handleUtterance(
     return;
   }
 
-  const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? POOL_CLIP_COOLDOWN_MS;
-  const pool = poolKey(match.source);
-  // Named rather than destructured: utteranceVerdict already owns `verdict`
-  // in this scope.
-  const gate = clipStatus(guildId, pool, cooldownMs);
-  if (gate.verdict !== "play") {
-    log.debug("clip not played", {
-      guildId,
-      userId,
-      pool,
-      verdict: gate.verdict,
-      remainingMs: gate.remainingMs,
-    });
+  const choice = pickFreePool(guildId, matches, compiled.config.guildCooldownMs);
+  if ("verdict" in choice) {
+    log.debug("clip not played", { guildId, userId, ...choice });
     return;
   }
+  const { trigger: match, pool } = choice;
 
   const clips = resolveClips(guildId, match.source);
   if (clips.length === 0) {
@@ -164,7 +201,7 @@ async function handleUtterance(
     });
     return;
   }
-  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
+  const name = pickOne(clips, Math.floor(Math.random() * clips.length));
   if (!name) return;
   const clipPath = resolveClipPath(guildId, name);
   if (!clipPath) {

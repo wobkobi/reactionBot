@@ -135,7 +135,7 @@ export interface CompiledSounds {
 
 /** Default gap either side of an ambient sound when the config gives none. */
 export const AMBIENT_MIN_MS = 5 * 60_000;
-export const AMBIENT_MAX_MS = 20 * 60_000;
+export const AMBIENT_MAX_MS = 10 * 60_000;
 
 /**
  * Shortest gap accepted. A range of zero would fire as fast as clips finish,
@@ -188,10 +188,16 @@ function compileAmbient(
     return null;
   }
 
-  const minMs = Math.max(AMBIENT_FLOOR_MS, (ambient.minMinutes ?? 5) * 60_000);
+  const minMs = Math.max(
+    AMBIENT_FLOOR_MS,
+    ambient.minMinutes === undefined ? AMBIENT_MIN_MS : ambient.minMinutes * 60_000,
+  );
   // A max below the min would otherwise produce a negative range; treat the
   // pair as one value rather than refusing the whole block.
-  const maxMs = Math.max(minMs, (ambient.maxMinutes ?? 20) * 60_000);
+  const maxMs = Math.max(
+    minMs,
+    ambient.maxMinutes === undefined ? AMBIENT_MAX_MS : ambient.maxMinutes * 60_000,
+  );
   return { source, minMs, maxMs };
 }
 
@@ -334,24 +340,49 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
 }
 
 /**
- * Finds the trigger a transcript fires. Tier one runs first across every
+ * Finds every trigger a transcript fires. Tier one runs first across every
  * trigger, so an exact hit always beats a soundalike one; only when nothing
- * matched exactly does the phonetic tier run.
+ * matched exactly does the phonetic tier run, and the winning tier is the only
+ * one that contributes.
+ *
+ * All of them rather than the first, so a word listed against several pools
+ * can be drawn from any of them. Config order would otherwise decide it once
+ * and for all, leaving the later pools silent for that word.
+ *
+ * Triggers are deduplicated by {@link poolKey}: two of them aimed at one pool
+ * play the same clips, and counting both would weight that pool double in a
+ * caller's pick.
  * @param text - The raw transcript from the transcriber.
  * @param compiled - The compiled config from {@link compileSounds}.
- * @returns The first matching trigger in config order, or null.
+ * @returns The matching triggers in config order, empty when none matched.
  */
-export function matchTrigger(text: string, compiled: CompiledSounds): CompiledTrigger | null {
-  for (const entry of compiled.triggers) {
-    if (countMatches(text, entry.list).size > 0) return entry;
-  }
+export function matchTriggers(text: string, compiled: CompiledSounds): CompiledTrigger[] {
+  const exact = compiled.triggers.filter((entry) => countMatches(text, entry.list).size > 0);
+  if (exact.length > 0) return dedupeByPool(exact);
 
   const heardWords = normalise(text).split(" ").filter(Boolean);
-  if (heardWords.length === 0) return null;
-  for (const entry of compiled.triggers) {
-    if (heardWords.some((heard) => phoneticMatch(heard, entry.phonetic))) return entry;
-  }
-  return null;
+  if (heardWords.length === 0) return [];
+  return dedupeByPool(
+    compiled.triggers.filter((entry) =>
+      heardWords.some((heard) => phoneticMatch(heard, entry.phonetic)),
+    ),
+  );
+}
+
+/**
+ * Keeps the first trigger for each pool, dropping any later one that draws from
+ * the same clips.
+ * @param triggers - Triggers that matched, in config order.
+ * @returns One trigger per distinct pool.
+ */
+function dedupeByPool(triggers: CompiledTrigger[]): CompiledTrigger[] {
+  const seen = new Set<string>();
+  return triggers.filter((entry) => {
+    const key = poolKey(entry.source);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -366,14 +397,15 @@ export function isIgnoredTranscript(text: string, compiled: CompiledSounds): boo
 }
 
 /**
- * Picks one clip from a pool.
- * @param files - The pool's clip names.
- * @param randomIndex - Any non-negative integer; wrapped to the pool size.
- * @returns The chosen clip name, or null for an empty pool.
+ * Picks one of a set with even odds, used for both the clip inside a pool and
+ * the pool itself when a word fires several.
+ * @param items - What there is to choose from.
+ * @param randomIndex - Any non-negative integer; wrapped to the set's size.
+ * @returns The chosen item, or null for an empty set.
  */
-export function pickClip(files: string[], randomIndex: number): string | null {
-  if (files.length === 0) return null;
-  return files[Math.abs(Math.trunc(randomIndex)) % files.length] ?? null;
+export function pickOne<T>(items: T[], randomIndex: number): T | null {
+  if (items.length === 0) return null;
+  return items[Math.abs(Math.trunc(randomIndex)) % items.length] ?? null;
 }
 
 /**
