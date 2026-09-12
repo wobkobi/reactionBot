@@ -45,6 +45,33 @@ export interface SoundTrigger {
   cooldownMs?: number;
 }
 
+/** One person's entrance: what plays as they arrive, and what gets posted. */
+export interface Entrance {
+  /** Discord user IDs this applies to; several can share one entrance. */
+  users: string[];
+  /** Text to post. A link on its own line embeds; anything else is sent as written. */
+  message?: string;
+  /**
+   * A file to attach, named relative to the entrances folder. Preferred over a
+   * link for anything that has to keep working: a Discord CDN URL is signed and
+   * dies after 24 hours, and any other host can go away on its own schedule.
+   */
+  file?: string;
+  /**
+   * A clip folder under the sounds directory, played as they arrive. The same
+   * pools the triggers draw on, so a clip need not be kept twice.
+   */
+  pool?: string;
+}
+
+/** Entrances, and the one channel their posts go to. */
+export interface EntrancesConfig {
+  /** Text channel the posts are made in. Nothing is posted without one. */
+  channelId?: string;
+  /** Who gets an entrance, and what. */
+  list?: Entrance[];
+}
+
 /** Occasional unprompted sounds while the bot is sitting in a channel. */
 export interface AmbientConfig {
   pool?: string;
@@ -64,6 +91,7 @@ export interface SoundsConfig {
   pools?: Record<string, string[]>;
   triggers?: SoundTrigger[];
   ambient?: AmbientConfig;
+  entrances?: EntrancesConfig;
 }
 
 /** A trigger word reduced to what the phonetic tier compares. */

@@ -3,6 +3,7 @@
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { ambientRunning } from "@/voice/ambient";
+import { resolveEntranceFile } from "@/voice/entrance";
 import { opusDecoderName } from "@/voice/opus";
 import { sessionChannelId } from "@/voice/session";
 import { isAutojoin } from "@/voice/settings";
@@ -115,6 +116,31 @@ function checkLines(guildId: string): string[] {
     const { line, problem } = checkSource(guildId, "ambient", compiled.ambient.source);
     lines.push(line);
     if (problem) problems += 1;
+  }
+
+  // Entrances share this config now, and a misspelled pool or a file that
+  // never got copied across is invisible until the day somebody walks in.
+  const entrances = compiled.config.entrances;
+  for (const entry of entrances?.list ?? []) {
+    const who = (entry.users ?? []).map((id) => `<@${id}>`).join(", ") || "(nobody)";
+    if (entry.pool) {
+      const { line, problem } = checkSource(guildId, `entrance ${who}`, {
+        kind: "folder",
+        name: entry.pool,
+      });
+      lines.push(line);
+      if (problem) problems += 1;
+    }
+    if (entry.file && resolveEntranceFile(guildId, entry.file) === null) {
+      lines.push(`⚠️ entrance ${who} > \`${entry.file}\` - not in the entrances folder`);
+      problems += 1;
+    }
+  }
+  // Only the posts need a channel, so this is a problem for a config that has
+  // some and silence for one that is clips only.
+  if (entrances?.list?.some((e) => e.message ?? e.file) && !entrances.channelId) {
+    lines.push("⚠️ entrances have something to post but no channelId to post it in");
+    problems += 1;
   }
 
   lines.push("");

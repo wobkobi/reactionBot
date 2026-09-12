@@ -652,7 +652,6 @@ function checkGuildSeeding(): void {
       "responses.json",
       "insults.json",
       "definitions.json",
-      "entrances.json",
     ];
     check(
       "seed",
@@ -2646,7 +2645,7 @@ function checkVoiceJoinRules(): void {
 
   const entrances = {
     channelId: "900",
-    entrances: [
+    list: [
       { users: ["331744864385630240"], message: "https://example.invalid/woody" },
       { users: ["1", "2"], message: "shared" },
       { users: ["3"], message: "   ", file: "  " },

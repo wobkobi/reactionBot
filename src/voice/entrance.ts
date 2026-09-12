@@ -15,20 +15,20 @@
 // connection is ready - see noteJoin and flushPendingEntrance.
 
 import { isCalm } from "@/tracking/calm";
-import {
-  configFingerprint,
-  guildDataDir,
-  loadData,
-  readIfPresent,
-  resolveScoped,
-  saveData,
-} from "@/utils/file";
+import { guildDataDir, loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import { playEntrance } from "@/voice/playback";
 // safeClipName does the same job here as it does for clips: a name out of a
 // hand-edited config reaching the filesystem. Shared rather than copied, since
 // a path-traversal guard is the last thing that should exist twice and drift.
-import { pickClip, resolveClipPath, resolveClips, safeClipName } from "@/voice/sounds";
+import {
+  loadSounds,
+  pickClip,
+  resolveClipPath,
+  resolveClips,
+  safeClipName,
+  type EntrancesConfig,
+} from "@/voice/sounds";
 import type { VoiceConnection } from "@discordjs/voice";
 import { ChannelType, PermissionFlagsBits, type Guild } from "discord.js";
 import fs from "node:fs";
@@ -36,33 +36,11 @@ import path from "node:path";
 
 const log = createLogger("voice/entrance");
 
-/** Config file naming the channel and who gets an entrance. */
-export const ENTRANCES_FILE = "entrances.json";
-
 /** Where the last day each person was announced is kept, per guild. */
 export const ENTRANCE_STATE_FILE = "entrances_seen.json";
 
 /** Folder holding entrance files, under a guild's data dir or the shared root. */
 export const ENTRANCES_DIR = "entrances";
-
-/** One person's entrance, and what gets posted for it. */
-export interface Entrance {
-  /** Discord user IDs this applies to; several can share one entrance. */
-  users: string[];
-  /** Text to post. A link on its own line embeds; anything else is sent as written. */
-  message?: string;
-  /**
-   * A file to attach, named relative to the entrances folder. Preferred over a
-   * link for anything that has to keep working: a Discord CDN URL is signed and
-   * dies after 24 hours, and any other host can go away on its own schedule.
-   */
-  file?: string;
-  /**
-   * A clip folder under the sounds directory, played in voice as they arrive.
-   * The same pools sounds.json draws on, so a clip need not be kept twice.
-   */
-  pool?: string;
-}
 
 /** What someone's entrance consists of. At least one field is set. */
 export interface EntrancePost {
@@ -72,14 +50,6 @@ export interface EntrancePost {
   file?: string;
   /** Clip pool to play on arrival, if the entrance has one. */
   pool?: string;
-}
-
-/** Parsed entrances.json. */
-export interface EntrancesConfig {
-  /** Text channel the entrances are posted in. Nothing posts without one. */
-  channelId?: string;
-  /** Who gets an entrance, and what. */
-  entrances?: Entrance[];
 }
 
 /** Which halves of someone's entrance have fired, and on what day. */
@@ -96,9 +66,6 @@ export type EntranceHalf = "post" | "sound";
 /** What each user has had today, keyed by user ID. */
 type EntranceState = Record<string, EntranceDays>;
 
-/** Config per guild, keyed by the {@link configFingerprint} it came from. */
-const cache = new Map<string, { fingerprint: string; config: EntrancesConfig }>();
-
 /**
  * The day each user was last announced, per guild. Held in memory because the
  * check runs on every burst of speech from everyone in the call, and read back
@@ -107,28 +74,13 @@ const cache = new Map<string, { fingerprint: string; config: EntrancesConfig }>(
 const state = new Map<string, EntranceState>();
 
 /**
- * Reads one scope's entrances config.
- * @param scope - Discord guild ID or "global".
- * @returns The parsed config, or null when the file is absent or unreadable.
- */
-function readEntrances(scope: string): EntrancesConfig | null {
-  return readIfPresent<EntrancesConfig>(scope, ENTRANCES_FILE);
-}
-
-/**
- * Loads a guild's entrances config, reusing the last read while both files are
- * unchanged so a hand edit applies without a restart.
+ * The guild's entrances, which live inside its sounds config so voice has one
+ * file rather than two. Cached and reloaded on edit by {@link loadSounds}.
  * @param guildId - Discord guild (server) ID.
- * @returns The config, empty when neither scope has one.
+ * @returns The entrances block, empty when the config has none.
  */
-export function loadEntrances(guildId: string): EntrancesConfig {
-  const current = configFingerprint(guildId, ENTRANCES_FILE);
-  const cached = cache.get(guildId);
-  if (cached?.fingerprint === current) return cached.config;
-
-  const config = resolveScoped(guildId, readEntrances) ?? {};
-  cache.set(guildId, { fingerprint: current, config });
-  return config;
+function entrancesOf(guildId: string): EntrancesConfig {
+  return loadSounds(guildId).config.entrances ?? {};
 }
 
 /**
@@ -154,7 +106,7 @@ export function localDay(now: Date): string {
  * one off without deleting who it was for.
  */
 export function entranceFor(config: EntrancesConfig, userId: string): EntrancePost | null {
-  const entry = (config.entrances ?? []).find((e) => (e.users ?? []).includes(userId));
+  const entry = (config.list ?? []).find((e) => (e.users ?? []).includes(userId));
   if (!entry) return null;
   const message = entry.message?.trim();
   const file = entry.file?.trim();
@@ -260,7 +212,7 @@ function releaseToday(guildId: string, userId: string, half: EntranceHalf): void
  * @param userId - Who was heard.
  */
 export async function announceEntrance(guild: Guild, userId: string): Promise<void> {
-  const config = loadEntrances(guild.id);
+  const config = entrancesOf(guild.id);
   const post = entranceFor(config, userId);
   if (!post) return;
 
@@ -394,7 +346,7 @@ export async function playEntranceSound(
   userId: string,
   connection: VoiceConnection,
 ): Promise<void> {
-  const post = entranceFor(loadEntrances(guild.id), userId);
+  const post = entranceFor(entrancesOf(guild.id), userId);
   if (!post?.pool) return;
 
   // Calm mode silences replies across the bot, and a clip everyone in the call
@@ -443,7 +395,7 @@ export async function noteJoin(
 ): Promise<void> {
   // Nothing is remembered for someone with no clip configured, so a busy
   // server does not keep a slot per arrival for entrances that do not exist.
-  if (!entranceFor(loadEntrances(guild.id), userId)?.pool) return;
+  if (!entranceFor(entrancesOf(guild.id), userId)?.pool) return;
 
   if (connection) {
     await playEntranceSound(guild, userId, connection);
