@@ -75,8 +75,10 @@ with a POSIX ACL, or the bot cannot write its own config.
 **Updating.** Merging to `main` builds and pushes `ghcr.io/wobkobi/reactionbot`, tagged `latest`,
 the version, and the commit. Nothing pulls it on its own - a tag is not a subscription - so the
 deploy updates when the container is restarted, which re-pulls because `pull_policy: always` is set.
-Pin the version tag instead of `latest` if you would rather choose when that happens, and to have
-something to roll back to.
+The `environment` line in the boot log names the version and the commit it was built from, so a
+restart that quietly kept the old image can be told apart from one that took the new one. Pin the
+version tag instead of `latest` if you would rather choose when that happens, and to have something
+to roll back to.
 
 Config is not code: `words.json`, `sounds.json` and the clips are read from the volume and picked up
 without a restart, and the Whisper model cache survives an update rather than downloading again.

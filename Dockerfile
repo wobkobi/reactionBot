@@ -62,6 +62,13 @@ USER node
 # restart loses the configuration and re-downloads the model.
 VOLUME ["/app/data"]
 
+# Baked in so the boot log can say which build is running. A restart that
+# quietly kept the previous image is otherwise indistinguishable from one that
+# picked up the new one. Last, and after the COPY layers, so changing it does
+# not invalidate the cache for anything above.
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
+
 # Not `npm start`, which would rebuild. index.ts handles SIGTERM, so the bot
 # leaves its voice channels on `docker stop` rather than going down mid-call.
 CMD ["node", "build/index.js"]
