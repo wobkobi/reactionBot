@@ -101,6 +101,7 @@ import {
   REJOIN_COOLDOWN_MS,
   VOICE_SWEEP_INTERVAL_MS,
 } from "@/voice/autojoin";
+import { entranceFor, localDay } from "@/voice/entrance";
 import { clipVerdict } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
@@ -651,6 +652,7 @@ function checkGuildSeeding(): void {
       "responses.json",
       "insults.json",
       "definitions.json",
+      "entrances.json",
     ];
     check(
       "seed",
@@ -2640,6 +2642,44 @@ function checkVoiceJoinRules(): void {
     "the window outlives the wait, so a contest survives its own cooldown",
     CONTEST_WINDOW_MS > CONTEST_COOLDOWN_MS &&
       contestVerdict(spam, spam[spam.length - 1]! + CONTEST_COOLDOWN_MS, 0) === "won",
+  );
+
+  const entrances = {
+    channelId: "900",
+    entrances: [
+      { users: ["331744864385630240"], message: "https://example.invalid/woody" },
+      { users: ["1", "2"], message: "shared" },
+      { users: ["3"], message: "   " },
+    ],
+  };
+  check(
+    "voice/entrance",
+    "a configured user gets their entrance",
+    entranceFor(entrances, "331744864385630240") === "https://example.invalid/woody",
+  );
+  check(
+    "voice/entrance",
+    "everyone listed on one entry shares the message",
+    entranceFor(entrances, "1") === "shared" && entranceFor(entrances, "2") === "shared",
+  );
+  check("voice/entrance", "anyone else gets nothing", entranceFor(entrances, "999") === null);
+  // So an entrance can be switched off without losing who it was for.
+  check("voice/entrance", "a blank message is no entrance", entranceFor(entrances, "3") === null);
+  check("voice/entrance", "an empty config is no entrance", entranceFor({}, "1") === null);
+
+  // The day has to come off the local clock. toISOString would roll the day
+  // over at UTC midnight, handing a server in another timezone its fresh
+  // entrance somewhere in the middle of the evening.
+  check(
+    "voice/entrance",
+    "the day is the local calendar day, zero-padded",
+    localDay(new Date(2026, 0, 5, 23, 59)) === "2026-01-05" &&
+      localDay(new Date(2026, 11, 31, 0, 1)) === "2026-12-31",
+  );
+  check(
+    "voice/entrance",
+    "late evening and the next morning are different days",
+    localDay(new Date(2026, 5, 1, 23, 30)) !== localDay(new Date(2026, 5, 2, 0, 30)),
   );
 
   check(
