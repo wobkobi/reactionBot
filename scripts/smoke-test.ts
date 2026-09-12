@@ -83,6 +83,7 @@ import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
 import { pruneByKeyAge, snowflakeTime } from "@/utils/retention";
 import { GUILD_README, seedGuildData, TEMPLATE_SUFFIX } from "@/utils/seedGuild";
+import { findVersion, shortCommit } from "@/utils/version";
 import {
   downsampleToMono16k,
   isSilenceFrame,
@@ -2591,6 +2592,55 @@ function checkVoiceJoinRules(): void {
     "voice/kick",
     "an admin may kick without joining the call",
     mayKick(null, "100", true) && mayKick("200", "100", true),
+  );
+
+  // A deploy that quietly kept the previous image logs identically to one that
+  // took the new one, so the boot line is the only thing that tells them apart.
+  const tree: Record<string, string> = {
+    "/app/package.json": '{"name":"reactionbot","version":"9.9.9"}',
+    "/app/broken/package.json": "{not json",
+  };
+  // path.join hands back backslashes on Windows, so the lookup is normalised
+  // rather than the fixture being written twice.
+  const slash = (p: string): string => p.split(path.sep).join("/");
+  const has = (p: string): boolean => slash(p) in tree;
+  const read = (p: string): string => tree[slash(p)] ?? "";
+  check(
+    "boot",
+    "the version is read from package.json",
+    findVersion("/app", has, read) === "9.9.9",
+  );
+  // src/utils in development, build/utils in the image: a fixed relative path
+  // would be right for one layout and wrong for the other.
+  check(
+    "boot",
+    "package.json is found from a nested folder",
+    findVersion("/app/build/utils", has, read) === "9.9.9",
+  );
+  check(
+    "boot",
+    "an unparseable package.json does not stop the boot",
+    findVersion("/app/broken", has, read) === "9.9.9",
+  );
+  check(
+    "boot",
+    "no package.json anywhere reads as unknown",
+    findVersion("/elsewhere", has, read) === undefined,
+  );
+  check(
+    "boot",
+    "a commit is shortened the way git shows one",
+    shortCommit("a7d981dcafefeedfacefeedfacefeedfacefeed1") === "a7d981d" &&
+      shortCommit("  a7d981d  ") === "a7d981d",
+  );
+  // Unset outside a built image, and an empty build arg reaches the process as
+  // an empty string rather than as absent.
+  check(
+    "boot",
+    "a missing or junk commit reads as nothing",
+    shortCommit(undefined) === undefined &&
+      shortCommit("") === undefined &&
+      shortCommit("not-a-sha") === undefined,
   );
 
   // Asking the bot to come or go is ordinary, and stays ordinary. The coin is

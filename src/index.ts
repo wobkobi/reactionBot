@@ -14,6 +14,7 @@ import { createLogger, logSettings } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { seedAllGuilds, seedGuildData } from "@/utils/seedGuild";
+import { botCommit, botVersion } from "@/utils/version";
 import { onVoiceStateUpdate, shutdownVoice, startVoiceSweep, sweepGuilds } from "@/voice/autojoin";
 import { REST } from "@discordjs/rest";
 import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
@@ -311,6 +312,10 @@ if (DEV_GUILD_ID) boot.warn("dev guard active, only serving one guild", { guild:
   const settings = logSettings();
   const dataRoot = checkDataRoot();
   boot.info("environment", {
+    // First thing worth reading after a deploy: a restart that quietly kept
+    // the previous image logs exactly like one that took the new one.
+    version: botVersion(),
+    commit: botCommit(),
     node: process.version,
     pid: process.pid,
     logFormat: settings.format,
