@@ -103,16 +103,18 @@ import {
   VOICE_SWEEP_INTERVAL_MS,
 } from "@/voice/autojoin";
 import { entranceFor, localDay, resolveEntranceFile } from "@/voice/entrance";
-import { clipVerdict } from "@/voice/playback";
+import { clipVerdict, POOL_CLIP_COOLDOWN_MS, poolCooldownMs } from "@/voice/playback";
 import {
   AMBIENT_FLOOR_MS,
+  AMBIENT_MAX_MS,
+  type CompiledSounds,
   type CompiledTrigger,
   compileSounds,
   hasSomethingToPlay,
   isIgnoredTranscript,
-  matchTrigger,
+  matchTriggers,
   nextAmbientDelay,
-  pickClip,
+  pickOne,
   poolKey,
   safeClipName,
   type SoundsConfig,
@@ -123,6 +125,7 @@ import {
   cachedOggPath,
   detectOpusContainer,
   ffmpegArgs,
+  oggDurationMs,
   TRIGGER_LUFS,
 } from "@/voice/transcode";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
@@ -2264,6 +2267,16 @@ function checkVoiceSounds(): void {
   const firstClip = (t: CompiledTrigger | null): string | undefined =>
     t && t.source.kind === "list" ? t.source.files[0] : undefined;
 
+  /**
+   * Takes one matching trigger, for the checks that care whether a transcript
+   * matched at all rather than how many pools it reached.
+   * @param text - The transcript.
+   * @param sounds - The compiled config.
+   * @returns The first match in config order, or null.
+   */
+  const matchTrigger = (text: string, sounds: CompiledSounds): CompiledTrigger | null =>
+    matchTriggers(text, sounds)[0] ?? null;
+
   const config: SoundsConfig = {
     pools: {
       shutup: ["a.ogg", "b.ogg"],
@@ -2365,8 +2378,50 @@ function checkVoiceSounds(): void {
 
   check(
     "voice/sounds",
-    "pickClip wraps by index and refuses an empty pool",
-    pickClip(["a", "b", "c"], 4) === "b" && pickClip([], 0) === null,
+    "pickOne wraps by index and refuses an empty set",
+    pickOne(["a", "b", "c"], 4) === "b" && pickOne([], 0) === null,
+  );
+
+  // A word listed against two pools has to reach both, or config order decides
+  // it once and the later pool never plays for that word.
+  const shared = compileSounds({
+    pools: { one: ["a.ogg"], two: ["b.ogg"], three: ["c.ogg"] },
+    triggers: [
+      { words: ["bruh"], pool: "one" },
+      { words: ["bruh"], pool: "two" },
+      { words: ["bruh"], pool: "one" },
+      { words: ["other"], pool: "three" },
+    ],
+  });
+  const bruh = matchTriggers("bruh moment", shared);
+  check(
+    "voice/sounds",
+    "a word in several pools returns all of them",
+    bruh.length === 2 && new Set(bruh.map((t) => poolKey(t.source))).size === 2,
+  );
+  check(
+    "voice/sounds",
+    "two triggers on one pool count once, so it is not weighted double",
+    bruh.filter((t) => t.source.kind === "list" && t.source.files[0] === "a.ogg").length === 1,
+  );
+  check(
+    "voice/sounds",
+    "a word matches only its own pools",
+    matchTriggers("other thing", shared).length === 1,
+  );
+  // Tier precedence survives the change from one match to many: a soundalike
+  // never joins a roll that an exact hit already won.
+  const tiers = compileSounds({
+    pools: { exact: ["a.ogg"], near: ["b.ogg"] },
+    triggers: [
+      { words: ["drip"], pool: "exact" },
+      { words: ["trip"], pool: "near", phonetic: true },
+    ],
+  });
+  check(
+    "voice/sounds",
+    "an exact hit keeps soundalikes out of the roll",
+    matchTriggers("look at that drip", tiers).length === 1,
   );
 
   // Ambient playback has no trigger to observe, so the schedule is the only
@@ -2421,6 +2476,19 @@ function checkVoiceSounds(): void {
         ambient: { pool: "ambience", minMinutes: 0, maxMinutes: 0 },
         triggers: [],
       }).ambient?.minMs === AMBIENT_FLOOR_MS,
+  );
+
+  // Background sounds are meant to be heard often enough to register as
+  // atmosphere, so a config that names no range waits at most this long.
+  check(
+    "voice/ambient",
+    "a config with no range waits ten minutes at the outside",
+    AMBIENT_MAX_MS === 600_000 &&
+      compileSounds({
+        pools: { ambience: ["a.ogg"] },
+        ambient: { pool: "ambience" },
+        triggers: [],
+      }).ambient?.maxMs === AMBIENT_MAX_MS,
   );
 
   // The sweep is what notices a config edit, since one emits no gateway event.
@@ -2813,6 +2881,27 @@ function checkVoiceJoinRules(): void {
     "a busy player is blamed ahead of any elapsed gap",
     clipVerdict(true, 1_000, 1_000, 30_000, 5_000) === "playing",
   );
+  // The clip's own length is the point of the change: a 45 second clip on a 30
+  // second gap used to be replayable the moment it stopped.
+  check(
+    "voice/play",
+    "a clip's length is added to the gap that follows it",
+    poolCooldownMs(30_000, 45_000) === 75_000 && poolCooldownMs(30_000, 2_000) === 32_000,
+  );
+  check(
+    "voice/play",
+    "the pool gap never falls under the floor",
+    poolCooldownMs(0, 0) === POOL_CLIP_COOLDOWN_MS &&
+      poolCooldownMs(5_000, 1_000) === POOL_CLIP_COOLDOWN_MS,
+  );
+  // A clip whose length could not be read falls back to the flat gap rather
+  // than to nothing.
+  check(
+    "voice/play",
+    "an unmeasured clip takes the configured gap",
+    poolCooldownMs(60_000, 0) === 60_000,
+  );
+
   // The gap follows the clips, not the trigger: two triggers on one folder are
   // one sound to whoever is listening, and a different folder is not.
   check(
@@ -2845,6 +2934,46 @@ function checkVoiceJoinRules(): void {
     "the codec marker is only trusted behind the container magic",
     detectOpusContainer(Buffer.from("ID3 OpusHead A_OPUS")) === null,
   );
+  /**
+   * Builds a bare Ogg page header carrying a granule position, which is all
+   * the duration read looks at.
+   * @param granules - Samples decoded by the end of the page, counted at 48kHz.
+   * @returns A page header, granule position filled in.
+   */
+  const oggPage = (granules: number): Buffer => {
+    const page = Buffer.alloc(27);
+    page.write("OggS", 0, "latin1");
+    page.writeUInt32LE(granules % 2 ** 32, 6);
+    page.writeUInt32LE(Math.floor(granules / 2 ** 32), 10);
+    return page;
+  };
+
+  check(
+    "voice/play",
+    "a clip's length comes off its last granule position",
+    oggDurationMs(oggPage(48_000 * 45)) === 45_000,
+  );
+  // Only the final page holds the running total, so a scan that stopped at the
+  // first one would time every clip at its opening packet.
+  check(
+    "voice/play",
+    "the last page wins, not the first",
+    oggDurationMs(Buffer.concat([oggPage(48_000), oggPage(96_000)])) === 2_000,
+  );
+  // A page that finished no packet carries -1 rather than a total.
+  const noPacket = Buffer.concat([oggPage(48_000), oggPage(0)]);
+  noPacket.fill(0xff, noPacket.length - 27 + 6, noPacket.length - 27 + 14);
+  check(
+    "voice/play",
+    "a page with no finished packet is skipped",
+    oggDurationMs(noPacket) === 1000,
+  );
+  check(
+    "voice/play",
+    "a file with no readable page is left unmeasured",
+    oggDurationMs(Buffer.from("not an ogg at all, not even close")) === null,
+  );
+
   const args = ffmpegArgs("in.mp3", "out.ogg", TRIGGER_LUFS).join(" ");
   check(
     "voice/play",

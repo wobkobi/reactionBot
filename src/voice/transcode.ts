@@ -34,6 +34,22 @@ const HEAD_BYTES = 8192;
 const EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
 
 /**
+ * Bytes to read from the end of a file when measuring it. An Ogg page tops out
+ * at 65307 bytes, so a window twice that always reaches back past the start of
+ * the final page header.
+ */
+const TAIL_BYTES = 131_072;
+
+/** Bytes of an Ogg page header up to and including the granule position. */
+const OGG_HEADER_BYTES = 14;
+
+/**
+ * Rate every Ogg Opus granule position is counted at, whatever the clip was
+ * encoded from.
+ */
+const OPUS_GRANULE_RATE = 48_000;
+
+/**
  * Integrated loudness a trigger clip is normalised to, in LUFS. Below
  * broadcast standard, because a sound bite lands in the middle of a
  * conversation rather than replacing it.
@@ -88,6 +104,68 @@ export function detectOpusContainer(head: Uint8Array): OpusContainer | null {
     return "webm/opus";
   }
   return null;
+}
+
+/**
+ * Measures an Ogg Opus clip from the end of the file, where the last page's
+ * granule position counts the samples decoded up to that point.
+ *
+ * Scans backwards, because only the final page carries the running total.
+ * Pages that finished no packet hold -1 instead and are skipped, as is an
+ * "OggS" that happens to fall inside packet data - a real page follows its
+ * magic with version 0 and a flags byte using only the low three bits. The few
+ * milliseconds of pre-skip the stream declares are left in: noise beside
+ * anything this is measured for.
+ *
+ * Opus only. Every other Ogg codec counts its granule position at the clip's
+ * own sample rate rather than a fixed 48kHz, so a Vorbis file read through
+ * here comes out wrong by whatever ratio the two rates sit at.
+ * @param tail - The last bytes of the file, ending at its final byte.
+ * @returns The length in milliseconds, or null when no page could be read.
+ */
+export function oggDurationMs(tail: Uint8Array): number | null {
+  const buf = Buffer.from(tail);
+  for (let i = buf.length - OGG_HEADER_BYTES; i >= 0; i--) {
+    const isPage =
+      buf[i] === 0x4f && buf[i + 1] === 0x67 && buf[i + 2] === 0x67 && buf[i + 3] === 0x53;
+    // Version 0 and no flag bits above the three that exist, so "OggS" landing
+    // inside packet data is not read as a page header. Audio bytes clear all
+    // five of these about once in four billion rather than once a file.
+    if (!isPage || buf[i + 4] !== 0 || (buf[i + 5] ?? 0xff) > 0x07) continue;
+    const low = buf.readUInt32LE(i + 6);
+    const high = buf.readUInt32LE(i + 10);
+    if (low === 0xffffffff && high === 0xffffffff) continue;
+    const granules = high * 2 ** 32 + low;
+    if (granules <= 0) continue;
+    return Math.round((granules / OPUS_GRANULE_RATE) * 1000);
+  }
+  return null;
+}
+
+/**
+ * Reads a prepared clip's length off the file it is about to be streamed from.
+ * @param filePath - Absolute path of that file.
+ * @param container - The container it holds.
+ * @returns The length in milliseconds, or null when it cannot be measured.
+ */
+function fileDurationMs(filePath: string, container: OpusContainer): number | null {
+  // Ogg is the only one of the two that states its length somewhere cheap to
+  // reach; WebM keeps it in the Segment header, behind a variable-length
+  // element tree. Every clip that asks for a loudness target is converted to
+  // Ogg anyway, so the WebM case only comes up for a caller that took the
+  // no-conversion shortcut, and it takes the flat gap instead.
+  if (container !== "ogg/opus") return null;
+  const stat = fs.statSync(filePath, { throwIfNoEntry: false });
+  if (!stat) return null;
+  const tail = Buffer.alloc(Math.min(TAIL_BYTES, stat.size));
+  const fd = fs.openSync(filePath, "r");
+  let read = 0;
+  try {
+    read = fs.readSync(fd, tail, 0, tail.length, Math.max(0, stat.size - TAIL_BYTES));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return oggDurationMs(tail.subarray(0, read));
 }
 
 /**
@@ -242,6 +320,21 @@ async function convert(input: string, output: string, targetLufs: number): Promi
 export interface Playable {
   path: string;
   container: OpusContainer;
+  /** How long it plays for, or null when the file would not say. */
+  durationMs: number | null;
+}
+
+/**
+ * Describes a cached Ogg, measuring it on the way past.
+ * @param cachedPath - Absolute path of the converted file.
+ * @returns The clip, ready to stream.
+ */
+function playableOgg(cachedPath: string): Playable {
+  return {
+    path: cachedPath,
+    container: "ogg/opus",
+    durationMs: fileDurationMs(cachedPath, "ogg/opus"),
+  };
 }
 
 /**
@@ -273,12 +366,14 @@ export async function ensurePlayable(
       fs.closeSync(fd);
     }
     const container = detectOpusContainer(head.subarray(0, read));
-    if (container) return { path: sourcePath, container };
+    if (container) {
+      return { path: sourcePath, container, durationMs: fileDurationMs(sourcePath, container) };
+    }
   }
 
   const target = targetLufs ?? TRIGGER_LUFS;
   const cached = cachedOggPath(sourcePath, stat.mtimeMs, stat.size, target);
-  if (fs.existsSync(cached)) return { path: cached, container: "ogg/opus" };
+  if (fs.existsSync(cached)) return playableOgg(cached);
 
   if (!(await ffmpegAvailable())) {
     log.warn("clip needs conversion but ffmpeg is unavailable", { sourcePath });
@@ -290,5 +385,5 @@ export async function ensurePlayable(
     log.warn("clip conversion failed", { sourcePath });
     return null;
   }
-  return { path: cached, container: "ogg/opus" };
+  return playableOgg(cached);
 }
