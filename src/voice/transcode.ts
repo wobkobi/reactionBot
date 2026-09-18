@@ -159,7 +159,7 @@ function fileDurationMs(filePath: string, container: OpusContainer): number | nu
   if (!stat) return null;
   const tail = Buffer.alloc(Math.min(TAIL_BYTES, stat.size));
   const fd = fs.openSync(filePath, "r");
-  let read = 0;
+  let read: number;
   try {
     read = fs.readSync(fd, tail, 0, tail.length, Math.max(0, stat.size - TAIL_BYTES));
   } finally {
@@ -359,7 +359,7 @@ export async function ensurePlayable(
   if (targetLufs === null) {
     const head = Buffer.alloc(HEAD_BYTES);
     const fd = fs.openSync(sourcePath, "r");
-    let read = 0;
+    let read: number;
     try {
       read = fs.readSync(fd, head, 0, HEAD_BYTES, 0);
     } finally {
