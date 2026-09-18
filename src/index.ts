@@ -318,6 +318,7 @@ if (DEV_GUILD_ID) boot.warn("dev guard active, only serving one guild", { guild:
     commit: botCommit(),
     node: process.version,
     pid: process.pid,
+    logLevel: settings.level,
     logFormat: settings.format,
     dataDir: dataRoot.path,
     voiceModel: process.env.VOICE_MODEL || "default",

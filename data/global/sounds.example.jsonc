@@ -41,8 +41,9 @@
   // with "phonetic": false when a word needs to be exact.
   "phonetic": true,
 
-  // Echo what the bot heard at debug level, for working out why a trigger is
-  // or is not firing.
+  // Echo everything the bot heard at debug level, for working out why a
+  // trigger is or is not firing. Needs LOG_LEVEL=debug to show. Matches are
+  // written to the server's voice_triggers.csv regardless.
   "logTranscripts": false,
 
   // Turns voice on for every server without needing /autojoin on in each.

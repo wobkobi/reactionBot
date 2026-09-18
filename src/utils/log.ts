@@ -1,18 +1,35 @@
 // src/utils/log.ts
 
-// Every record is emitted. There is no threshold to configure: a level names
-// the line and picks the stream, nothing more. A debug line saying why a clip
-// was dropped is then in the log that recorded the drop, rather than behind a
-// setting that had to be turned on before the thing worth reading happened.
+// A level picks the stream and, against LOG_LEVEL, whether the line is written
+// at all. The default is info: debug carries a line per transcription and per
+// dropped clip, which buries everything else in a busy call, so it is switched
+// on while chasing a misfire rather than left running.
 
 /** Supported log levels. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+/** Numeric weights for the threshold; a record passes at or above LOG_LEVEL's. */
+const LEVELS: Record<LogLevel, number> = {
+  error: 40,
+  warn: 30,
+  info: 20,
+  debug: 10,
+};
+
 // The settings below are read at the point of use rather than captured in a
 // module constant. This module is imported by nearly every other one, so a
 // constant here would be read before `dotenv.config()` runs in index.ts -
-// ESM evaluates imports before the importing module's body - and LOG_FORMAT
-// and NO_COLOR could never be set from .env at all.
+// ESM evaluates imports before the importing module's body - and LOG_LEVEL,
+// LOG_FORMAT and NO_COLOR could never be set from .env at all.
+
+/**
+ * The lowest level written, from LOG_LEVEL.
+ * @returns The level named, or "info" when LOG_LEVEL is unset or not a level.
+ */
+function minLevel(): LogLevel {
+  const named = process.env.LOG_LEVEL?.toLowerCase();
+  return named && Object.hasOwn(LEVELS, named) ? (named as LogLevel) : "info";
+}
 
 /**
  * The output format, from LOG_FORMAT.
@@ -123,6 +140,7 @@ function jsonLine(ns: string, level: LogLevel, msg: string, ctx?: Record<string,
  * @param [ctx] - Optional structured context to include.
  */
 function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
+  if (LEVELS[level] < LEVELS[minLevel()]) return;
   const line =
     format() === "json" ? jsonLine(ns, level, msg, ctx) : prettyLine(ns, level, msg, ctx);
   // Problems go to stderr so a collector can tell them apart from ordinary
@@ -135,10 +153,10 @@ function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unk
 /**
  * Reports the logging settings actually in force, so a run can say how it was
  * configured rather than leaving someone to guess.
- * @returns The resolved output format.
+ * @returns The resolved threshold and output format.
  */
-export function logSettings(): { format: "pretty" | "json" } {
-  return { format: format() };
+export function logSettings(): { level: LogLevel; format: "pretty" | "json" } {
+  return { level: minLevel(), format: format() };
 }
 
 export interface Logger {

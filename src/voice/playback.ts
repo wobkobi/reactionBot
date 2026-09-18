@@ -9,7 +9,13 @@
 // buffer to police.
 
 import { createLogger } from "@/utils/log";
-import { AMBIENT_LUFS, ensurePlayable, TRIGGER_LUFS, type OpusContainer } from "@/voice/transcode";
+import {
+  AMBIENT_LUFS,
+  ensurePlayable,
+  TRIGGER_LUFS,
+  type OpusContainer,
+  type Playable,
+} from "@/voice/transcode";
 import {
   AudioPlayerStatus,
   createAudioPlayer,
@@ -24,9 +30,14 @@ import fs from "node:fs";
 const log = createLogger("voice/playback");
 
 /**
- * Minimum gap between clips drawn from the same pool, and the default a trigger
+ * Quiet asked for after a clip from a pool finishes, and the default a trigger
  * takes when neither it nor the config names one. Long enough that a word said
  * on repeat earns one clip rather than a barrage.
+ *
+ * Counted from the end of the clip rather than its start, so a long clip earns
+ * the same silence afterwards as a short one instead of being replayable the
+ * moment it stops - see {@link poolCooldownMs}. It doubles as the floor on that
+ * total, so a config asking for less than this still gets it.
  *
  * Per pool rather than per guild: two triggers pointing at different sounds are
  * different jokes, and one firing is no reason to swallow the other. Triggers
@@ -48,9 +59,30 @@ const STREAM_TYPES: Record<OpusContainer, StreamType> = {
   "webm/opus": StreamType.WebmOpus,
 };
 
+/** When a pool last played, and how long what it played ran for. */
+interface PoolClip {
+  at: number;
+  durationMs: number;
+}
+
 const players = new Map<string, AudioPlayer>();
-const lastPoolClip = new Map<string, number>();
+const lastPoolClip = new Map<string, PoolClip>();
 const lastGuildClip = new Map<string, number>();
+
+/**
+ * Works out how long a pool is held shut after a clip, given the gap its config
+ * asked for and how long the clip itself ran.
+ *
+ * The clip's own length is part of the answer because the clock starts when it
+ * starts playing: without it a 45 second clip on a 30 second gap is replayable
+ * the instant it stops, which is the barrage the gap exists to stop.
+ * @param gapMs - Quiet the config wants after the clip, in milliseconds.
+ * @param clipDurationMs - How long the clip ran, 0 when it could not be read.
+ * @returns The cooldown, never shorter than {@link POOL_CLIP_COOLDOWN_MS}.
+ */
+export function poolCooldownMs(gapMs: number, clipDurationMs: number): number {
+  return Math.max(POOL_CLIP_COOLDOWN_MS, gapMs + clipDurationMs);
+}
 
 /** Why a trigger did or did not earn a clip. */
 export type ClipVerdict = "play" | "playing" | "pool-cooldown" | "guild-floor";
@@ -114,28 +146,34 @@ export function isPlaying(guildId: string): boolean {
  * Applies both cooldowns and the busy check for a would-be trigger, and says
  * how much of a cooldown is left, so a refusal in the log reads as a gap with
  * a length rather than as the bot ignoring someone.
+ *
+ * The pool's cooldown is worked out here rather than passed in, because it
+ * depends on the clip that last played as well as on the config: the gap comes
+ * from the caller, the length from what was stamped when that clip started.
  * @param guildId - Discord guild (server) ID.
  * @param pool - Key of the pool the trigger draws from.
- * @param poolCooldownMs - Minimum gap for that pool.
+ * @param gapMs - Quiet that pool's config wants after a clip.
  * @returns The verdict from {@link clipVerdict}, with the milliseconds left on
  * whichever gap refused it; 0 for every other verdict.
  */
 export function clipStatus(
   guildId: string,
   pool: string,
-  poolCooldownMs: number,
+  gapMs: number,
 ): { verdict: ClipVerdict; remainingMs: number } {
   const now = Date.now();
-  const sincePoolMs = now - (lastPoolClip.get(`${guildId}:${pool}`) ?? 0);
+  const last = lastPoolClip.get(`${guildId}:${pool}`);
+  const sincePoolMs = now - (last?.at ?? 0);
   const sinceGuildMs = now - (lastGuildClip.get(guildId) ?? 0);
+  const cooldownMs = poolCooldownMs(gapMs, last?.durationMs ?? 0);
   const verdict = clipVerdict(
     isPlaying(guildId),
     sincePoolMs,
     sinceGuildMs,
-    poolCooldownMs,
+    cooldownMs,
     GUILD_CLIP_FLOOR_MS,
   );
-  if (verdict === "pool-cooldown") return { verdict, remainingMs: poolCooldownMs - sincePoolMs };
+  if (verdict === "pool-cooldown") return { verdict, remainingMs: cooldownMs - sincePoolMs };
   if (verdict === "guild-floor") {
     return { verdict, remainingMs: GUILD_CLIP_FLOOR_MS - sinceGuildMs };
   }
@@ -149,14 +187,15 @@ export function clipStatus(
  * @param guildId - Discord guild (server) ID.
  * @param filePath - Absolute path of the clip to play.
  * @param targetLufs - Integrated loudness to normalise it to, in LUFS.
- * @returns `true` when playback started.
+ * @returns What started playing, so a caller can charge its length to a
+ * cooldown, or null when nothing did.
  */
 async function startPlayback(
   connection: VoiceConnection,
   guildId: string,
   filePath: string,
   targetLufs: number,
-): Promise<boolean> {
+): Promise<Playable | null> {
   const playable = await ensurePlayable(filePath, targetLufs).catch((err: unknown) => {
     log.warn("could not prepare clip", {
       filePath,
@@ -164,7 +203,7 @@ async function startPlayback(
     });
     return null;
   });
-  if (!playable) return false;
+  if (!playable) return null;
 
   try {
     const player = getPlayer(guildId);
@@ -178,14 +217,19 @@ async function startPlayback(
         inputType: STREAM_TYPES[playable.container],
       }),
     );
-    log.info("playing clip", { guildId, clip: filePath, container: playable.container });
-    return true;
+    log.info("playing clip", {
+      guildId,
+      clip: filePath,
+      container: playable.container,
+      durationMs: playable.durationMs,
+    });
+    return playable;
   } catch (err) {
     log.warn("failed to start playback", {
       guildId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return false;
+    return null;
   }
 }
 
@@ -217,7 +261,7 @@ export async function playClip(
   const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
   if (!started) return false;
   const now = Date.now();
-  lastPoolClip.set(`${guildId}:${pool}`, now);
+  lastPoolClip.set(`${guildId}:${pool}`, { at: now, durationMs: started.durationMs ?? 0 });
   lastGuildClip.set(guildId, now);
   return true;
 }
@@ -238,7 +282,7 @@ export async function playEntrance(
   guildId: string,
   filePath: string,
 ): Promise<boolean> {
-  return startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
+  return (await startPlayback(connection, guildId, filePath, TRIGGER_LUFS)) !== null;
 }
 
 /**
@@ -255,5 +299,5 @@ export async function playAmbient(
   guildId: string,
   filePath: string,
 ): Promise<boolean> {
-  return startPlayback(connection, guildId, filePath, AMBIENT_LUFS);
+  return (await startPlayback(connection, guildId, filePath, AMBIENT_LUFS)) !== null;
 }

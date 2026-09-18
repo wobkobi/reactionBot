@@ -206,7 +206,7 @@ rather than sitting in the log.
 | `guildCooldownMs` | Default gap between clips from the same pool. Defaults to 30 seconds; a trigger's own `cooldownMs` overrides it. Pools each keep their own gap, so one firing does not silence the rest, and a fixed 5 second floor stops any two clips running together. |
 | `phonetic` | Automatic soundalike matching. Default true. |
 | `ignore` | Phrases that never count. |
-| `logTranscripts` | Echo what was heard. Off by default: it writes what people say in voice chat to the log. |
+| `logTranscripts` | Echo everything heard, matched or not. Off by default: it writes what people say in voice chat to the log. A debug line, so it also needs `LOG_LEVEL=debug`. |
 | `enabled` | Config-wide default for the per-guild switch. `/autojoin on` overrides it. |
 
 **Several words, one sound.** Point as many triggers as you like at the same
@@ -324,6 +324,13 @@ pool is not on disk, the day is not counted as spent and they get another go.
   entries are dropped as it writes.
 - `<guildId>/calm.json` - the calm-mode window (managed by the bot and
   `/calmdown`).
+- `<guildId>/voice_triggers.csv` - one row per transcript that matched a
+  trigger: when, who, the whole transcript, the words that fired it, the pool
+  and clip, and `played` or what stopped it (`pool-cooldown`, `guild-floor`,
+  `playing`, `calm`, `no-clips`, `missing-file`, `not-played`). Refused
+  matches are kept, since a misfire is fixed in the word list either way.
+  Only matches are written, never the rest of the call. Safe to delete; the
+  next match starts it again with a fresh header.
 - `<guildId>/*_counts.json` - tracker counters, including
   `mention_counts.json` for `{count}` in the comebacks (managed by the bot).
 - `<guildId>/reposts.json` + `deleted_links.json` - moved-message records and

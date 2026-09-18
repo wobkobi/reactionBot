@@ -32,17 +32,21 @@ import {
   getPlayer,
   playClip,
   POOL_CLIP_COOLDOWN_MS,
+  type ClipVerdict,
 } from "@/voice/playback";
 import {
   isIgnoredTranscript,
   loadSounds,
-  matchTrigger,
-  pickClip,
+  matchedWords,
+  matchTriggers,
+  pickOne,
   poolKey,
   resolveClipPath,
   resolveClips,
+  type CompiledTrigger,
 } from "@/voice/sounds";
 import { startStt, transcribe } from "@/voice/stt";
+import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
 import {
   EndBehaviorType,
   entersState,
@@ -50,7 +54,7 @@ import {
   VoiceConnectionStatus,
   type VoiceConnection,
 } from "@discordjs/voice";
-import type { VoiceBasedChannel } from "discord.js";
+import type { Guild, VoiceBasedChannel } from "discord.js";
 
 const log = createLogger("voice/session");
 
@@ -77,6 +81,7 @@ export const MAX_CAPTURED_SPEAKERS = 8;
 interface Session {
   connection: VoiceConnection;
   channelId: string;
+  guild: Guild;
   decoder: OpusDecoder;
   capturing: Set<string>;
 }
@@ -97,19 +102,152 @@ interface PendingJoin {
  */
 const pending = new Map<string, PendingJoin>();
 
+/** Why a pool could not play: every verdict but "play". */
+type Refusal = Exclude<ClipVerdict, "play">;
+
+/** A pool ready to play, or the gap that stopped every candidate. */
+type PoolChoice =
+  | { trigger: CompiledTrigger; pool: string }
+  | { pool: string; name: string; verdict: Refusal; remainingMs: number };
+
+/** What became of a matched transcript, for the trigger log. */
+interface MatchResult {
+  outcome: TriggerOutcome;
+  /** Pool name as written in the config, empty when none was reached. */
+  pool: string;
+  clip: string;
+}
+
 /**
- * Handles one finished utterance: transcribe it, match it, and play the clip.
+ * Names a trigger's pool the way the config does, for the trigger log.
+ * @param trigger - A compiled trigger.
+ * @returns The pool name, or "(inline)" for clips listed on the trigger.
+ */
+function poolName(trigger: CompiledTrigger): string {
+  return trigger.trigger.pool ?? "(inline)";
+}
+
+/**
+ * Looks up the name someone goes by in a server, for the trigger log.
+ * @param guild - The server they spoke in.
+ * @param userId - Who spoke.
+ * @returns Their display name, or empty when neither cache has them.
+ */
+function displayName(guild: Guild, userId: string): string {
+  return (
+    guild.members.cache.get(userId)?.displayName ??
+    guild.client.users.cache.get(userId)?.username ??
+    ""
+  );
+}
+
+/**
+ * Chooses which pool a word plays from when it fires several, with even odds
+ * across the ones that are free right now.
+ *
+ * Gated pools drop out before the roll rather than after it, so a word that
+ * fires two pools plays the other one instead of going quiet while the first
+ * cools off. When nothing is free the refusal that frees up soonest is the one
+ * reported, since that is the gap someone in the call is actually waiting on.
  * @param guildId - Discord guild (server) ID.
+ * @param matches - Every trigger the transcript fired.
+ * @param guildCooldownMs - The guild's configured gap, if it set one.
+ * @returns The pool to play from, or why none of them could.
+ */
+function pickFreePool(
+  guildId: string,
+  matches: CompiledTrigger[],
+  guildCooldownMs: number | undefined,
+): PoolChoice {
+  const free: { trigger: CompiledTrigger; pool: string }[] = [];
+  let refused: { pool: string; name: string; verdict: Refusal; remainingMs: number } | null = null;
+
+  for (const trigger of matches) {
+    const pool = poolKey(trigger.source);
+    const gapMs = trigger.cooldownMs ?? guildCooldownMs ?? POOL_CLIP_COOLDOWN_MS;
+    const gate = clipStatus(guildId, pool, gapMs);
+    if (gate.verdict === "play") {
+      free.push({ trigger, pool });
+    } else if (!refused || gate.remainingMs < refused.remainingMs) {
+      refused = {
+        pool,
+        name: poolName(trigger),
+        verdict: gate.verdict,
+        remainingMs: gate.remainingMs,
+      };
+    }
+  }
+
+  const choice = pickOne(free, Math.floor(Math.random() * free.length));
+  if (choice) return choice;
+  // Unreachable with a non-empty match list, since every candidate either went
+  // into `free` or set `refused`; typed out rather than asserted.
+  return refused ?? { pool: "(none)", name: "", verdict: "playing", remainingMs: 0 };
+}
+
+/**
+ * Plays a clip for a transcript that matched, unless something stops it.
+ * @param guildId - Discord guild (server) ID.
+ * @param userId - Who spoke, for the log.
+ * @param matches - Every trigger the transcript fired.
+ * @param guildCooldownMs - The guild's configured gap, if it set one.
+ * @returns What happened, with the pool and clip it got as far as.
+ */
+async function playMatch(
+  guildId: string,
+  userId: string,
+  matches: CompiledTrigger[],
+  guildCooldownMs: number | undefined,
+): Promise<MatchResult> {
+  // Calm mode silences replies across the bot; a sound bite is a reply that
+  // everyone in the call has to hear, so it obeys the same window.
+  if (isCalm(guildId)) {
+    log.debug("clip suppressed by calm mode", { guildId });
+    return { outcome: "calm", pool: "", clip: "" };
+  }
+
+  const choice = pickFreePool(guildId, matches, guildCooldownMs);
+  if ("verdict" in choice) {
+    log.debug("clip not played", { guildId, userId, ...choice });
+    return { outcome: choice.verdict, pool: choice.name, clip: "" };
+  }
+  const { trigger: match, pool } = choice;
+  const name = poolName(match);
+
+  const clips = resolveClips(guildId, match.source);
+  if (clips.length === 0) {
+    log.warn("trigger matched but its pool holds no clips", { guildId, pool: name });
+    return { outcome: "no-clips", pool: name, clip: "" };
+  }
+  const clip = pickOne(clips, Math.floor(Math.random() * clips.length));
+  if (!clip) return { outcome: "no-clips", pool: name, clip: "" };
+  const clipPath = resolveClipPath(guildId, clip);
+  if (!clipPath) {
+    log.warn("configured clip is missing on disk", { guildId, clip });
+    return { outcome: "missing-file", pool: name, clip };
+  }
+
+  const session = sessions.get(guildId);
+  if (!session) return { outcome: "not-played", pool: name, clip };
+  const played = await playClip(session.connection, guildId, pool, clipPath);
+  return { outcome: played ? "played" : "not-played", pool: name, clip };
+}
+
+/**
+ * Handles one finished utterance: transcribe it, match it, play the clip, and
+ * write the match to the server's trigger log whatever became of it.
+ * @param guild - The server the speaker is in.
  * @param userId - Who spoke.
  * @param samples - The utterance as mono 16kHz float samples.
  * @param spokeUntil - When the speaker stopped, epoch ms, for timing the wait.
  */
 async function handleUtterance(
-  guildId: string,
+  guild: Guild,
   userId: string,
   samples: Float32Array,
   spokeUntil: number,
 ): Promise<void> {
+  const guildId = guild.id;
   const durationMs = Math.round((samples.length / TARGET_RATE) * 1000);
   const verdict = utteranceVerdict(samples.length, rms(samples));
   if (verdict !== "keep") {
@@ -130,58 +268,28 @@ async function handleUtterance(
     return;
   }
 
-  const match = matchTrigger(text, compiled);
-  if (!match) return;
+  const matches = matchTriggers(text, compiled);
+  if (matches.length === 0) return;
 
-  // Calm mode silences replies across the bot; a sound bite is a reply that
-  // everyone in the call has to hear, so it obeys the same window.
-  if (isCalm(guildId)) {
-    log.debug("clip suppressed by calm mode", { guildId });
-    return;
-  }
-
-  const cooldownMs = match.cooldownMs ?? compiled.config.guildCooldownMs ?? POOL_CLIP_COOLDOWN_MS;
-  const pool = poolKey(match.source);
-  // Named rather than destructured: utteranceVerdict already owns `verdict`
-  // in this scope.
-  const gate = clipStatus(guildId, pool, cooldownMs);
-  if (gate.verdict !== "play") {
-    log.debug("clip not played", {
+  const heardAt = new Date();
+  const result = await playMatch(guildId, userId, matches, compiled.config.guildCooldownMs);
+  if (result.outcome === "played") {
+    // Timed from the last word rather than from the flush, so the number is
+    // the one someone in the call actually waited through.
+    log.debug("clip latency", {
       guildId,
-      userId,
-      pool,
-      verdict: gate.verdict,
-      remainingMs: gate.remainingMs,
+      pool: result.pool,
+      durationMs,
+      waitedMs: Date.now() - spokeUntil,
     });
-    return;
   }
-
-  const clips = resolveClips(guildId, match.source);
-  if (clips.length === 0) {
-    log.warn("trigger matched but its pool holds no clips", {
-      guildId,
-      pool: match.trigger.pool ?? "(inline)",
-    });
-    return;
-  }
-  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
-  if (!name) return;
-  const clipPath = resolveClipPath(guildId, name);
-  if (!clipPath) {
-    log.warn("configured clip is missing on disk", { guildId, clip: name });
-    return;
-  }
-
-  const session = sessions.get(guildId);
-  if (!session) return;
-  if (!(await playClip(session.connection, guildId, pool, clipPath))) return;
-  // Timed from the last word rather than from the flush, so the number is the
-  // one someone in the call actually waited through.
-  log.debug("clip latency", {
-    guildId,
-    pool,
-    durationMs,
-    waitedMs: Date.now() - spokeUntil,
+  void recordTrigger(guildId, {
+    at: heardAt,
+    userId,
+    userName: displayName(guild, userId),
+    heard: text,
+    matched: [...new Set(matches.flatMap((match) => matchedWords(text, match)))],
+    ...result,
   });
 }
 
@@ -223,7 +331,7 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
     total = tail?.length ?? 0;
     fresh = 0;
     const spokeUntil = Date.now() - silenceMs;
-    void handleUtterance(guildId, userId, samples, spokeUntil).catch((err: unknown) => {
+    void handleUtterance(session.guild, userId, samples, spokeUntil).catch((err: unknown) => {
       log.warn("utterance handling failed", {
         guildId,
         error: err instanceof Error ? err.message : String(err),
@@ -316,7 +424,13 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
     pending.delete(guildId);
   }
 
-  const session: Session = { connection, channelId: channel.id, decoder, capturing: new Set() };
+  const session: Session = {
+    connection,
+    channelId: channel.id,
+    guild: channel.guild,
+    decoder,
+    capturing: new Set(),
+  };
   sessions.set(guildId, session);
   connection.subscribe(getPlayer(guildId));
   startAmbient(guildId, connection);

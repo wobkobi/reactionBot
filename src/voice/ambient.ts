@@ -13,7 +13,7 @@ import { isPlaying, playAmbient } from "@/voice/playback";
 import {
   loadSounds,
   nextAmbientDelay,
-  pickClip,
+  pickOne,
   resolveClipPath,
   resolveClips,
 } from "@/voice/sounds";
@@ -86,7 +86,7 @@ async function fire(guildId: string, connection: VoiceConnection): Promise<void>
     log.warn("ambient pool holds no clips", { guildId });
     return;
   }
-  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
+  const name = pickOne(clips, Math.floor(Math.random() * clips.length));
   if (!name) return;
   const clipPath = resolveClipPath(guildId, name);
   if (!clipPath) {

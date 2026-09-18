@@ -23,7 +23,7 @@ import { playEntrance } from "@/voice/playback";
 // a path-traversal guard is the last thing that should exist twice and drift.
 import {
   loadSounds,
-  pickClip,
+  pickOne,
   resolveClipPath,
   resolveClips,
   safeClipName,
@@ -325,7 +325,7 @@ function pickEntranceClip(guildId: string, pool: string): string | null {
     log.warn("entrance pool holds no clips", { guildId, pool });
     return null;
   }
-  const name = pickClip(clips, Math.floor(Math.random() * clips.length));
+  const name = pickOne(clips, Math.floor(Math.random() * clips.length));
   if (!name) return null;
   const clipPath = resolveClipPath(guildId, name);
   if (!clipPath) log.warn("entrance clip is missing on disk", { guildId, pool, clip: name });
