@@ -57,8 +57,10 @@ docker compose up -d --build
 ```
 
 Logs go to `docker compose logs -f`, timestamped, with warnings and errors on stderr so they can be
-read on their own. Everything is logged, per-utterance voice decisions included, so a log of a run
-where something misbehaved already says why; there is no level to have had turned on first.
+read on their own. `LOG_LEVEL` defaults to `info`. `LOG_LEVEL=debug` adds the per-utterance voice
+decisions - each transcription, and why a clip did not play - which is the thing to turn on while
+chasing a misfire and off again after, since a busy call floods the log with it. Whatever the level,
+every transcript that matched a trigger goes to that server's `voice_triggers.csv`.
 `LOG_FORMAT=json` switches to one JSON object per line for a collector.
 
 The image sets `ONNXRUNTIME_NODE_INSTALL=skip`. Without it, the speech recognition package downloads

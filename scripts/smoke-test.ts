@@ -112,6 +112,7 @@ import {
   compileSounds,
   hasSomethingToPlay,
   isIgnoredTranscript,
+  matchedWords,
   matchTriggers,
   nextAmbientDelay,
   pickOne,
@@ -128,6 +129,14 @@ import {
   oggDurationMs,
   TRIGGER_LUFS,
 } from "@/voice/transcode";
+import {
+  csvField,
+  csvRow,
+  recordTrigger,
+  TRIGGER_LOG_FILE,
+  TRIGGER_LOG_HEADER,
+  type TriggerRecord,
+} from "@/voice/triggerLog";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
   type ChatInputCommandInteraction,
@@ -2138,6 +2147,7 @@ function checkDeletionLogPruning(): void {
 function checkEnvTiming(): void {
   const previousId = process.env.YOUR_ID;
   const previousFormat = process.env.LOG_FORMAT;
+  const previousLevel = process.env.LOG_LEVEL;
   try {
     // A guild they do not own, without Manage Server: the owner grant is the
     // only branch that can allow them.
@@ -2156,30 +2166,77 @@ function checkEnvTiming(): void {
     check("env", "an unset YOUR_ID grants nobody", !isAdmin(asOwner));
 
     process.env.LOG_FORMAT = "json";
-    const lines: string[] = [];
-    const realLog = console.log;
-    console.log = (line: string): void => {
-      lines.push(line);
+    /**
+     * Runs a logging call and collects every line it wrote, from both streams,
+     * since warnings and errors go to stderr.
+     * @param write - The logging to capture.
+     * @returns The parsed records, in the order they were written.
+     */
+    const capture = (write: () => void): { level?: string; msg?: string }[] => {
+      const lines: string[] = [];
+      const realLog = console.log;
+      const realError = console.error;
+      console.log = (line: string): void => void lines.push(line);
+      console.error = (line: string): void => void lines.push(line);
+      try {
+        write();
+      } finally {
+        console.log = realLog;
+        console.error = realError;
+      }
+      return lines.map((line) => JSON.parse(line) as { level?: string; msg?: string });
     };
-    try {
-      createLogger("smoke").debug("visible");
-    } finally {
-      console.log = realLog;
-    }
-    const record = JSON.parse(lines[0] ?? "{}") as { level?: string; msg?: string };
+    const logger = createLogger("smoke");
+
+    process.env.LOG_LEVEL = "debug";
+    const debugOn = capture(() => logger.debug("visible"));
     check(
       "env",
       "the output format reads LOG_FORMAT where it is used",
-      lines.length === 1 && record.msg === "visible",
+      debugOn.length === 1 && debugOn[0]?.msg === "visible",
     );
-    // The threshold is gone, so a debug record carries no precondition: no
-    // level is set here and it still has to arrive.
-    check("env", "a debug record is emitted with nothing configured", record.level === "debug");
+    check("env", "LOG_LEVEL=debug lets a debug record through", debugOn[0]?.level === "debug");
+
+    delete process.env.LOG_LEVEL;
+    const unset = capture(() => {
+      logger.debug("hidden");
+      logger.info("shown");
+    });
+    check(
+      "env",
+      "with LOG_LEVEL unset, debug is held back and info still arrives",
+      unset.length === 1 && unset[0]?.msg === "shown",
+    );
+
+    process.env.LOG_LEVEL = "warn";
+    const warnOnly = capture(() => {
+      logger.info("hidden");
+      logger.warn("shown");
+      logger.error("shown too");
+    });
+    check(
+      "env",
+      "LOG_LEVEL=warn drops info and keeps warn and error",
+      warnOnly.map((r) => r.level).join() === "warn,error",
+    );
+
+    process.env.LOG_LEVEL = "loud";
+    const nonsense = capture(() => {
+      logger.debug("hidden");
+      logger.info("shown");
+    });
+    check(
+      "env",
+      "an unknown LOG_LEVEL falls back to info",
+      nonsense.length === 1 && nonsense[0]?.msg === "shown",
+    );
   } finally {
     if (previousId === undefined) delete process.env.YOUR_ID;
     else process.env.YOUR_ID = previousId;
     if (previousFormat === undefined) delete process.env.LOG_FORMAT;
     else process.env.LOG_FORMAT = previousFormat;
+    if (previousLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = previousLevel;
   }
 }
 
@@ -2358,6 +2415,27 @@ function checkVoiceSounds(): void {
     matchTrigger("that is slag", compiled) === null && matchTrigger("lets swap", compiled) === null,
   );
 
+  // The trigger log names the word that fired, so a misfire like "chat" for
+  // "chad" can be read off the file rather than guessed at.
+  const heardSwag = matchTrigger("that is proper swag", compiled);
+  const heardSwig = matchTrigger("that is proper swig", compiled);
+  const heardShutup = matchTrigger("just shutup", compiled);
+  check(
+    "voice/sounds",
+    "matchedWords names the exact word that fired",
+    heardSwag !== null && matchedWords("that is proper swag", heardSwag).join() === "swag",
+  );
+  check(
+    "voice/sounds",
+    "matchedWords names the word as heard for a joined-up phrase",
+    heardShutup !== null && matchedWords("just shutup", heardShutup).join() === "shutup",
+  );
+  check(
+    "voice/sounds",
+    "matchedWords names the heard word for a soundalike, not the trigger",
+    heardSwig !== null && matchedWords("that is proper swig", heardSwig).join() === "swig",
+  );
+
   const exactOnly = compileSounds({
     pools: { shutup: ["a.ogg"] },
     phonetic: false,
@@ -2508,6 +2586,72 @@ function checkVoiceSounds(): void {
       safeClipName("C:\\windows\\x") === null &&
       safeClipName("shutup/oi.ogg") === "shutup/oi.ogg",
   );
+}
+
+/**
+ * Verifies the per-server trigger log: fields survive commas, quotes and line
+ * breaks, a transcript cannot run as a spreadsheet formula, and two speakers
+ * writing at once still leave one header and both rows.
+ */
+async function checkVoiceTriggerLog(): Promise<void> {
+  check("voice/triggerLog", "a plain field is written as it is", csvField("chad") === "chad");
+  check(
+    "voice/triggerLog",
+    "a field with a comma or quote is quoted, quotes doubled",
+    csvField('no, "really"') === '"no, ""really"""',
+  );
+  check(
+    "voice/triggerLog",
+    "a field with a line break is quoted",
+    csvField("one\ntwo") === '"one\ntwo"',
+  );
+  check(
+    "voice/triggerLog",
+    "a leading = + - or @ is defused so a spreadsheet will not run it",
+    csvField("=1+1") === "'=1+1" &&
+      csvField("+64") === "'+64" &&
+      csvField("-yes") === "'-yes" &&
+      csvField("@here") === "'@here",
+  );
+
+  const record: TriggerRecord = {
+    at: new Date("2026-09-18T09:30:00.000Z"),
+    userId: "331744864385630240",
+    userName: "Chad, obviously",
+    heard: "Chad burped.",
+    matched: ["chad", "burped"],
+    pool: "burp",
+    clip: "burp/burp.mp4",
+    outcome: "played",
+  };
+  check(
+    "voice/triggerLog",
+    "a row follows the header's column order",
+    TRIGGER_LOG_HEADER === "time,user_id,user_name,heard,matched,pool,clip,outcome" &&
+      csvRow(record) ===
+        '2026-09-18T09:30:00.000Z,331744864385630240,"Chad, obviously",Chad burped.,chad; burped,burp,burp/burp.mp4,played\n',
+  );
+
+  const guild = "__smoketest_triggerlog__";
+  const dir = path.join(ROOT, "data", guild);
+  rmSync(dir, { recursive: true, force: true });
+  try {
+    await Promise.all([
+      recordTrigger(guild, record),
+      recordTrigger(guild, { ...record, outcome: "pool-cooldown" }),
+    ]);
+    const lines = readFileSync(path.join(dir, TRIGGER_LOG_FILE), "utf-8").split("\n");
+    check(
+      "voice/triggerLog",
+      "two rows written at once share one header, BOM first for Excel",
+      lines[0] === `\uFEFF${TRIGGER_LOG_HEADER}` &&
+        lines.filter((l) => l.includes(TRIGGER_LOG_HEADER)).length === 1 &&
+        lines[1]?.endsWith(",played") === true &&
+        lines[2]?.endsWith(",pool-cooldown") === true,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -3062,6 +3206,7 @@ void (async () => {
     checkGifListLength();
     checkVoiceAudio();
     checkVoiceSounds();
+    await checkVoiceTriggerLog();
     checkVoiceQueue();
     checkVoiceJoinRules();
 

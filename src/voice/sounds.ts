@@ -370,6 +370,23 @@ export function matchTriggers(text: string, compiled: CompiledSounds): CompiledT
 }
 
 /**
+ * Names what in a transcript fired one trigger, for the trigger log. The
+ * exact tier is tried first, as in {@link matchTriggers}, and reports the word
+ * as it matched. Failing that the hit was a soundalike, and the heard word is
+ * reported rather than the trigger it resembled, since the heard word is what
+ * shows a misfire for what it is.
+ * @param text - The raw transcript.
+ * @param entry - A trigger {@link matchTriggers} returned for that transcript.
+ * @returns The matched words, empty when the trigger does not match at all.
+ */
+export function matchedWords(text: string, entry: CompiledTrigger): string[] {
+  const exact = [...countMatches(text, entry.list).keys()];
+  if (exact.length > 0) return exact;
+  const heardWords = normalise(text).split(" ").filter(Boolean);
+  return [...new Set(heardWords.filter((heard) => phoneticMatch(heard, entry.phonetic)))];
+}
+
+/**
  * Keeps the first trigger for each pool, dropping any later one that draws from
  * the same clips.
  * @param triggers - Triggers that matched, in config order.
