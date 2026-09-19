@@ -161,13 +161,16 @@ audio and no transcript leaves the machine or is written to disk.
 
 Off until an admin runs `/autojoin on` in the server. Once on, the bot joins any
 voice channel that has people in it and leaves when the channel empties. `/join`
-brings it into your own channel on request either way. Anyone sitting in the
-call can `/kick` it out, and an admin can from anywhere.
+brings it into your own channel on request either way, for anyone sitting in a
+call. Anyone sitting in the bot's call can `/kick` it out. An admin can use
+either from anywhere.
 
 Both commands simply do as they are told. If they are used over and over, the
 bot reads it as two people tugging at it and starts settling each one with a
 coin toss, two and a half minutes apart, so there is nothing to be won by
-asking again. It goes back to answering plainly once the flurry dies down.
+asking again. It goes back to answering plainly once the flurry dies down. An
+admin's command skips the toss and does not count towards the flurry. It still
+hits the wait, but with a **Skip the wait** button that pushes it through.
 
 `sounds.example.jsonc` is the template, and it explains every setting inline.
 Copy it to `sounds.json` here, or to `data/<guildId>/sounds.json` for one

@@ -12,7 +12,7 @@ import { data as deletePost } from "@/commands/deletepost";
 import { data as editPost } from "@/commands/editpost";
 import { buildListLines } from "@/commands/gif";
 import { buildHelpFields } from "@/commands/help";
-import { data as joinCommand } from "@/commands/join";
+import { data as joinCommand, mayJoin } from "@/commands/join";
 import { data as kickCommand, mayKick } from "@/commands/kick";
 import { data as myDelay, resolvePref } from "@/commands/mydelay";
 import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
@@ -2806,6 +2806,12 @@ function checkVoiceJoinRules(): void {
     mayKick(null, "100", true) && mayKick("200", "100", true),
   );
 
+  // The same bar for bringing the bot in, or someone outside every call can
+  // undo a kick the people in one just won.
+  check("voice/join", "someone in a call may summon", mayJoin("100", false));
+  check("voice/join", "someone in no call at all may not", !mayJoin(null, false));
+  check("voice/join", "an admin may summon without joining a call", mayJoin(null, true));
+
   // A deploy that quietly kept the previous image logs identically to one that
   // took the new one, so the boot line is the only thing that tells them apart.
   const tree: Record<string, string> = {
@@ -2887,6 +2893,18 @@ function checkVoiceJoinRules(): void {
     "a contested call waits between tosses, however the roll falls",
     contestVerdict(spam, spam[spam.length - 1]! + 1, 0) === "cooldown" &&
       contestVerdict(spam, spam[spam.length - 1]! + 1, 0.99) === "cooldown",
+  );
+  check(
+    "voice/contest",
+    "an admin skips the toss",
+    contestVerdict(spam, settled, 0.99, true) === "allowed",
+  );
+  // The wait is what shows an admin the call is being fought over, and the
+  // skip button on it is how they choose to override that.
+  check(
+    "voice/contest",
+    "an admin still hits the wait",
+    contestVerdict(spam, spam[spam.length - 1]! + 1, 0.99, true) === "cooldown",
   );
   // Otherwise a quiet server would stay contested for good over a spat weeks ago.
   check(

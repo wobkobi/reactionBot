@@ -2,7 +2,8 @@
 
 import { isAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { botChannelId, kickFromChannel, type KickOutcome } from "@/voice/autojoin";
+import { botChannelId, forceKick, kickFromChannel, type KickOutcome } from "@/voice/autojoin";
+import { offerSkip } from "@/voice/skipWait";
 import {
   InteractionContextType,
   MessageFlags,
@@ -51,9 +52,10 @@ function kickOutcome(kick: KickOutcome): string {
 
 /**
  * Runs /kick. Open to everyone in the call: whoever is in it decides whether
- * the bot belongs there. The autojoin setting is left alone, so the next call
- * still gets the bot - see {@link kickFromChannel} for what happens once two
- * people start tugging at it.
+ * the bot belongs there. An admin can do it from anywhere, never faces the
+ * toss, and gets a button to skip the wait - see {@link offerSkip}. The
+ * autojoin setting is left alone, so the next call still gets the bot - see
+ * {@link kickFromChannel} for what happens once two people start tugging at it.
  * @param interaction - The command interaction.
  */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -78,7 +80,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // Read from the voice state cache, the same thing the auto-join watches, so
   // a caller who has just moved is placed where the rest of the bot has them.
   const caller = interaction.guild?.voiceStates.cache.get(interaction.user.id)?.channelId ?? null;
-  if (!mayKick(caller, inCall, isAdmin(interaction))) {
+  const admin = isAdmin(interaction);
+  if (!mayKick(caller, inCall, admin)) {
     await respond(interaction, {
       content: `❌ The bot is in <#${inCall}>. Join that call to have a go at it.`,
       flags: MessageFlags.Ephemeral,
@@ -88,7 +91,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   // Nothing has been awaited since the channel was read, so this cannot have
   // gone away underneath; the guard is here because the types allow it.
-  const kick = kickFromChannel(guildId);
+  const kick = kickFromChannel(guildId, admin);
+  if (admin && kick?.verdict === "cooldown") {
+    await offerSkip(interaction, kickOutcome(kick), kick.remainingMs, () => {
+      const channelId = forceKick(guildId);
+      return Promise.resolve(
+        channelId
+          ? kickOutcome({ verdict: "allowed", channelId, remainingMs: 0 })
+          : "Not in a voice channel.",
+      );
+    });
+    return;
+  }
   await respond(interaction, {
     content: kick ? kickOutcome(kick) : "Not in a voice channel.",
     flags: MessageFlags.Ephemeral,

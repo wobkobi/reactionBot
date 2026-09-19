@@ -1,8 +1,10 @@
 // src/commands/join.ts
 
+import { isAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { rejoinGuild, type JoinOutcome } from "@/voice/autojoin";
+import { forceRejoin, rejoinGuild, type JoinOutcome } from "@/voice/autojoin";
 import { sessionChannelId } from "@/voice/session";
+import { offerSkip } from "@/voice/skipWait";
 import { hasSomethingToPlay, loadSounds } from "@/voice/sounds";
 import {
   InteractionContextType,
@@ -15,6 +17,20 @@ export const data = new SlashCommandBuilder()
   .setName("join")
   .setDescription("📥 Bring the bot into a voice call, autojoin or not")
   .setContexts(InteractionContextType.Guild);
+
+/**
+ * Whether this caller may summon the bot. Sitting in a call is what earns it,
+ * the same bar as /kick sets: otherwise someone outside every call can
+ * drop the bot into one they are not part of, and undo a kick the people in it
+ * just won. An admin is trusted with it from anywhere, and then the bot picks
+ * the busiest channel as autojoin would.
+ * @param callerChannelId - The voice channel the caller is in, or null.
+ * @param admin - Whether the caller may run admin commands.
+ * @returns `true` when the join may go ahead.
+ */
+export function mayJoin(callerChannelId: string | null, admin: boolean): boolean {
+  return admin || callerChannelId !== null;
+}
 
 /**
  * Words the outcome for the caller. Each ending has its own line because the
@@ -54,11 +70,13 @@ function joinOutcome(
 }
 
 /**
- * Runs /join. Open to everyone, as the counterpart of /kick: lifts a kick and
- * has the bot pick a channel now, whether or not autojoin is on for the
- * server. The caller's own channel wins the choice, so asking from a quiet
- * call does not send the bot to the busiest one instead. A recent kick wins,
- * and a call that has kicked enough is left alone - see {@link rejoinGuild}.
+ * Runs /join. Open to anyone in a call, as the counterpart of /kick, and to an
+ * admin from anywhere - see {@link mayJoin}. An admin never faces the toss and
+ * gets a button to skip the wait - see {@link offerSkip}. Lifts a kick and has
+ * the bot pick a channel now, whether or not autojoin is on for the server.
+ * The caller's own channel wins the choice, so asking from a quiet call does
+ * not send the bot to the busiest one instead. A recent kick wins, and a call
+ * that has kicked enough is left alone - see {@link rejoinGuild}.
  * @param interaction - The command interaction.
  */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -85,14 +103,40 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // Read from the voice state cache, the same thing the auto-join watches, so
   // a caller who has just moved is placed where the rest of the bot has them.
   const wanted = interaction.guild?.voiceStates.cache.get(interaction.user.id)?.channelId ?? null;
+  const admin = isAdmin(interaction);
+  if (!mayJoin(wanted, admin)) {
+    await respond(interaction, {
+      content: "❌ You can't do this. Be in Voice first.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   // The reply waits for the outcome, and a connection can take longer to
   // become ready than an unacknowledged interaction lives.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const before = sessionChannelId(guildId);
-  const outcome: JoinOutcome = interaction.guild
-    ? await rejoinGuild(interaction.guild, wanted)
+  const guild = interaction.guild;
+  const outcome: JoinOutcome = guild
+    ? await rejoinGuild(guild, wanted, admin)
     : { verdict: "allowed", remainingMs: 0 };
+  if (admin && guild && outcome.verdict === "cooldown") {
+    const content = joinOutcome(outcome, wanted, before, sessionChannelId(guildId));
+    await offerSkip(interaction, content, outcome.remainingMs, async () => {
+      // Read again at the click, since the admin may have moved call while the
+      // button was up and their own channel is still the one to prefer.
+      const sittingIn = guild.voiceStates.cache.get(interaction.user.id)?.channelId ?? null;
+      const was = sessionChannelId(guildId);
+      await forceRejoin(guild, sittingIn);
+      return joinOutcome(
+        { verdict: "allowed", remainingMs: 0 },
+        sittingIn,
+        was,
+        sessionChannelId(guildId),
+      );
+    });
+    return;
+  }
   await respond(interaction, {
     content: joinOutcome(outcome, wanted, before, sessionChannelId(guildId)),
     flags: MessageFlags.Ephemeral,
