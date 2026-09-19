@@ -408,18 +408,28 @@ export type ContestVerdict = "allowed" | "cooldown" | "won" | "lost";
  *
  * Randomising a contested call is what takes the point out of a tug of war:
  * neither side can have the bot on demand, so there is nothing to win by
- * asking again. Pure, so the threshold, the window and the odds are testable
- * without a gateway.
+ * asking again. An admin is the one who settles a fight rather than a side in
+ * it, so their run skips the toss. The wait still stands for them, so an admin
+ * hears the call is being fought over before overriding it, which /kick and
+ * /join then offer as a button. Pure, so the threshold, the window and the
+ * odds are testable without a gateway.
  * @param recent - When /kick and /join last ran here, newest last.
  * @param now - Current time, epoch ms.
  * @param roll - A number in [0, 1), as from `Math.random()`.
+ * @param admin - Whether the caller may run admin commands.
  * @returns What the command should do.
  */
-export function contestVerdict(recent: number[], now: number, roll: number): ContestVerdict {
+export function contestVerdict(
+  recent: number[],
+  now: number,
+  roll: number,
+  admin = false,
+): ContestVerdict {
   const inWindow = recent.filter((t) => now - t < CONTEST_WINDOW_MS);
   if (inWindow.length < CONTEST_THRESHOLD) return "allowed";
   const last = inWindow[inWindow.length - 1] ?? 0;
   if (now - last < CONTEST_COOLDOWN_MS) return "cooldown";
+  if (admin) return "allowed";
   return roll < COIN_ODDS ? "won" : "lost";
 }
 
@@ -436,7 +446,8 @@ function recentFor(guildId: string, now: number): number[] {
 /**
  * Records a /kick or /join against the guild's contest count, dropping runs
  * that have aged out. A refused attempt is not recorded: the wait would never
- * end if being turned away counted as asking.
+ * end if being turned away counted as asking. Nor is an admin's run, or an
+ * admin trying the commands out would leave the next member facing the coin.
  * @param guildId - Discord guild (server) ID.
  * @param now - Current time, epoch ms.
  */
@@ -461,34 +472,55 @@ export interface KickOutcome {
  * held against it until {@link rejoinGuild} or the call ending lifts it.
  *
  * Ordinarily this just works. Only a server already tugging the bot back and
- * forth gets a toss instead - see {@link contestVerdict}.
+ * forth gets a wait and a toss instead, and an admin only the wait - see
+ * {@link contestVerdict}.
  * @param guildId - Discord guild (server) ID.
+ * @param admin - Whether the caller may run admin commands.
  * @param roll - The toss, defaulting to a fresh one; injectable for tests.
  * @returns What happened, or null when the bot was not in or joining a channel.
  */
-export function kickFromChannel(guildId: string, roll: number = Math.random()): KickOutcome | null {
+export function kickFromChannel(
+  guildId: string,
+  admin = false,
+  roll: number = Math.random(),
+): KickOutcome | null {
   const channelId = botChannelId(guildId);
   if (!channelId) return null;
 
   const now = Date.now();
   const recent = recentFor(guildId, now);
-  const verdict = contestVerdict(recent, now, roll);
+  const verdict = contestVerdict(recent, now, roll, admin);
   if (verdict === "cooldown") {
     const last = recent[recent.length - 1] ?? now;
     return { verdict, channelId, remainingMs: CONTEST_COOLDOWN_MS - (now - last) };
   }
 
-  noteCommand(guildId, now);
+  if (!admin) noteCommand(guildId, now);
   if (verdict === "lost") {
     log.info("kick lost the toss", { guildId, channelId });
     return { verdict, channelId, remainingMs: 0 };
   }
 
+  forceKick(guildId);
+  return { verdict, channelId, remainingMs: 0 };
+}
+
+/**
+ * Kicks with no toss and no wait: what {@link kickFromChannel} does once it is
+ * allowed, and what an admin's skip button does straight away. Not counted
+ * towards the contest, for the same reason an admin's run is not.
+ * @param guildId - Discord guild (server) ID.
+ * @returns The channel the bot was removed from, or null when it was not in
+ * or joining one.
+ */
+export function forceKick(guildId: string): string | null {
+  const channelId = botChannelId(guildId);
+  if (!channelId) return null;
   const kicked = kickedFrom.get(guildId) ?? new Set<string>();
   kickedFrom.set(guildId, kicked);
   kicked.add(channelId);
   closeSession(guildId, "kicked by command");
-  return { verdict, channelId, remainingMs: 0 };
+  return channelId;
 }
 
 /**
@@ -513,12 +545,12 @@ export interface JoinOutcome {
  * Lifts every kick and re-evaluates the guild now.
  *
  * Ordinarily this just works. Only a server already tugging the bot back and
- * forth gets a toss instead - see {@link contestVerdict}. The rejoin cooldown
- * is a different thing, there to stop the bot flapping on its own, and someone
- * asking for it is not flapping, so that one is cleared.
+ * forth gets a wait and a toss instead, and an admin only the wait - see
+ * {@link contestVerdict}.
  * @param guild - The guild to rejoin.
  * @param requestedChannelId - The channel the caller was sitting in, preferred
  * over the busiest one, or null when they were not in a call.
+ * @param admin - Whether the caller may run admin commands.
  * @param roll - The toss, defaulting to a fresh one; injectable for tests.
  * @returns What happened; on `"allowed"` or `"won"` the caller reads where the
  * bot landed from the session.
@@ -526,26 +558,40 @@ export interface JoinOutcome {
 export async function rejoinGuild(
   guild: Guild,
   requestedChannelId: string | null = null,
+  admin = false,
   roll: number = Math.random(),
 ): Promise<JoinOutcome> {
   const now = Date.now();
   const recent = recentFor(guild.id, now);
-  const verdict = contestVerdict(recent, now, roll);
+  const verdict = contestVerdict(recent, now, roll, admin);
   if (verdict === "cooldown") {
     const last = recent[recent.length - 1] ?? now;
     return { verdict, remainingMs: CONTEST_COOLDOWN_MS - (now - last) };
   }
 
-  noteCommand(guild.id, now);
+  if (!admin) noteCommand(guild.id, now);
   if (verdict === "lost") {
     log.info("join lost the toss", { guildId: guild.id });
     return { verdict, remainingMs: 0 };
   }
 
+  await forceRejoin(guild, requestedChannelId);
+  return { verdict, remainingMs: 0 };
+}
+
+/**
+ * Rejoins with no toss and no wait: what {@link rejoinGuild} does once it is
+ * allowed, and what an admin's skip button does straight away. The rejoin
+ * cooldown is a different thing, there to stop the bot flapping on its own,
+ * and someone asking for it is not flapping, so that one is cleared too.
+ * @param guild - The guild to rejoin.
+ * @param requestedChannelId - The channel the caller was sitting in, preferred
+ * over the busiest one, or null when they were not in a call.
+ */
+export async function forceRejoin(guild: Guild, requestedChannelId: string | null): Promise<void> {
   kickedFrom.delete(guild.id);
   leftAt.delete(guild.id);
   await refreshGuild(guild, { channelId: requestedChannelId });
-  return { verdict, remainingMs: 0 };
 }
 
 /**
