@@ -363,14 +363,16 @@ export async function playEntranceSound(
 
   if (!claimToday(guild.id, userId, localDay(new Date()), "sound")) return;
 
-  const played = await playEntrance(connection, guild.id, clipPath).catch((err: unknown) => {
-    log.warn("entrance clip failed to play", {
-      guildId: guild.id,
-      userId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  });
+  const played = await playEntrance(connection, guild.id, clipPath, userId).catch(
+    (err: unknown) => {
+      log.warn("entrance clip failed to play", {
+        guildId: guild.id,
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    },
+  );
   if (!played) {
     releaseToday(guild.id, userId, "sound");
     return;

@@ -188,14 +188,18 @@ function pickFreePool(
 /**
  * Plays a clip for a transcript that matched, unless something stops it.
  * @param guildId - Discord guild (server) ID.
- * @param userId - Who spoke, for the log.
+ * @param speaker - Who spoke, for the log.
+ * @param speaker.userId - Their Discord user ID.
+ * @param speaker.userName - The name they go by in the server.
+ * @param text - What they said, to name the words that fired the pool played.
  * @param matches - Every trigger the transcript fired.
  * @param guildCooldownMs - The guild's configured gap, if it set one.
  * @returns What happened, with the pool and clip it got as far as.
  */
 async function playMatch(
   guildId: string,
-  userId: string,
+  speaker: { userId: string; userName: string },
+  text: string,
   matches: CompiledTrigger[],
   guildCooldownMs: number | undefined,
 ): Promise<MatchResult> {
@@ -208,7 +212,7 @@ async function playMatch(
 
   const choice = pickFreePool(guildId, matches, guildCooldownMs);
   if ("verdict" in choice) {
-    log.debug("clip not played", { guildId, userId, ...choice });
+    log.debug("clip not played", { guildId, userId: speaker.userId, ...choice });
     return { outcome: choice.verdict, pool: choice.name, clip: "" };
   }
   const { trigger: match, pool } = choice;
@@ -229,7 +233,10 @@ async function playMatch(
 
   const session = sessions.get(guildId);
   if (!session) return { outcome: "not-played", pool: name, clip };
-  const played = await playClip(session.connection, guildId, pool, clipPath);
+  const played = await playClip(session.connection, guildId, pool, clipPath, {
+    ...speaker,
+    matched: matchedWords(text, match),
+  });
   return { outcome: played ? "played" : "not-played", pool: name, clip };
 }
 
@@ -272,7 +279,14 @@ async function handleUtterance(
   if (matches.length === 0) return;
 
   const heardAt = new Date();
-  const result = await playMatch(guildId, userId, matches, compiled.config.guildCooldownMs);
+  const userName = displayName(guild, userId);
+  const result = await playMatch(
+    guildId,
+    { userId, userName },
+    text,
+    matches,
+    compiled.config.guildCooldownMs,
+  );
   if (result.outcome === "played") {
     // Timed from the last word rather than from the flush, so the number is
     // the one someone in the call actually waited through.
@@ -286,7 +300,7 @@ async function handleUtterance(
   void recordTrigger(guildId, {
     at: heardAt,
     userId,
-    userName: displayName(guild, userId),
+    userName,
     heard: text,
     matched: [...new Set(matches.flatMap((match) => matchedWords(text, match)))],
     ...result,
