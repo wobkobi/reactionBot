@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "type": "module",
   "scripts": {
     "build": "node -e \"fs.rmSync('build',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
@@ -31,14 +31,14 @@
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.27.0",
-    "dotenv": "^18.0.0",
+    "dotenv": "^18.0.1",
     "double-metaphone": "^2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-jsdoc": "^64.5.2",
+    "eslint-plugin-jsdoc": "^64.5.4",
     "eslint-plugin-prettier": "^5.5.6",
     "globals": "^17.12.0",
     "lint-staged": "^17.5.1",
@@ -47,7 +47,7 @@
     "prettier-plugin-packagejson": "^3.0.2",
     "simple-git-hooks": "^2.14.0",
     "tsc-alias": "^1.9.5",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.0"
   },

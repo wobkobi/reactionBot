@@ -118,7 +118,7 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
   const names = [...client.commands.keys()];
   boot.info("commands loaded", { count: names.length, names });
 
-  client.once("ready", async () => {
+  client.once("clientReady", async () => {
     boot.info("logged in", {
       user: client.user!.tag,
       guilds: client.guilds.cache.size,

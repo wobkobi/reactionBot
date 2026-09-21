@@ -59,6 +59,17 @@ const STREAM_TYPES: Record<OpusContainer, StreamType> = {
   "webm/opus": StreamType.WebmOpus,
 };
 
+/**
+ * What set a clip off, spread into the "playing clip" log line. Without it a
+ * trigger, an entrance and a background sound log identically, and a misfire
+ * cannot be traced to the word that caused it without opening the CSV.
+ * `matched` holds the words as heard, as in the trigger log.
+ */
+export type PlayCause =
+  | { cause: "trigger"; userId: string; userName: string; matched: string[] }
+  | { cause: "entrance"; userId: string }
+  | { cause: "ambient" };
+
 /** When a pool last played, and how long what it played ran for. */
 interface PoolClip {
   at: number;
@@ -187,6 +198,7 @@ export function clipStatus(
  * @param guildId - Discord guild (server) ID.
  * @param filePath - Absolute path of the clip to play.
  * @param targetLufs - Integrated loudness to normalise it to, in LUFS.
+ * @param cause - What set it off, for the log.
  * @returns What started playing, so a caller can charge its length to a
  * cooldown, or null when nothing did.
  */
@@ -195,6 +207,7 @@ async function startPlayback(
   guildId: string,
   filePath: string,
   targetLufs: number,
+  cause: PlayCause,
 ): Promise<Playable | null> {
   const playable = await ensurePlayable(filePath, targetLufs).catch((err: unknown) => {
     log.warn("could not prepare clip", {
@@ -219,6 +232,7 @@ async function startPlayback(
     );
     log.info("playing clip", {
       guildId,
+      ...cause,
       clip: filePath,
       container: playable.container,
       durationMs: playable.durationMs,
@@ -250,6 +264,10 @@ export function dropPlayer(guildId: string): void {
  * @param guildId - Discord guild (server) ID.
  * @param pool - Key of the pool it came from, which holds its own gap.
  * @param filePath - Absolute path of the clip to play.
+ * @param speaker - Who set it off and the words that did it, for the log.
+ * @param speaker.userId - Who spoke.
+ * @param speaker.userName - The name they go by in the server.
+ * @param speaker.matched - The words that fired the trigger, as heard.
  * @returns `true` when playback started.
  */
 export async function playClip(
@@ -257,8 +275,12 @@ export async function playClip(
   guildId: string,
   pool: string,
   filePath: string,
+  speaker: { userId: string; userName: string; matched: string[] },
 ): Promise<boolean> {
-  const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS);
+  const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS, {
+    cause: "trigger",
+    ...speaker,
+  });
   if (!started) return false;
   const now = Date.now();
   lastPoolClip.set(`${guildId}:${pool}`, { at: now, durationMs: started.durationMs ?? 0 });
@@ -275,14 +297,17 @@ export async function playClip(
  * @param connection - The guild's live voice connection.
  * @param guildId - Discord guild (server) ID.
  * @param filePath - Absolute path of the clip to play.
+ * @param userId - Whose entrance it is, for the log.
  * @returns `true` when playback started.
  */
 export async function playEntrance(
   connection: VoiceConnection,
   guildId: string,
   filePath: string,
+  userId: string,
 ): Promise<boolean> {
-  return (await startPlayback(connection, guildId, filePath, TRIGGER_LUFS)) !== null;
+  const cause: PlayCause = { cause: "entrance", userId };
+  return (await startPlayback(connection, guildId, filePath, TRIGGER_LUFS, cause)) !== null;
 }
 
 /**
@@ -299,5 +324,6 @@ export async function playAmbient(
   guildId: string,
   filePath: string,
 ): Promise<boolean> {
-  return (await startPlayback(connection, guildId, filePath, AMBIENT_LUFS)) !== null;
+  const cause: PlayCause = { cause: "ambient" };
+  return (await startPlayback(connection, guildId, filePath, AMBIENT_LUFS, cause)) !== null;
 }
