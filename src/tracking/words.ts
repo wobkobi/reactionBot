@@ -40,6 +40,8 @@ export type WordItem =
       word: string;
       /** Category for the group breakdowns (`/slurs groups`). */
       category?: string;
+      /** Also match the word with any letters tacked on ("niggert"). */
+      stem?: boolean;
       /** Overrides the type-default reaction for this entry only. */
       reaction?: string;
       /** Overrides the type-default pool when `reaction` is set. */
@@ -141,6 +143,7 @@ function compileWords(guildId: string): CompiledWords {
       const compileItem: CompileItem = {
         word: item.word,
         fuzzy: def.fuzzy,
+        stem: item.stem,
         category: item.category,
       };
       typeItems.set(typeName, [...(typeItems.get(typeName) ?? []), compileItem]);
@@ -160,7 +163,7 @@ function compileWords(guildId: string): CompiledWords {
         if (canonical) {
           if (!seenReactionWords.has(canonical)) {
             seenReactionWords.add(canonical);
-            reactionItems.push({ word: item.word, fuzzy: def.fuzzy });
+            reactionItems.push({ word: item.word, fuzzy: def.fuzzy, stem: item.stem });
           }
           reactionSpecs.set(canonical, [...(reactionSpecs.get(canonical) ?? []), spec]);
         }

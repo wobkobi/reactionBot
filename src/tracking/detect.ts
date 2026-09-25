@@ -10,6 +10,8 @@ export interface CompileItem {
   word: string;
   /** Compile into an obfuscation-tolerant pattern instead of a literal phrase. */
   fuzzy?: boolean;
+  /** Let any letters follow the word ("niggert", "niggaz"), not just a plural "s". */
+  stem?: boolean;
   category?: string;
 }
 
@@ -108,9 +110,10 @@ const FUZZY_CLASS: Record<string, string> = {
  * for "loser") without matching shorter unrelated words (a "soon" pattern
  * requires both o's, so "son" never matches).
  * @param word - A normalised word (lowercase letters and single spaces).
+ * @param stem - Accept any trailing letters/digits instead of only a plural "s".
  * @returns A regex source string.
  */
-export function wordToPattern(word: string): string {
+export function wordToPattern(word: string, stem = false): string {
   let out = "";
   for (let i = 0; i < word.length;) {
     const ch = word[i];
@@ -124,8 +127,15 @@ export function wordToPattern(word: string): string {
     const cls = FUZZY_CLASS[ch] ?? ch;
     out += run === 1 ? `${cls}+` : `${cls}{${run},}`;
   }
-  return `${out}s*`;
+  return out + (stem ? STEM_SUFFIX : "s*");
 }
+
+/**
+ * Tail for stem entries: swallows any junk letters so the closing word boundary
+ * still holds. Opt-in per entry because short words would otherwise hit
+ * innocent ones ("spic" in "spicy", "buck" in "bucket").
+ */
+const STEM_SUFFIX = "[\\p{L}\\p{N}]*";
 
 /**
  * Compiles words into a matchable {@link DetectList}. Each item chooses its
@@ -143,7 +153,9 @@ export function compileItems(items: CompileItem[]): DetectList {
     const word = normalise(item.word);
     if (!word) continue;
     if (item.fuzzy) {
-      patterns.push({ word, re: boundedPattern(wordToPattern(word)) });
+      patterns.push({ word, re: boundedPattern(wordToPattern(word, item.stem)) });
+    } else if (item.stem) {
+      patterns.push({ word, re: boundedPattern(escapeRegex(word) + STEM_SUFFIX) });
     } else {
       phrases.push(word);
     }
@@ -154,6 +166,15 @@ export function compileItems(items: CompileItem[]): DetectList {
 }
 
 /**
+ * Escapes regex metacharacters so a phrase matches literally.
+ * @param s - The phrase to escape.
+ * @returns The escaped regex source.
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Builds a whole-word matcher for normalised literal phrases (longest first, so
  * multi-word phrases win over their parts), or null when there are none.
  * @param phrases - Normalised phrases.
@@ -161,9 +182,7 @@ export function compileItems(items: CompileItem[]): DetectList {
  */
 export function buildMatcher(phrases: string[]): RegExp | null {
   if (phrases.length === 0) return null;
-  const escaped = [...phrases]
-    .sort((a, b) => b.length - a.length)
-    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const escaped = [...phrases].sort((a, b) => b.length - a.length).map(escapeRegex);
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "gu");
 }
 

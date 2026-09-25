@@ -82,6 +82,7 @@ mixed freely:
 | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `word`     | yes      | The word or phrase. Write it plainly - fuzzy types match stretched ("slaaay"), leetspeak ("5l4y"), apostrophe and markdown variants for you. |
 | `category` | no       | Groups slurs for `/slurs groups` (e.g. `"black"`, `"LGBT"`).                                                                                 |
+| `stem`     | no       | `true` also matches the word with any letters tacked on ("niggert", "niggaz"). Leave off short words that start innocent ones ("spic" > "spicy"). |
 | `reaction` | no       | Overrides the type's default reaction: an emoji, or a phrase spelled out in letter/keycap emojis (skipped when it repeats a character).      |
 
 Nothing else is read from an entry. A word may appear under several types
