@@ -26,16 +26,29 @@ export function blocksRetry(err: unknown): boolean {
   return (typeof code === "number" || typeof code === "string") && BLOCKED_CODES.has(code);
 }
 
+/** Discord's cap on message content. */
+const MESSAGE_MAX_CHARS = 2000;
+
 /**
  * Build the moved-message content for the target channel. Includes the
  * rewritten text (which contains the transformed link) so Discord renders the
- * embed.
+ * embed. A caption block joins the "from" line above the blank line, so the
+ * edit flow keeps it as part of the fixed header. It is dropped rather than
+ * let a long post run past Discord's limit and fail the send.
  * @param authorMention Mention string, e.g. "<@123>".
  * @param rewrittenText Message content with the original URL replaced by the embeddable link.
+ * @param [caption] Quote block to show under the "from" line; must hold no blank line.
  * @returns The content to post in the target channel.
  */
-export function buildMovedContent(authorMention: string, rewrittenText: string): string {
-  return `from ${authorMention}\n\n${rewrittenText}`;
+export function buildMovedContent(
+  authorMention: string,
+  rewrittenText: string,
+  caption?: string,
+): string {
+  const plain = `from ${authorMention}\n\n${rewrittenText}`;
+  if (!caption) return plain;
+  const withCaption = `from ${authorMention}\n${caption}\n\n${rewrittenText}`;
+  return withCaption.length <= MESSAGE_MAX_CHARS ? withCaption : plain;
 }
 
 /**
@@ -80,6 +93,7 @@ export function buildPointerContent(
  * @param source Source channel.
  * @param target Target channel.
  * @param withStub When true and channels differ, leave a pointer in the source channel.
+ * @param [caption] Quote block for the header, when the embed shows no caption of its own.
  * @returns The moved message, optional pointer, and link URL; or a `failure`
  * alone when the post could not be made and nothing was moved.
  */
@@ -89,6 +103,7 @@ export async function repostWithOptionalStub(
   source: GuildTextBasedChannel,
   target: GuildTextBasedChannel,
   withStub: boolean,
+  caption?: string,
 ): Promise<RepostOutcome> {
   const authorMention = `<@${original.author.id}>`;
   const files = [...original.attachments.values()].map((a) => a.url);
@@ -99,7 +114,7 @@ export async function repostWithOptionalStub(
   // No components: editing and deleting are author-only right-click entries
   // (Apps > Edit post / Delete post), so the post carries no button row.
   const payload = {
-    content: buildMovedContent(authorMention, rewrittenText),
+    content: buildMovedContent(authorMention, rewrittenText, caption),
     allowedMentions: { parse: [] },
   } satisfies Parameters<TextChannel["send"]>[0];
 

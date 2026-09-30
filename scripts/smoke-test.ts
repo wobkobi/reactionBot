@@ -24,6 +24,20 @@ import { isApproved } from "@/media/approval";
 import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
 import { buildCopyMessage } from "@/media/copyLink";
+import {
+  declaredMedia,
+  type FetchLike,
+  mirrorProblem,
+  pickInstagramFrontend,
+} from "@/media/embedCheck";
+import {
+  CAPTION_MAX_CHARS,
+  decodeEntities,
+  fetchInstagramCaption,
+  formatCaption,
+  parseInstagramMeta,
+  tidyCaption,
+} from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
 import { clampPref, clearPref, loadPref, savePref } from "@/media/prefs";
 import {
@@ -36,7 +50,7 @@ import {
 import { handleDeletePostCommand } from "@/media/repostActions";
 import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/media/repostStore";
 import { resolvePlanFor } from "@/media/settings";
-import { buildTransformedUrl, rewriteContent } from "@/media/transform";
+import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
 import { buildFailureNotice, copyHintFor } from "@/media/workflow";
 import { trackerCommand } from "@/tracking/commands";
@@ -266,8 +280,12 @@ function checkLinkTransforms(): void {
   // [input, expected transformed URL]
   const transforms: Array<[string, string]> = [
     ["https://x.com/u/status/1", "https://fixupx.com/u/status/1"],
-    ["https://www.instagram.com/reel/AbC", "https://toinstagram.com/reel/AbC"],
-    ["https://www.instagram.com/reels/AbC", "https://toinstagram.com/reels/AbC"],
+    ["https://www.instagram.com/reel/AbC", "https://ins.so/reel/AbC"],
+    ["https://www.instagram.com/reels/AbC", "https://ins.so/reels/AbC"],
+    ["https://www.instagram.com/p/AbC/?img_index=3", "https://ins.so/p/AbC/3"],
+    ["https://www.instagram.com/p/AbC/?img_index=1", "https://ins.so/p/AbC"],
+    ["https://www.instagram.com/reel/AbC/?img_index=2", "https://ins.so/reel/AbC"],
+    ["https://instagram.com/p/Ddv4Np9GjBX/?stkn=d3J5Nmc0eWx2Z2pu", "https://ins.so/p/Ddv4Np9GjBX"],
     ["https://www.tiktok.com/@u/video/123", "https://d.tnktok.com/@u/video/123"],
     ["https://vm.tiktok.com/AbC123", "https://d.tnktok.com/AbC123"],
     ["https://vt.tiktok.com/ZSXow1G3u", "https://d.tnktok.com/ZSXow1G3u"],
@@ -387,6 +405,299 @@ function checkLinkTransforms(): void {
     dollarPlatform !== null &&
       rewriteContent(dollarPost, dollarPlatform).rewrittenText ===
         "https://tpmblr.com/blog/123/my$&slug",
+  );
+}
+
+/**
+ * Stub network for the embed check: each URL maps to a canned response, and
+ * every requested URL is recorded so a check can assert what was never tried.
+ * @param routes - Response factory per exact URL; anything else rejects.
+ * @returns The fetch stand-in and the list of URLs it was asked for.
+ */
+function stubFetch(routes: Record<string, () => Response>): {
+  fetchImpl: FetchLike;
+  requested: string[];
+} {
+  const requested: string[] = [];
+  const fetchImpl: FetchLike = (url) => {
+    requested.push(url);
+    const route = routes[url];
+    return route ? Promise.resolve(route()) : Promise.reject(new Error(`unreachable ${url}`));
+  };
+  return { fetchImpl, requested };
+}
+
+/**
+ * A stubbed media response carrying only a content type.
+ * @param type - The Content-Type header to serve.
+ * @returns The response.
+ */
+function mediaResponse(type: string): Response {
+  return new Response("x", { headers: { "content-type": type } });
+}
+
+/**
+ * Verifies the Instagram mirror check: meta tags are read in either attribute
+ * order, a reel whose "video" is really its cover image falls through to the
+ * next mirror, posts never go to a video-only mirror, and a link no mirror can
+ * embed picks nothing.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkInstagramFrontends(): Promise<void> {
+  // The page toinstagram served for a reel it could only half-scrape
+  const instaFixPage =
+    '<meta name="twitter:player:stream" content="/videos/AbC/1"/>' +
+    '<meta property="og:video" content="/videos/AbC/1"/>' +
+    '<meta property="og:video:type" content="video/mp4"/>';
+  const declared = declaredMedia(instaFixPage, "https://toinstagram.com/reel/AbC");
+  check(
+    "instagram",
+    "reads a relative og:video as video",
+    declared?.kind === "video" && declared.url === "https://toinstagram.com/videos/AbC/1",
+  );
+  const imageOnly = declaredMedia(
+    '<meta content="https://cdn.example/a.jpg?x=1&amp;y=2" property="og:image">',
+    "https://toinstagram.com/p/AbC",
+  );
+  check(
+    "instagram",
+    "reads content-first og:image and decodes &amp;",
+    imageOnly?.kind === "image" && imageOnly.url === "https://cdn.example/a.jpg?x=1&y=2",
+  );
+  check(
+    "instagram",
+    "a page declaring no media reads as null",
+    declaredMedia('<meta name="theme-color" content="#fff">', "https://a.example/") === null,
+  );
+
+  // No ins.so route in these stubs, so it reads as unreachable and is skipped
+  const vxPage = '<meta property="og:video" content="https://cdn.vx.example/v.mp4">';
+  const halfScrape = stubFetch({
+    "https://toinstagram.com/reel/AbC": () => new Response(instaFixPage),
+    "https://toinstagram.com/videos/AbC/1": () => mediaResponse("image/jpeg"),
+    "https://vxinstagram.com/reel/AbC": () => new Response(vxPage),
+    "https://cdn.vx.example/v.mp4": () => mediaResponse("video/mp4"),
+  });
+  check(
+    "instagram",
+    "reel served as its cover image falls through to the next mirror",
+    (await pickInstagramFrontend("reel/AbC", halfScrape.fetchImpl))?.host === "vxinstagram.com",
+  );
+
+  // ins.so is tried first; when it plays, the other mirrors are never asked
+  const rehostFirst = stubFetch({
+    "https://toinstagram.com/reel/AbC": () => new Response(instaFixPage),
+    "https://toinstagram.com/videos/AbC/1": () => mediaResponse("image/jpeg"),
+    "https://ins.so/reel/AbC": () =>
+      new Response('<meta property="og:video" content="https://ins.so/offload/AbC/0.mp4">'),
+    "https://ins.so/offload/AbC/0.mp4": () => mediaResponse("application/octet-stream"),
+  });
+  check(
+    "instagram",
+    "a reel ins.so can play is picked there, before toinstagram",
+    (await pickInstagramFrontend("reel/AbC", rehostFirst.fetchImpl))?.host === "ins.so" &&
+      rehostFirst.requested.every((u) => u.includes("ins.so")),
+  );
+  check(
+    "instagram",
+    "ins.so's embed reads as showing no caption",
+    (await pickInstagramFrontend("reel/AbC", rehostFirst.fetchImpl))?.showsCaption === false,
+  );
+  const captioned = stubFetch({
+    "https://ins.so/reel/AbC": () =>
+      new Response(
+        '<meta property="og:description" content="Chocolate milk"/>' +
+          '<meta property="og:video" content="https://ins.so/offload/AbC/0.mp4">',
+      ),
+    "https://ins.so/offload/AbC/0.mp4": () => mediaResponse("video/mp4"),
+  });
+  check(
+    "instagram",
+    "a mirror page with og:description reads as showing its caption",
+    (await pickInstagramFrontend("reel/AbC", captioned.fetchImpl))?.showsCaption === true,
+  );
+
+  const allDown = stubFetch({
+    "https://toinstagram.com/reel/AbC": () => new Response(instaFixPage),
+    "https://toinstagram.com/videos/AbC/1": () => mediaResponse("image/jpeg"),
+    "https://vxinstagram.com/reel/AbC": () => new Response("Bad Gateway", { status: 502 }),
+  });
+  check(
+    "instagram",
+    "no mirror able to embed the reel picks nothing",
+    (await pickInstagramFrontend("reel/AbC", allDown.fetchImpl)) === null,
+  );
+
+  const post = stubFetch({
+    "https://toinstagram.com/p/AbC": () =>
+      new Response('<meta property="og:image" content="/images/AbC/1">'),
+    "https://toinstagram.com/images/AbC/1": () => mediaResponse("image/jpeg"),
+  });
+  check(
+    "instagram",
+    "photo post embeds on toinstagram, vxinstagram never tried",
+    (await pickInstagramFrontend("p/AbC", post.fetchImpl))?.host === "toinstagram.com" &&
+      !post.requested.some((u) => u.includes("vxinstagram")),
+  );
+
+  // ins.so serves its re-hosted videos as octet-stream: generic, so not a mismatch
+  const rehosted = stubFetch({
+    "https://ins.so/reel/AbC": () =>
+      new Response('<meta property="og:video" content="https://ins.so/offload/AbC/0.mp4">'),
+    "https://ins.so/offload/AbC/0.mp4": () => mediaResponse("application/octet-stream"),
+  });
+  check(
+    "instagram",
+    "a video served as octet-stream passes",
+    (await mirrorProblem("https://ins.so/reel/AbC", rehosted.fetchImpl)) === null,
+  );
+
+  const bounced = new Response("");
+  Object.defineProperty(bounced, "url", { value: "https://www.instagram.com/reel/AbC" });
+  const bounce = stubFetch({ "https://toinstagram.com/reel/AbC": () => bounced });
+  check(
+    "instagram",
+    "a mirror that bounces to Instagram is a problem",
+    (await mirrorProblem("https://toinstagram.com/reel/AbC", bounce.fetchImpl)) ===
+      "redirected to instagram.com",
+  );
+  check(
+    "instagram",
+    "an unreachable mirror is a problem, not a throw",
+    (await mirrorProblem("https://gone.example/reel/AbC", stubFetch({}).fetchImpl)) !== null,
+  );
+
+  // The slide survives while the share junk on either side of it is dropped
+  const slideLink = "look https://www.instagram.com/p/AbC/?igsh=xyz&img_index=2&utm_source=ig !";
+  const slideMatch = matchAny(slideLink);
+  check(
+    "instagram",
+    "img_index mid-query becomes a slide path, with no query left over",
+    slideMatch !== null &&
+      rewriteContent(slideLink, slideMatch).rewrittenText === "look https://ins.so/p/AbC/2 !",
+  );
+  check(
+    "instagram",
+    "a slide link is checked on its slide path",
+    slideMatch !== null && instagramPath(slideMatch.captures) === "p/AbC/2",
+  );
+
+  const reel = matchAny("https://www.instagram.com/reel/AbC");
+  const photo = matchAny("https://www.instagram.com/p/AbC");
+  check(
+    "instagram",
+    "rewrite uses the picked mirror, else the first for the link's kind",
+    reel !== null &&
+      photo !== null &&
+      buildTransformedUrl({ ...reel, frontend: "vxinstagram.com" }) ===
+        "https://vxinstagram.com/reel/AbC" &&
+      buildTransformedUrl(photo) === "https://ins.so/p/AbC",
+  );
+}
+
+/** Instagram's preview tags for the reel Dd1jXyExj1-, as served to Discord's crawler. */
+const IG_REEL_PAGE =
+  '<meta property="og:title" content="Juliette Moreno on Instagram: &quot;Chocolate milk JACKET &#x1f36b;&#x1f633;\n\n#trending #viral&quot;" />' +
+  '<meta property="og:description" content="1M likes, 2,531 comments - itsmejuliette on September 28, 2026: &quot;Chocolate milk JACKET &#x1f36b;&#x1f633;\n\n#trending #viral&quot;. " />';
+
+/** Preview tags for a post whose account has no display name, with dot spacer lines. */
+const IG_HANDLE_ONLY_PAGE =
+  '<meta property="og:title" content="&#064;kishore_mondal_official on Instagram: &quot;x&quot;" />' +
+  '<meta property="og:description" content="50M likes, 505K comments - kishore_mondal_official on April 11, 2025: &quot;Milne Lage Dil &#x1f90d; \n.\n.\n.\n#trendingreels #singing&quot;. " />';
+
+/**
+ * Verifies the Instagram caption the bot adds when the mirror's embed has
+ * none: parsing Instagram's preview tags, tidying and escaping the text, and
+ * placing it in the repost header where edits and the length cap respect it.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkInstagramCaptions(): Promise<void> {
+  check(
+    "ig caption",
+    "decodes numeric and named entities",
+    decodeEntities("&#064;a &#x1f36b; &quot;x&quot; &amp; &bogus;") === '@a 🍫 "x" & &bogus;',
+  );
+
+  const reel = parseInstagramMeta(IG_REEL_PAGE);
+  check(
+    "ig caption",
+    "reads name, handle, counts and caption from the preview tags",
+    reel?.name === "Juliette Moreno" &&
+      reel.handle === "itsmejuliette" &&
+      reel.likes === "1M" &&
+      reel.comments === "2,531" &&
+      reel.text === "Chocolate milk JACKET 🍫😳\n\n#trending #viral",
+  );
+  check(
+    "ig caption",
+    "formats a quote block with no blank line in it",
+    reel !== null &&
+      formatCaption(reel) ===
+        "> **Juliette Moreno** (@itsmejuliette) · ❤️ 1M · 💬 2,531\n" +
+          "> Chocolate milk JACKET 🍫😳\n>\n> #trending #viral",
+  );
+
+  const handleOnly = parseInstagramMeta(IG_HANDLE_ONLY_PAGE);
+  check(
+    "ig caption",
+    "no display name shows the escaped handle alone, dot spacers dropped",
+    handleOnly !== null &&
+      handleOnly.name === undefined &&
+      formatCaption(handleOnly) ===
+        "> **@kishore\\_mondal\\_official** · ❤️ 50M · 💬 505K\n" +
+          "> Milne Lage Dil 🤍\n> #trendingreels #singing",
+  );
+  check(
+    "ig caption",
+    "unrecognised tags parse as null",
+    parseInstagramMeta('<meta property="og:description" content="Log in to Instagram">') === null,
+  );
+  check(
+    "ig caption",
+    "hidden counts and an empty caption still parse",
+    parseInstagramMeta('<meta property="og:description" content="someone on May 1, 2026. " />')
+      ?.handle === "someone",
+  );
+
+  const long = tidyCaption("a".repeat(400));
+  check(
+    "ig caption",
+    "long captions are cut to the limit with an ellipsis",
+    [...long].length === CAPTION_MAX_CHARS && long.endsWith("…"),
+  );
+  check(
+    "ig caption",
+    "markdown is escaped and links are wrapped so they add no embed",
+    formatCaption({ handle: "h", text: "wow *so* cool https://x.com/a_b" }) ===
+      "> **@h**\n> wow \\*so\\* cool <https://x.com/a_b>",
+  );
+
+  const header = formatCaption({ handle: "h", text: "line one\n\nline two" });
+  const moved = buildMovedContent("<@1>", "https://ins.so/p/AbC", header);
+  check(
+    "ig caption",
+    "caption sits in the fixed header, above the edit split",
+    moved.split("\n\n")[0] === `from <@1>\n${header}` &&
+      moved.split("\n\n").slice(1).join("\n\n") === "https://ins.so/p/AbC",
+  );
+  check(
+    "ig caption",
+    "caption is dropped when it would push past 2000 characters",
+    buildMovedContent("<@1>", "x".repeat(1980), header) === `from <@1>\n\n${"x".repeat(1980)}`,
+  );
+
+  const fromInstagram = stubFetch({
+    "https://www.instagram.com/reel/AbC/": () => new Response(IG_REEL_PAGE),
+  });
+  check(
+    "ig caption",
+    "fetches from Instagram's crawler page",
+    (await fetchInstagramCaption("reel/AbC", fromInstagram.fetchImpl))?.handle === "itsmejuliette",
+  );
+  check(
+    "ig caption",
+    "an unreachable Instagram gives no caption rather than throwing",
+    (await fetchInstagramCaption("reel/AbC", stubFetch({}).fetchImpl)) === null,
   );
 }
 
@@ -3203,6 +3514,8 @@ void (async () => {
     await checkInteractionResponses();
     await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();
+    await checkInstagramFrontends();
+    await checkInstagramCaptions();
     checkRepostContent();
     await checkRepostOrdering();
     await checkRepostFailureReporting();

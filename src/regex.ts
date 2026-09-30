@@ -8,8 +8,11 @@ export const TIKTOK_FULL_REGEX: RegExp =
 export const TWITTER_X_REGEX: RegExp =
   /https?:\/\/(?:mobile\.)?(?:twitter|x)\.com\/(?<id>(?:[^/\s]+\/status|i\/web\/status)\/\d+)/i;
 
+// A carousel link can name a slide with ?img_index=N (1-based) anywhere in its
+// query. When it does, the whole query is consumed here so the slide number
+// survives as a capture while the share junk around it (igsh, stkn) is dropped.
 export const INSTAGRAM_REGEX: RegExp =
-  /https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/(?<id>(?:p|reel|reels|tv)\/[\w-]+)\/?/i;
+  /https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/(?<id>(?:p|reel|reels|tv)\/[\w-]+)\/?(?:\?(?:[^\s#]*&)?img_index=(?<slide>\d+)[^\s#]*)?/i;
 
 export const REDDIT_COMMENTS_REGEX: RegExp =
   /https?:\/\/(?:(?:www|old|new)\.)?reddit\.com\/(?<id>r\/[^/\s]+\/comments\/[a-z0-9]+[^?\s]*)/i;
