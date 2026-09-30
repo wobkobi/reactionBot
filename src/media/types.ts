@@ -70,6 +70,11 @@ export interface MediaMatch {
    * string instead of via a content-derived regex.
    */
   literal?: string;
+  /**
+   * Mirror host picked for this link after checking it really embeds, set on
+   * "instagram" matches by the workflow. Absent means the default mirror.
+   */
+  frontend?: string;
 }
 
 /** Result of rewriting content containing a matched link. */

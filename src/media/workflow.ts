@@ -5,12 +5,14 @@
 
 import { ChoiceButton, isApproved, requestChoice } from "@/media/approval";
 import { buildCopyMessage } from "@/media/copyLink";
+import { pickInstagramFrontend } from "@/media/embedCheck";
+import { fetchInstagramCaption, formatCaption } from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
 import { loadPref } from "@/media/prefs";
 import { repostWithOptionalStub } from "@/media/repost";
 import { registerRepostActions } from "@/media/repostActions";
 import { loadSettings, resolvePlanFor, resolveTargetChannelId } from "@/media/settings";
-import { rewriteContent } from "@/media/transform";
+import { instagramPath, rewriteContent } from "@/media/transform";
 import { createLogger } from "@/utils/log";
 import { ButtonStyle, GuildTextBasedChannel, Message } from "discord.js";
 
@@ -116,6 +118,27 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   // channel to move them to, there is nothing to do.
   if (match.which === "pre-embedded" && sameChannel) return;
 
+  // Instagram mirrors often half-work, so the mirror is picked per link by
+  // what each one really serves. When none can embed it, the poster's link is
+  // left alone: moving it would only repost a broken embed somewhere else.
+  // The caption is fetched alongside, since the picked mirror's embed may
+  // show none (ins.so's never does); the bot then carries it in the header.
+  let caption: string | undefined;
+  if (match.which === "instagram") {
+    // Checked on the exact slide that will be posted, not just the post
+    const path = instagramPath(match.captures);
+    const [pick, details] = await Promise.all([
+      pickInstagramFrontend(path),
+      fetchInstagramCaption(match.captures[0]),
+    ]);
+    if (!pick) {
+      log.info("no instagram mirror can embed link", { guildId: message.guildId!, path });
+      return;
+    }
+    match.frontend = pick.host;
+    if (!pick.showsCaption && details) caption = formatCaption(details);
+  }
+
   // Prepare rewrite
   const rewrite = rewriteContent(message.content, match, message.author.id);
 
@@ -178,6 +201,7 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     source,
     target,
     !sameChannel,
+    caption,
   );
 
   // A move that did not happen is not a complete one, and the poster is owed

@@ -16,12 +16,58 @@ const log = createLogger("media/transform");
 export const FRONTENDS = {
   tiktok: "tnktok.com", // fxTikTok; "d." prefix = direct video/image embed
   twitter: "fixupx.com", // FxEmbed
-  instagram: "toinstagram.com", // InstaFix; vxinstagram 404s on posts
   reddit: "vxreddit.com", // rxddit gets blocked by Reddit
   bluesky: "fxbsky.app", // FxEmbed
   threads: "viewthreads.com", // vxthreads.net is dead
   tumblr: "tpmblr.com", // fxtumblr
 } as const;
+
+/** What an Instagram link points at, which decides the mirrors that can embed it. */
+export type InstagramKind = "video" | "post";
+
+/**
+ * Instagram mirrors in the order they are tried, per {@link InstagramKind}.
+ * These half-work more than the other platforms' frontends - a reel served as
+ * its cover image - so each link is checked against them in turn (see
+ * embedCheck.ts) and the first whose media is real wins. The first entry is
+ * only the link used when no check has run.
+ *
+ * Ordered by how reliably the media plays. ins.so re-hosts the media itself,
+ * so it nearly always works, though its embed carries no caption or author.
+ * toinstagram (InstaFix) shows author and caption too, but its scrape often
+ * comes back half-empty. vxinstagram 404s on /p/ posts, so it is a video
+ * candidate only.
+ */
+export const INSTAGRAM_FRONTENDS: Record<InstagramKind, readonly string[]> = {
+  video: ["ins.so", "toinstagram.com", "vxinstagram.com"],
+  post: ["ins.so", "toinstagram.com"],
+};
+
+/**
+ * Classifies an Instagram path. reel/reels/tv are always video; a /p/ post can
+ * be a photo, a carousel or a video, so it goes to the mirrors that handle all three.
+ * @param path - The path captured by the Instagram regex, e.g. "reel/AbC".
+ * @returns The kind of mirror list to try.
+ */
+export function instagramKind(path: string): InstagramKind {
+  return /^p\//i.test(path) ? "post" : "video";
+}
+
+/**
+ * The mirror path for an Instagram match, with the carousel slide when the
+ * link named one. Mirrors take the slide as a 1-based path segment (/p/X/N),
+ * which both InstaFix and ins.so read the same way as Instagram's img_index;
+ * ins.so's own ?img_index counts from 0, so the query form is never passed on.
+ * Slide 1 is the default and is left off. Reels have no slides.
+ * @param captures - The Instagram regex captures: path, then optional slide.
+ * @returns The path to append to a mirror host, e.g. "p/AbC/3".
+ */
+export function instagramPath(captures: string[]): string {
+  const [path, slide] = captures;
+  return instagramKind(path) === "post" && slide && Number(slide) > 1
+    ? `${path}/${Number(slide)}`
+    : path;
+}
 
 /**
  * Per-poster Twitter/X frontend overrides, keyed by Discord user ID. Anyone
@@ -52,7 +98,7 @@ export function buildTransformedUrl(match: MediaMatch, authorId?: string): strin
     case "twitter":
       return `https://${(authorId && TWITTER_FRONTEND_OVERRIDES[authorId]) || FRONTENDS.twitter}/${a}`;
     case "instagram":
-      return `https://${FRONTENDS.instagram}/${a}`;
+      return `https://${match.frontend ?? INSTAGRAM_FRONTENDS[instagramKind(a)][0]}/${instagramPath(match.captures)}`;
     case "reddit-comments":
     case "reddit-share":
     case "reddit-short":
