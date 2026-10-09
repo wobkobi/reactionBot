@@ -20,7 +20,7 @@ import { missingMediaPermissions, data as setMediaChannel } from "@/commands/set
 import { data as slursCommand } from "@/commands/slurs";
 import { data as swearsCommand } from "@/commands/swears";
 import { data as voiceCommand } from "@/commands/voice";
-import { isApproved } from "@/media/approval";
+import { isApproved, requestChoice } from "@/media/approval";
 import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
 import { buildCopyMessage } from "@/media/copyLink";
@@ -165,6 +165,7 @@ import {
   PermissionsBitField,
   type RepliableInteraction,
 } from "discord.js";
+import { EventEmitter } from "events";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -911,6 +912,72 @@ async function checkRepostFailureReporting(): Promise<void> {
     "repost",
     "a same-channel failure names no channel",
     !buildFailureNotice(null, true).includes("<#"),
+  );
+}
+
+/**
+ * Runs one prompt to its end in a stub channel and reports what became of it.
+ * The collector clicks (or not) and ends on the next tick, as Discord's would
+ * after a click or a timeout.
+ * @param opts - Prompt options under test.
+ * @param click - Button the author presses, or null to let it run out.
+ * @returns "deleted", "stripped" (buttons removed, text left) or "untouched".
+ */
+async function promptFate(
+  opts: Parameters<typeof requestChoice>[3],
+  click: string | null,
+): Promise<"deleted" | "stripped" | "untouched"> {
+  let fate: "deleted" | "stripped" | "untouched" = "untouched";
+  const author = { id: "u1" };
+  const msg = {
+    id: "prompt1",
+    delete: async () => {
+      fate = "deleted";
+    },
+    edit: async () => {
+      if (fate === "untouched") fate = "stripped";
+    },
+    createMessageComponentCollector: () => {
+      const collector = new EventEmitter();
+      setImmediate(() => {
+        if (click)
+          collector.emit("collect", { customId: click, user: author, update: async () => {} });
+        collector.emit("end");
+      });
+      return collector;
+    },
+  };
+  const channel = { id: "c1", send: async () => msg } as unknown as GuildTextBasedChannel;
+  await requestChoice(channel, author as never, [{ id: "no", label: "No", style: 4 }], opts);
+  return fate;
+}
+
+/**
+ * Verifies a finished prompt leaves the chat, whatever the delay setting: the
+ * question means nothing once answered. Only a caller that asks to keep it
+ * (the definitions question) keeps it, with the buttons stripped.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkPromptCleanup(): Promise<void> {
+  check(
+    "approval",
+    "an answered prompt is deleted",
+    (await promptFate({ grace: 10_000 }, "no")) === "deleted",
+  );
+  check(
+    "approval",
+    "an answered no-timeout prompt is deleted too",
+    (await promptFate({ grace: "disabled" }, "no")) === "deleted",
+  );
+  check(
+    "approval",
+    "an expired no-timeout prompt is deleted",
+    (await promptFate({ grace: "disabled" }, null)) === "deleted",
+  );
+  check(
+    "approval",
+    "a prompt asked to stay keeps its text",
+    (await promptFate({ grace: "disabled", autoDelete: false }, "no")) === "stripped",
   );
 }
 
@@ -3632,6 +3699,7 @@ void (async () => {
     await checkRepostOrdering();
     await checkRepostFailureReporting();
     checkEditFreshness();
+    await checkPromptCleanup();
     checkMediaChannelPermissions();
     checkGuildSeeding();
     checkRepostStore();

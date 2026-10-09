@@ -170,7 +170,6 @@ export async function handleMediaMessage(message: Message): Promise<void> {
       {
         prompt: plan.promptText,
         grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),
-        autoDelete: !plan.persistIndefinitely,
         privateReplies: {
           copy: buildCopyMessage(
             rewrite.newLink,

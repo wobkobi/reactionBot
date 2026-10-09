@@ -14,6 +14,7 @@ import {
   MessageReaction,
   PartialMessageReaction,
   PartialUser,
+  RESTJSONErrorCodes,
   User,
 } from "discord.js";
 
@@ -195,6 +196,9 @@ export async function handleSkullVote(
     .delete()
     .then(() => true)
     .catch((err: unknown) => {
+      // Skulls landing together each count three and race to delete; the
+      // losers find the reply already gone, which is the outcome they wanted.
+      if ((err as { code?: number })?.code === RESTJSONErrorCodes.UnknownMessage) return false;
       log.warn("failed to delete voted-down gallery links", {
         error: err instanceof Error ? err.message : String(err),
       });

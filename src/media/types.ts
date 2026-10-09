@@ -90,6 +90,10 @@ export interface ApprovalPlan {
   autoApprove: boolean;
   /** If set, the prompt auto-closes after this many ms. */
   timeoutMs?: number;
+  /**
+   * Wait as long as a no-timeout prompt can (`/setdelay disabled`, capped at a
+   * day) instead of `timeoutMs`. The prompt is still deleted once it ends.
+   */
   persistIndefinitely: boolean;
   promptText: string;
   /** Running out of time counts as approval. Set by countdown mode. */
@@ -119,7 +123,7 @@ export interface ApprovalOptions {
   /**
    * Grace behaviour:
    * - `"instant"` auto-approves immediately
-   * - `"disabled"` never times out
+   * - `"disabled"` waits for an answer, up to `INDEFINITE_PROMPT_MS` (a day)
    * - `number` is a timeout in **milliseconds**
    *
    * Default: `10_000` (10s).
@@ -128,7 +132,7 @@ export interface ApprovalOptions {
 
   /**
    * Remove the prompt message after resolve/timeout.
-   * Default: `true` unless `grace === "disabled"`, in which case the message is left visible.
+   * Default: `true`. `false` leaves the text up with the buttons stripped.
    */
   autoDelete?: boolean;
 
