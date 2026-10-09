@@ -53,6 +53,7 @@ import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
 import { buildFailureNotice, copyHintFor } from "@/media/workflow";
+import { isFreshEdit } from "@/onMessage";
 import { trackerCommand } from "@/tracking/commands";
 import {
   compileEntries,
@@ -909,6 +910,23 @@ async function checkRepostFailureReporting(): Promise<void> {
     "repost",
     "a same-channel failure names no channel",
     !buildFailureNotice(null, true).includes("<#"),
+  );
+}
+
+/**
+ * Verifies only a real, recent edit reopens a message for the media workflow.
+ * Discord fires messageUpdate on old messages for pins, threads and embed
+ * refreshes; an uncached one has no old text to compare, so without this a
+ * years-old link gets moved out from under its poster.
+ */
+function checkEditFreshness(): void {
+  const now = Date.UTC(2026, 9, 9, 4, 35);
+  check("edits", "a just-made edit counts", isFreshEdit(now - 2_000, now));
+  check("edits", "an update with no edit behind it is ignored", !isFreshEdit(null, now));
+  check(
+    "edits",
+    "an edit from long ago is ignored",
+    !isFreshEdit(Date.UTC(2024, 9, 13, 9, 14), now),
   );
 }
 
@@ -3519,6 +3537,7 @@ void (async () => {
     checkRepostContent();
     await checkRepostOrdering();
     await checkRepostFailureReporting();
+    checkEditFreshness();
     checkMediaChannelPermissions();
     checkGuildSeeding();
     checkRepostStore();

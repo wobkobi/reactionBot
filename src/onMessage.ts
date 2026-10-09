@@ -12,6 +12,24 @@ import { createLogger } from "@/utils/log";
 import { Message, PartialMessage } from "discord.js";
 
 const log = createLogger("core/onMessage");
+
+/**
+ * How long after an edit its messageUpdate still counts. Real edits arrive
+ * within seconds; the slack covers a gateway resume replaying missed events.
+ */
+const EDIT_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Whether an update is a person's recent edit. Discord also fires
+ * messageUpdate for pins, threads and embed refreshes, none of which set the
+ * edited timestamp, so an old message touched that way stays put.
+ * @param editedTimestamp - The message's edited timestamp, or null if never edited.
+ * @param now - Current time in epoch ms.
+ * @returns True when the message was edited within {@link EDIT_WINDOW_MS}.
+ */
+export function isFreshEdit(editedTimestamp: number | null, now: number): boolean {
+  return editedTimestamp !== null && now - editedTimestamp <= EDIT_WINDOW_MS;
+}
 /**
  * Handles a newly created message from Discord.
  *
@@ -50,6 +68,8 @@ export async function onMessage(message: Message): Promise<void> {
  * already counted the original text).
  *
  * Skipped when:
+ * - Nobody edited it just now (pins, threads and embed refreshes fire
+ *   messageUpdate too, on messages of any age).
  * - The content is unchanged (Discord fires messageUpdate when embeds
  *   resolve, without an actual edit).
  * - The pre-edit content already contained a supported link (it was handled
@@ -64,6 +84,7 @@ export async function onMessageEdit(
 ): Promise<void> {
   const fresh = newMessage.partial ? await newMessage.fetch().catch(() => null) : newMessage;
   if (!fresh || !fresh.inGuild() || fresh.author.bot) return;
+  if (!isFreshEdit(fresh.editedTimestamp, Date.now())) return;
 
   // Old content is null for uncached (partial) messages - process those, at
   // the cost of a rare duplicate prompt when the link was already declined.
