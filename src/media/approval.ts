@@ -24,8 +24,8 @@ const log = createLogger("media/approval");
  * holds a collector and an unresolved promise for its whole life, so "waits
  * for an answer" cannot mean literally forever - an unanswered prompt would
  * pin both until the process restarts. A day is far longer than anyone takes
- * to answer, and a prompt still up after one is abandoned: the buttons come
- * off and the link is left alone.
+ * to answer, and a prompt still up after one is abandoned: it is taken down
+ * and the link is left alone.
  */
 export const INDEFINITE_PROMPT_MS = 24 * 60 * 60_000;
 
@@ -90,8 +90,10 @@ async function answerClick(i: ButtonInteraction, privateReply?: string): Promise
  * - `grace: "instant"` resolves to `opts.instantChoice` without showing UI.
  *   `"disabled"` waits {@link INDEFINITE_PROMPT_MS} rather than on a grace.
  * - A button in `opts.privateReplies` answers the clicker ephemerally.
- * - On end: deletes the prompt if `autoDelete` and `grace !== "disabled"`,
- *   else strips the buttons so it cannot be clicked later.
+ * - On end (answered or timed out): deletes the prompt unless `autoDelete`
+ *   is false, in which case the buttons are stripped so it cannot be clicked
+ *   later. `"disabled"` only lengthens the wait; once answered the question
+ *   means nothing, so it goes like any other.
  * @param channel - Target channel for the prompt.
  * @param author - The only user whose clicks count.
  * @param buttons - The choices to offer, in display order.
@@ -107,7 +109,7 @@ export async function requestChoice(
 ): Promise<ChoiceOutcome> {
   const promptText = opts.prompt ?? `${author}, proceed?`;
   const grace: GraceSetting = opts.grace ?? 10_000; // ms default
-  const autoDelete = opts.autoDelete ?? grace !== "disabled";
+  const autoDelete = opts.autoDelete ?? true;
 
   // Instant path: resolve without showing UI
   if (grace === "instant") {
@@ -168,7 +170,7 @@ export async function requestChoice(
   return new Promise((resolve) => {
     collector.on("end", async () => {
       await answered;
-      if (autoDelete && grace !== "disabled") {
+      if (autoDelete) {
         await msg.delete().catch(() => {});
         log.debug("prompt deleted", { messageId: msg.id });
       } else {

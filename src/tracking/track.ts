@@ -162,7 +162,13 @@ export async function trackMessage(message: Message): Promise<void> {
     });
   });
 
-  await replyWithGalleries(message);
+  // Not awaited either: the gallery lookups can take seconds, and the
+  // reactions below should not wait on nhentai.
+  replyWithGalleries(message).catch((err: unknown) => {
+    log.warn("gallery reply failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   // Reactions from the config: matched words plus type emoji triggers.
   const reactionHits = countMatches(content, words.reactionList);
