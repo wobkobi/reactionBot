@@ -79,6 +79,7 @@ import {
   removeGif,
 } from "@/tracking/gifs";
 import { INSULTS_FILE, mentionsBot, readInsults } from "@/tracking/mention";
+import { galleryCodes, galleryExists, galleryLink, isGalleryReply } from "@/tracking/nhentai";
 import {
   chooseReply,
   fillPlaceholders,
@@ -86,7 +87,6 @@ import {
   RESPONSE_COOLDOWN_MS,
   RESPONSE_SPAM_THRESHOLD,
 } from "@/tracking/responses";
-import { galleryExists, isSauceReply, sauceCode, sauceLink } from "@/tracking/sauce";
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
@@ -1791,37 +1791,80 @@ function checkDefinitions(): void {
 }
 
 /**
- * Verifies only a bare five-to-nine-digit code earns a sauce link, and only
- * when nhentai answers 200 for it.
+ * Verifies which numbers earn a gallery link (any length alone, five to nine
+ * digits inside a sentence), that only a 200 from nhentai counts, and which
+ * bot replies are open to a skull vote.
  * @returns A promise that resolves once every case has run.
  */
-async function checkSauce(): Promise<void> {
-  check("sauce", "five or more digits are a code", sauceCode("17701") === "17701");
-  check("sauce", "surrounding whitespace is ignored", sauceCode("  177013\n") === "177013");
+async function checkGalleries(): Promise<void> {
+  const codes = (content: string): string => galleryCodes(content).join(",");
+  check("nhentai", "a short number alone is a code", codes("1") === "1" && codes(" 69\n") === "69");
+  check("nhentai", "nine digits are a code", codes("999999999") === "999999999");
   check(
-    "sauce",
-    "everyday short numbers are left alone",
-    !sauceCode("2") && !sauceCode("100") && !sauceCode("2024"),
+    "nhentai",
+    "a code inside a sentence counts",
+    codes("go read 177013, trust me.") === "177013",
   );
-  check("sauce", "a leading zero cannot pad a short code", !sauceCode("00123"));
-  check("sauce", "ten digits are past any gallery", !sauceCode("1234567890"));
-  check("sauce", "digits inside a sentence are left alone", !sauceCode("call 177013 now"));
   check(
-    "sauce",
+    "nhentai",
+    "every code in a message counts once",
+    codes("12345 or 67890 or 12345") === "12345,67890",
+  );
+  check(
+    "nhentai",
+    "short numbers in a sentence are left alone",
+    codes("2 of 100 in 2024, 9999 times") === "",
+  );
+  check("nhentai", "five digits in a sentence count", codes("try 10000 instead") === "10000");
+  check(
+    "nhentai",
+    "a zero-padded number is not a code",
+    codes("007") === "" && codes("007 and 0012345") === "",
+  );
+  check("nhentai", "ten digits are past any gallery", codes("1234567890") === "");
+  check(
+    "nhentai",
+    "numbers in links, mentions, emoji and timestamps are not codes",
+    codes(
+      "https://x.com/a/status/123456 <@123456789> <:pog:123456789> <t:123456789:R> https://nhentai.net/g/54321/",
+    ) === "",
+  );
+  check(
+    "nhentai",
+    "prices, decimals, grouped digits and units are not codes",
+    codes("$12345 12345.67 12,345 12345k 12345%") === "",
+  );
+  check("nhentai", "a code ending a sentence still counts", codes("it was 54321.") === "54321");
+  check(
+    "nhentai",
+    "at most five codes are looked up per message",
+    galleryCodes("11111 22222 33333 44444 55555 66666").length === 5,
+  );
+  check(
+    "nhentai",
     "the link names the gallery",
-    sauceLink("12345") === "https://nhentai.net/g/12345/",
+    galleryLink("12345") === "https://nhentai.net/g/12345/",
   );
   // The link and the code that earned it stay where they were posted
   check(
-    "sauce",
+    "nhentai",
     "neither the code nor its link is media to move",
-    !matchAny("12345") && !matchAny(sauceLink("12345")),
+    !matchAny("12345") && !matchAny(galleryLink("12345")),
   );
-  check("sauce", "the bot's link reply is open to a skull vote", isSauceReply(sauceLink("12345")));
   check(
-    "sauce",
+    "nhentai",
+    "the bot's link reply is open to a skull vote",
+    isGalleryReply(galleryLink("12345")),
+  );
+  check(
+    "nhentai",
+    "a reply listing several links is open to a vote too",
+    isGalleryReply(`${galleryLink("12345")}\n${galleryLink("67890")}`),
+  );
+  check(
+    "nhentai",
     "a link with anything else in the message is not",
-    !isSauceReply(`see ${sauceLink("12345")}`) && !isSauceReply("https://nhentai.net/"),
+    !isGalleryReply(`see ${galleryLink("12345")}`) && !isGalleryReply("https://nhentai.net/"),
   );
 
   const api = (id: string): string => `https://nhentai.net/api/v2/galleries/${id}`;
@@ -1830,14 +1873,14 @@ async function checkSauce(): Promise<void> {
     [api("22222")]: () => new Response("{}", { status: 404 }),
     [api("33333")]: () => new Response("", { status: 403 }),
   });
-  check("sauce", "a 200 means the gallery exists", await galleryExists("11111", net.fetchImpl));
-  check("sauce", "a 404 gets no link", !(await galleryExists("22222", net.fetchImpl)));
+  check("nhentai", "a 200 means the gallery exists", await galleryExists("11111", net.fetchImpl));
+  check("nhentai", "a 404 gets no link", !(await galleryExists("22222", net.fetchImpl)));
   check(
-    "sauce",
+    "nhentai",
     "a challenge or block gets no link",
     !(await galleryExists("33333", net.fetchImpl)),
   );
-  check("sauce", "a failed lookup gets no link", !(await galleryExists("44444", net.fetchImpl)));
+  check("nhentai", "a failed lookup gets no link", !(await galleryExists("44444", net.fetchImpl)));
 }
 
 /**
@@ -3603,7 +3646,7 @@ void (async () => {
     checkSlurResponses();
     checkMentions();
     checkDefinitions();
-    await checkSauce();
+    await checkGalleries();
     checkGifs();
     checkGifListLength();
     checkVoiceAudio();

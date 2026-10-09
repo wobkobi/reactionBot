@@ -1,8 +1,8 @@
-// src/tracking/sauce.ts
+// src/tracking/nhentai.ts
 
-// Answers a bare number with the nhentai gallery it names, when that gallery
-// exists, posted with the preview suppressed so the link is there to click but
-// nothing is shown. Three skull reactions vote the link back down.
+// Answers numbers in a message with the nhentai galleries they name, when those
+// galleries exist, posted with the preview suppressed so the links are there to
+// click but nothing is shown. Three skull reactions vote the reply back down.
 
 import type { FetchLike } from "@/media/embedCheck";
 import { isCalm } from "@/tracking/calm";
@@ -17,15 +17,39 @@ import {
   User,
 } from "discord.js";
 
-const log = createLogger("tracking/sauce");
+const log = createLogger("tracking/nhentai");
 
 /**
- * The whole message must be the number: digits inside a sentence are not a
- * code. Five digits up keeps everyday numbers ("2", "100", "2024") quiet, and
- * nine is far past the highest gallery ID. No leading zero, so "00123" cannot
- * pass a short code off as a long one.
+ * A message that is nothing but a number, 1 to 9 digits. Any length counts
+ * here: someone posting "69" on its own means the code.
  */
-const CODE = /^[1-9]\d{4,8}$/;
+const BARE = /^[1-9]\d{0,8}$/;
+
+/**
+ * A code inside a sentence, 5 to 9 digits. Shorter numbers mid-sentence are
+ * everyday counts ("2 cats", "100 times", "in 2024") and would earn a link
+ * nearly every time, since almost every ID up to around 686,000 is live; nine
+ * digits is far past that.
+ *
+ * - `(?<![\w.,$£€:/])` - not the tail of a longer number or word, a decimal,
+ *   a grouped number ("12,345"), a price or a path. Since \w covers digits,
+ *   this is also what keeps a zero-padded number ("007") from counting at all,
+ *   and a code from being cut out of a ten-digit number.
+ * - `[1-9]\d{4,8}` - five to nine digits, no leading zero.
+ * - `(?![\w%]|[.,:]\d)` - not followed by more of a word or unit ("12345k",
+ *   "12345%") or by a decimal or grouped tail. A full stop or comma that ends
+ *   the sentence is fine.
+ */
+const CODE = /(?<![\w.,$£€:/])[1-9]\d{4,8}(?![\w%]|[.,:]\d)/g;
+
+/**
+ * Text whose digits are never codes: links (a status or message ID), and
+ * Discord markup in angle brackets (mentions, custom emoji, timestamps).
+ */
+const NOT_PROSE = /https?:\/\/\S+|<[^<>\s]+>/g;
+
+/** Most codes looked up for one message, so a pasted list cannot fan out into dozens of requests. */
+const MAX_CODES = 5;
 
 /** A missing answer is treated as a missing gallery, so the chat never waits long. */
 const LOOKUP_TIMEOUT_MS = 5_000;
@@ -36,26 +60,29 @@ const SKULL = "💀";
 /** How many people it takes to vote a link down. */
 export const SKULL_VOTES = 3;
 
-/** A link reply is the bare gallery link and nothing else, as {@link sauceLink} builds it. */
-const REPLY = /^https:\/\/nhentai\.net\/g\/\d+\/$/;
+/** A link reply is one gallery link per line and nothing else, as {@link replyWithGalleries} posts it. */
+const REPLY = /^https:\/\/nhentai\.net\/g\/\d+\/(?:\nhttps:\/\/nhentai\.net\/g\/\d+\/)*$/;
 
 /**
- * Reads the gallery ID a message names, when the message is nothing but a
- * five-to-nine-digit number.
+ * Reads the gallery IDs a message names: the message itself when it is a bare
+ * number ({@link BARE}), otherwise each five-to-nine-digit number in its prose
+ * ({@link CODE}), once each, in order, up to {@link MAX_CODES}.
  * @param content - Raw message content.
- * @returns The gallery ID, or null when the message is not a bare code.
+ * @returns The gallery IDs; empty when the message names none.
  */
-export function sauceCode(content: string): string | null {
-  const code = content.trim();
-  return CODE.test(code) ? code : null;
+export function galleryCodes(content: string): string[] {
+  const bare = content.trim();
+  if (BARE.test(bare)) return [bare];
+  const prose = content.replace(NOT_PROSE, " ");
+  return [...new Set(prose.match(CODE) ?? [])].slice(0, MAX_CODES);
 }
 
 /**
  * Builds the gallery page link for an ID.
- * @param id - Gallery ID from {@link sauceCode}.
+ * @param id - Gallery ID from {@link galleryCodes}.
  * @returns The gallery URL.
  */
-export function sauceLink(id: string): string {
+export function galleryLink(id: string): string {
   return `https://nhentai.net/g/${id}/`;
 }
 
@@ -65,7 +92,7 @@ export function sauceLink(id: string): string {
  * @param content - The bot message's content.
  * @returns True when the content is exactly a gallery link.
  */
-export function isSauceReply(content: string): boolean {
+export function isGalleryReply(content: string): boolean {
   return REPLY.test(content);
 }
 
@@ -74,7 +101,7 @@ export function isSauceReply(content: string): boolean {
  * pages and the old API sit behind a Cloudflare challenge that answers every
  * script with 403, real gallery or not; v2 answers 200 or 404 straight. GET,
  * because v2 refuses HEAD with a 405.
- * @param id - Gallery ID from {@link sauceCode}.
+ * @param id - Gallery ID from {@link galleryCodes}.
  * @param fetchImpl - Network stand-in; the global fetch by default.
  * @returns True only on a 200; any other status, error or timeout is false.
  */
@@ -97,37 +124,41 @@ export async function galleryExists(id: string, fetchImpl: FetchLike = fetch): P
 }
 
 /**
- * Replies to a bare number with its gallery link when the gallery exists,
- * preview suppressed and without pinging the poster. Silent during calm mode.
- * Best-effort.
+ * Replies to the numbers in a message with a link per gallery that exists, one
+ * per line, preview suppressed and without pinging the poster. The lookups run
+ * together, and a message whose numbers name no live gallery gets no reply.
+ * Silent during calm mode. Best-effort.
  * @param message - The guild message to consider.
  * @param fetchImpl - Network stand-in for the existence check; the global fetch by default.
- * @returns A promise resolving to `true` when a link was posted.
+ * @returns A promise resolving to `true` when a reply was posted.
  */
-export async function replyWithSauce(
+export async function replyWithGalleries(
   message: Message<true>,
   fetchImpl: FetchLike = fetch,
 ): Promise<boolean> {
   if (isCalm(message.guildId)) return false;
-  const id = sauceCode(message.content);
-  if (!id || !(await galleryExists(id, fetchImpl))) return false;
+  const codes = galleryCodes(message.content);
+  if (codes.length === 0) return false;
+  const live = await Promise.all(codes.map((id) => galleryExists(id, fetchImpl)));
+  const ids = codes.filter((_, i) => live[i]);
+  if (ids.length === 0) return false;
 
   const sent = await message
     .reply({
-      content: sauceLink(id),
+      content: ids.map(galleryLink).join("\n"),
       flags: MessageFlags.SuppressEmbeds,
       allowedMentions: { parse: [], repliedUser: false },
     })
     .catch((err: unknown) => {
-      log.warn("failed to post sauce link", {
+      log.warn("failed to post gallery links", {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
     });
   if (!sent) return false;
 
-  log.info("sauce link sent", { guildId: message.guildId, authorId: message.author.id, id });
-  // Deleting the code takes the link down with it
+  log.info("gallery links sent", { guildId: message.guildId, authorId: message.author.id, ids });
+  // Deleting the message takes the links down with it
   recordReply(message.guildId, message.id, { channelId: sent.channelId, messageId: sent.id });
   return true;
 }
@@ -135,10 +166,10 @@ export async function replyWithSauce(
 /**
  * Counts a skull on one of the bot's link replies, and deletes the reply once
  * {@link SKULL_VOTES} people have voted. Bots never count, so the vote is
- * always people's. Only the link goes; the number that earned it stays.
+ * always people's. Only the reply goes; the message that earned it stays.
  * @param reaction - The reaction that was added (possibly partial).
  * @param user - Who added it (possibly partial).
- * @returns A promise resolving to `true` when the vote deleted the link.
+ * @returns A promise resolving to `true` when the vote deleted the reply.
  */
 export async function handleSkullVote(
   reaction: MessageReaction | PartialMessageReaction,
@@ -153,7 +184,7 @@ export async function handleSkullVote(
     ? await full.message.fetch().catch(() => null)
     : full.message;
   if (!message?.inGuild() || message.author.id !== message.client.user.id) return false;
-  if (!isSauceReply(message.content)) return false;
+  if (!isGalleryReply(message.content)) return false;
 
   const voters = await full.users.fetch().catch(() => null);
   if (!voters) return false;
@@ -164,11 +195,11 @@ export async function handleSkullVote(
     .delete()
     .then(() => true)
     .catch((err: unknown) => {
-      log.warn("failed to delete voted-down sauce link", {
+      log.warn("failed to delete voted-down gallery links", {
         error: err instanceof Error ? err.message : String(err),
       });
       return false;
     });
-  if (deleted) log.info("sauce link voted down", { guildId: message.guildId, votes });
+  if (deleted) log.info("gallery links voted down", { guildId: message.guildId, votes });
   return deleted;
 }

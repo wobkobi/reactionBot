@@ -8,7 +8,7 @@ import {
 } from "@/media/repostActions";
 import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
-import { handleSkullVote } from "@/tracking/sauce";
+import { handleSkullVote } from "@/tracking/nhentai";
 import type { CommandModule } from "@/types/discord";
 import { checkDataRoot } from "@/utils/file";
 import { createLogger, logSettings } from "@/utils/log";
