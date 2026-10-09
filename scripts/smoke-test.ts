@@ -53,6 +53,7 @@ import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
 import { buildFailureNotice, copyHintFor } from "@/media/workflow";
+import { isFreshEdit } from "@/onMessage";
 import { trackerCommand } from "@/tracking/commands";
 import {
   compileEntries,
@@ -78,6 +79,7 @@ import {
   removeGif,
 } from "@/tracking/gifs";
 import { INSULTS_FILE, mentionsBot, readInsults } from "@/tracking/mention";
+import { galleryCodes, galleryExists, galleryLink, isGalleryReply } from "@/tracking/nhentai";
 import {
   chooseReply,
   fillPlaceholders,
@@ -909,6 +911,23 @@ async function checkRepostFailureReporting(): Promise<void> {
     "repost",
     "a same-channel failure names no channel",
     !buildFailureNotice(null, true).includes("<#"),
+  );
+}
+
+/**
+ * Verifies only a real, recent edit reopens a message for the media workflow.
+ * Discord fires messageUpdate on old messages for pins, threads and embed
+ * refreshes; an uncached one has no old text to compare, so without this a
+ * years-old link gets moved out from under its poster.
+ */
+function checkEditFreshness(): void {
+  const now = Date.UTC(2026, 9, 9, 4, 35);
+  check("edits", "a just-made edit counts", isFreshEdit(now - 2_000, now));
+  check("edits", "an update with no edit behind it is ignored", !isFreshEdit(null, now));
+  check(
+    "edits",
+    "an edit from long ago is ignored",
+    !isFreshEdit(Date.UTC(2024, 9, 13, 9, 14), now),
   );
 }
 
@@ -1769,6 +1788,99 @@ function checkDefinitions(): void {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Verifies which numbers earn a gallery link (any length alone, five to nine
+ * digits inside a sentence), that only a 200 from nhentai counts, and which
+ * bot replies are open to a skull vote.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkGalleries(): Promise<void> {
+  const codes = (content: string): string => galleryCodes(content).join(",");
+  check("nhentai", "a short number alone is a code", codes("1") === "1" && codes(" 69\n") === "69");
+  check("nhentai", "nine digits are a code", codes("999999999") === "999999999");
+  check(
+    "nhentai",
+    "a code inside a sentence counts",
+    codes("go read 177013, trust me.") === "177013",
+  );
+  check(
+    "nhentai",
+    "every code in a message counts once",
+    codes("12345 or 67890 or 12345") === "12345,67890",
+  );
+  check(
+    "nhentai",
+    "short numbers in a sentence are left alone",
+    codes("2 of 100 in 2024, 9999 times") === "",
+  );
+  check("nhentai", "five digits in a sentence count", codes("try 10000 instead") === "10000");
+  check(
+    "nhentai",
+    "a zero-padded number is not a code",
+    codes("007") === "" && codes("007 and 0012345") === "",
+  );
+  check("nhentai", "ten digits are past any gallery", codes("1234567890") === "");
+  check(
+    "nhentai",
+    "numbers in links, mentions, emoji and timestamps are not codes",
+    codes(
+      "https://x.com/a/status/123456 <@123456789> <:pog:123456789> <t:123456789:R> https://nhentai.net/g/54321/",
+    ) === "",
+  );
+  check(
+    "nhentai",
+    "prices, decimals, grouped digits and units are not codes",
+    codes("$12345 12345.67 12,345 12345k 12345%") === "",
+  );
+  check("nhentai", "a code ending a sentence still counts", codes("it was 54321.") === "54321");
+  check(
+    "nhentai",
+    "at most five codes are looked up per message",
+    galleryCodes("11111 22222 33333 44444 55555 66666").length === 5,
+  );
+  check(
+    "nhentai",
+    "the link names the gallery",
+    galleryLink("12345") === "https://nhentai.net/g/12345/",
+  );
+  // The link and the code that earned it stay where they were posted
+  check(
+    "nhentai",
+    "neither the code nor its link is media to move",
+    !matchAny("12345") && !matchAny(galleryLink("12345")),
+  );
+  check(
+    "nhentai",
+    "the bot's link reply is open to a skull vote",
+    isGalleryReply(galleryLink("12345")),
+  );
+  check(
+    "nhentai",
+    "a reply listing several links is open to a vote too",
+    isGalleryReply(`${galleryLink("12345")}\n${galleryLink("67890")}`),
+  );
+  check(
+    "nhentai",
+    "a link with anything else in the message is not",
+    !isGalleryReply(`see ${galleryLink("12345")}`) && !isGalleryReply("https://nhentai.net/"),
+  );
+
+  const api = (id: string): string => `https://nhentai.net/api/v2/galleries/${id}`;
+  const net = stubFetch({
+    [api("11111")]: () => new Response("{}", { status: 200 }),
+    [api("22222")]: () => new Response("{}", { status: 404 }),
+    [api("33333")]: () => new Response("", { status: 403 }),
+  });
+  check("nhentai", "a 200 means the gallery exists", await galleryExists("11111", net.fetchImpl));
+  check("nhentai", "a 404 gets no link", !(await galleryExists("22222", net.fetchImpl)));
+  check(
+    "nhentai",
+    "a challenge or block gets no link",
+    !(await galleryExists("33333", net.fetchImpl)),
+  );
+  check("nhentai", "a failed lookup gets no link", !(await galleryExists("44444", net.fetchImpl)));
 }
 
 /**
@@ -3519,6 +3631,7 @@ void (async () => {
     checkRepostContent();
     await checkRepostOrdering();
     await checkRepostFailureReporting();
+    checkEditFreshness();
     checkMediaChannelPermissions();
     checkGuildSeeding();
     checkRepostStore();
@@ -3533,6 +3646,7 @@ void (async () => {
     checkSlurResponses();
     checkMentions();
     checkDefinitions();
+    await checkGalleries();
     checkGifs();
     checkGifListLength();
     checkVoiceAudio();

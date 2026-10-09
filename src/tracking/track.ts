@@ -4,12 +4,14 @@
 // slurs, fires the per-type configured replies (responses.json) or a comeback
 // at anyone who mentions the bot (insults.json), asks which meaning was meant
 // where a word has an innocent one (definitions.json), and adds the configured
-// emoji reactions - all driven by words.json (see loadWords).
+// emoji reactions - all driven by words.json (see loadWords). Gallery numbers
+// in the message are answered with their links on top (see nhentai.ts).
 
 import { noteMessage } from "@/tracking/calm";
 import { offerDefinition } from "@/tracking/definitions";
 import { countMatches } from "@/tracking/detect";
 import { respondToMention } from "@/tracking/mention";
+import { replyWithGalleries } from "@/tracking/nhentai";
 import { respondToMessage } from "@/tracking/responses";
 import { incrementCounts } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
@@ -159,6 +161,8 @@ export async function trackMessage(message: Message): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   });
+
+  await replyWithGalleries(message);
 
   // Reactions from the config: matched words plus type emoji triggers.
   const reactionHits = countMatches(content, words.reactionList);
