@@ -8,6 +8,7 @@ import {
 } from "@/media/repostActions";
 import { onMessage, onMessageEdit } from "@/onMessage";
 import { onMessageDelete } from "@/onMessageDelete";
+import { handleSkullVote } from "@/tracking/sauce";
 import type { CommandModule } from "@/types/discord";
 import { checkDataRoot } from "@/utils/file";
 import { createLogger, logSettings } from "@/utils/log";
@@ -178,6 +179,15 @@ client.on("messageCreate", async (message: Message) => {
 client.on("messageUpdate", async (oldMessage, newMessage) => {
   if (!guildInScope(newMessage.guildId)) return;
   await onMessageEdit(oldMessage, newMessage);
+});
+
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (!guildInScope(reaction.message.guildId)) return;
+  await handleSkullVote(reaction, user).catch((err: unknown) => {
+    log.error("skull vote failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 });
 
 client.on("messageDelete", async (message) => {

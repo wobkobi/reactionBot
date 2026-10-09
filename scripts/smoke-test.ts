@@ -86,6 +86,7 @@ import {
   RESPONSE_COOLDOWN_MS,
   RESPONSE_SPAM_THRESHOLD,
 } from "@/tracking/responses";
+import { galleryExists, isSauceReply, sauceCode, sauceLink } from "@/tracking/sauce";
 import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
@@ -1787,6 +1788,56 @@ function checkDefinitions(): void {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Verifies only a bare five-to-nine-digit code earns a sauce link, and only
+ * when nhentai answers 200 for it.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkSauce(): Promise<void> {
+  check("sauce", "five or more digits are a code", sauceCode("17701") === "17701");
+  check("sauce", "surrounding whitespace is ignored", sauceCode("  177013\n") === "177013");
+  check(
+    "sauce",
+    "everyday short numbers are left alone",
+    !sauceCode("2") && !sauceCode("100") && !sauceCode("2024"),
+  );
+  check("sauce", "a leading zero cannot pad a short code", !sauceCode("00123"));
+  check("sauce", "ten digits are past any gallery", !sauceCode("1234567890"));
+  check("sauce", "digits inside a sentence are left alone", !sauceCode("call 177013 now"));
+  check(
+    "sauce",
+    "the link names the gallery",
+    sauceLink("12345") === "https://nhentai.net/g/12345/",
+  );
+  // The link and the code that earned it stay where they were posted
+  check(
+    "sauce",
+    "neither the code nor its link is media to move",
+    !matchAny("12345") && !matchAny(sauceLink("12345")),
+  );
+  check("sauce", "the bot's link reply is open to a skull vote", isSauceReply(sauceLink("12345")));
+  check(
+    "sauce",
+    "a link with anything else in the message is not",
+    !isSauceReply(`see ${sauceLink("12345")}`) && !isSauceReply("https://nhentai.net/"),
+  );
+
+  const api = (id: string): string => `https://nhentai.net/api/v2/galleries/${id}`;
+  const net = stubFetch({
+    [api("11111")]: () => new Response("{}", { status: 200 }),
+    [api("22222")]: () => new Response("{}", { status: 404 }),
+    [api("33333")]: () => new Response("", { status: 403 }),
+  });
+  check("sauce", "a 200 means the gallery exists", await galleryExists("11111", net.fetchImpl));
+  check("sauce", "a 404 gets no link", !(await galleryExists("22222", net.fetchImpl)));
+  check(
+    "sauce",
+    "a challenge or block gets no link",
+    !(await galleryExists("33333", net.fetchImpl)),
+  );
+  check("sauce", "a failed lookup gets no link", !(await galleryExists("44444", net.fetchImpl)));
 }
 
 /**
@@ -3552,6 +3603,7 @@ void (async () => {
     checkSlurResponses();
     checkMentions();
     checkDefinitions();
+    await checkSauce();
     checkGifs();
     checkGifListLength();
     checkVoiceAudio();
