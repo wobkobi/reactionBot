@@ -1858,14 +1858,19 @@ function checkDefinitions(): void {
 }
 
 /**
- * Verifies which numbers earn a gallery link (any length alone, five to nine
- * digits inside a sentence), that only a 200 from nhentai counts, and which
- * bot replies are open to a skull vote.
+ * Verifies which numbers earn a gallery link (five to nine digits, alone or
+ * inside a sentence), that only a 200 from nhentai counts, and which bot
+ * replies are open to a skull vote.
  * @returns A promise that resolves once every case has run.
  */
 async function checkGalleries(): Promise<void> {
   const codes = (content: string): string => galleryCodes(content).join(",");
-  check("nhentai", "a short number alone is a code", codes("1") === "1" && codes(" 69\n") === "69");
+  check(
+    "nhentai",
+    "a short number alone is not a code",
+    codes("1") === "" && codes(" 69\n") === "" && codes("123") === "" && codes("9999") === "",
+  );
+  check("nhentai", "a code alone counts", codes(" 682042\n") === "682042");
   check("nhentai", "nine digits are a code", codes("999999999") === "999999999");
   check(
     "nhentai",
