@@ -4,7 +4,6 @@
 // responsibilities across match/transform/settings/approval/repost/audit.
 
 import { ChoiceButton, isApproved, requestChoice } from "@/media/approval";
-import { buildCopyMessage } from "@/media/copyLink";
 import { pickInstagramFrontend } from "@/media/embedCheck";
 import { fetchInstagramCaption, formatCaption } from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
@@ -44,27 +43,6 @@ const COUNTDOWN_BUTTONS: ChoiceButton[] = [
   { id: "no", label: "Cancel", style: ButtonStyle.Danger },
   { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
 ];
-
-/** Line above the copied link, naming what the bot did to it. */
-const COPY_LEAD = {
-  tracking: "Here's your link without the tracking junk:",
-  media: "Here's your embeddable link:",
-} as const;
-
-/** Subtext under a copied link, naming the command that governs the move. */
-const MYDELAY_HINT = "-# Tune how this works for you with /mydelay";
-
-/**
- * Picks the subtext for the copy hand-over. `/mydelay` governs cross-channel
- * moves only, so advertising it anywhere else would promise control it does
- * not have.
- * @param isTrackingClean - Whether this is a tracking clean rather than media.
- * @param sameChannel - Whether the repost target is the source channel.
- * @returns The hint line, or `undefined` when there is nothing to offer.
- */
-export function copyHintFor(isTrackingClean: boolean, sameChannel: boolean): string | undefined {
-  return isTrackingClean || sameChannel ? undefined : MYDELAY_HINT;
-}
 
 /**
  * Wording for a move that could not be made. The poster approved something
@@ -170,13 +148,9 @@ export async function handleMediaMessage(message: Message): Promise<void> {
       {
         prompt: plan.promptText,
         grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),
-        privateReplies: {
-          copy: buildCopyMessage(
-            rewrite.newLink,
-            isTrackingClean ? COPY_LEAD.tracking : COPY_LEAD.media,
-            copyHintFor(isTrackingClean, sameChannel),
-          ),
-        },
+        // The bare link alone, so long-press > Copy Text on mobile grabs
+        // exactly the URL with nothing to trim.
+        privateReplies: { copy: rewrite.newLink },
       },
     );
     if (outcome.choice === "copy") {

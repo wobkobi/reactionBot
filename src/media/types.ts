@@ -139,6 +139,7 @@ export interface ApprovalOptions {
   /**
    * Ephemeral text answering a click, keyed by button id. Listed buttons reply
    * privately instead of editing the prompt, so the reply survives `autoDelete`.
+   * Embeds are suppressed, so a bare link reply renders as plain text.
    */
   privateReplies?: Record<string, string>;
 }

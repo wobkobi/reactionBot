@@ -81,7 +81,11 @@ async function answerClick(i: ButtonInteraction, privateReply?: string): Promise
     await i.update({ components: [] }).catch(() => {});
     return;
   }
-  await respond(i, { content: privateReply, flags: MessageFlags.Ephemeral });
+  // Embeds suppressed so a bare link reply stays one line, not a preview card.
+  await respond(i, {
+    content: privateReply,
+    flags: MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds,
+  });
 }
 
 /**
