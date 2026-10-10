@@ -21,16 +21,10 @@ import {
 const log = createLogger("tracking/nhentai");
 
 /**
- * A message that is nothing but a number, 1 to 9 digits. Any length counts
- * here: someone posting "69" on its own means the code.
- */
-const BARE = /^[1-9]\d{0,8}$/;
-
-/**
- * A code inside a sentence, 5 to 9 digits. Shorter numbers mid-sentence are
- * everyday counts ("2 cats", "100 times", "in 2024") and would earn a link
- * nearly every time, since almost every ID up to around 686,000 is live; nine
- * digits is far past that.
+ * A code, 5 to 9 digits, whether posted alone or inside a sentence. Shorter
+ * numbers are everyday chat ("2 cats", "in 2024", "12" answering an age) and
+ * would earn a link nearly every time, since almost every ID up to around
+ * 686,000 is live; nine digits is far past that.
  *
  * - `(?<![\w.,$£€:/])` - not the tail of a longer number or word, a decimal,
  *   a grouped number ("12,345"), a price or a path. Since \w covers digits,
@@ -65,15 +59,12 @@ export const SKULL_VOTES = 3;
 const REPLY = /^https:\/\/nhentai\.net\/g\/\d+\/(?:\nhttps:\/\/nhentai\.net\/g\/\d+\/)*$/;
 
 /**
- * Reads the gallery IDs a message names: the message itself when it is a bare
- * number ({@link BARE}), otherwise each five-to-nine-digit number in its prose
- * ({@link CODE}), once each, in order, up to {@link MAX_CODES}.
+ * Reads the gallery IDs a message names: each five-to-nine-digit number in its
+ * prose ({@link CODE}), once each, in order, up to {@link MAX_CODES}.
  * @param content - Raw message content.
  * @returns The gallery IDs; empty when the message names none.
  */
 export function galleryCodes(content: string): string[] {
-  const bare = content.trim();
-  if (BARE.test(bare)) return [bare];
   const prose = content.replace(NOT_PROSE, " ");
   return [...new Set(prose.match(CODE) ?? [])].slice(0, MAX_CODES);
 }
@@ -128,6 +119,7 @@ export async function galleryExists(id: string, fetchImpl: FetchLike = fetch): P
  * Replies to the numbers in a message with a link per gallery that exists, one
  * per line, preview suppressed and without pinging the poster. The lookups run
  * together, and a message whose numbers name no live gallery gets no reply.
+ * The reply carries the bot's own skull so voting it down is one click away.
  * Silent during calm mode. Best-effort.
  * @param message - The guild message to consider.
  * @param fetchImpl - Network stand-in for the existence check; the global fetch by default.
@@ -161,6 +153,12 @@ export async function replyWithGalleries(
   log.info("gallery links sent", { guildId: message.guildId, authorId: message.author.id, ids });
   // Deleting the message takes the links down with it
   recordReply(message.guildId, message.id, { channelId: sent.channelId, messageId: sent.id });
+  // A ready skull makes the vote one click; bots never count, so this one is free
+  await sent.react(SKULL).catch((err: unknown) => {
+    log.warn("failed to pre-react skull on gallery links", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   return true;
 }
 
