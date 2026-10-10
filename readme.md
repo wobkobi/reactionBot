@@ -131,7 +131,7 @@ Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete p
 With autojoin on it joins any channel with people in it and leaves when they go. Speech is
 transcribed in short chunks as it arrives, so a word inside a long sentence fires about a second
 after it is said rather than after the sentence ends. Several trigger words can share one clip pool,
-and mishearings are handled automatically, so there is no list of variants to maintain.
+and a trigger fires only on the words it lists, so ordinary speech does not set it off.
 
 ## Development
 
