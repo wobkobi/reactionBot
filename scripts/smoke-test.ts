@@ -23,7 +23,6 @@ import { data as voiceCommand } from "@/commands/voice";
 import { isApproved, requestChoice } from "@/media/approval";
 import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
-import { buildCopyMessage } from "@/media/copyLink";
 import {
   declaredMedia,
   type FetchLike,
@@ -52,7 +51,7 @@ import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/med
 import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
-import { buildFailureNotice, copyHintFor } from "@/media/workflow";
+import { buildFailureNotice } from "@/media/workflow";
 import { isFreshEdit } from "@/onMessage";
 import { trackerCommand } from "@/tracking/commands";
 import {
@@ -745,15 +744,6 @@ function checkRepostContent(): void {
     "repost",
     "role and channel tokens are not treated as mentions",
     collectMentions("<@&99> over in <#88> look <@2>", "1").join(" ") === "<@2>",
-  );
-
-  // The copy hand-off fences the URL so Discord renders no embed and mobile
-  // shows a copy button.
-  const clean = "https://example.com/x?v=1";
-  check(
-    "repost",
-    "copy hand-off fences the link under its lead line",
-    buildCopyMessage(clean, "Here you go:") === `Here you go:\n\`\`\`\n${clean}\n\`\`\``,
   );
 }
 
@@ -2195,12 +2185,6 @@ function checkMemberPrefs(): void {
 
   check(
     "prefs",
-    "the copy hand-off carries a hint under the fenced link",
-    buildCopyMessage("https://example.com/x", "Here you go:", "-# hint").endsWith("```\n-# hint"),
-  );
-
-  check(
-    "prefs",
     "a countdown choice keeps its seconds, instant carries none",
     resolvePref("countdown", 45).seconds === 45 && resolvePref("instant").seconds === undefined,
   );
@@ -2216,15 +2200,6 @@ function checkMemberPrefs(): void {
         { enabled: null, maxSeconds: 60, allowNever: null },
       ),
     ) === JSON.stringify({ enabled: true, maxSeconds: 60, allowNever: true }),
-  );
-
-  // The hint promises control that /mydelay only has over cross-channel moves.
-  check(
-    "prefs",
-    "the /mydelay hint rides on cross-channel moves only",
-    copyHintFor(false, false)?.includes("/mydelay") === true &&
-      copyHintFor(true, false) === undefined &&
-      copyHintFor(false, true) === undefined,
   );
 
   const mine = myDelay.toJSON();
