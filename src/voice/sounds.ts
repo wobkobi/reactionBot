@@ -3,9 +3,9 @@
 // Spoken triggers and the clip pools they fire, resolved like every other
 // scoped config and cached on a fingerprint so hand edits apply without a restart.
 //
-// Matching runs in two tiers: tracking/detect.ts first, then a phonetic pass,
-// because Whisper writes "swig" or "sweg" for "swag". See phoneticMatch for
-// the guards that keep that tier off ordinary speech.
+// Matching runs in two tiers: tracking/detect.ts first, then an opt-in
+// phonetic pass for Whisper writing "swig" or "sweg" for "swag". See
+// phoneticMatch for the guards that keep that tier off ordinary speech.
 
 import { compileItems, countMatches, normalise, type DetectList } from "@/tracking/detect";
 import { configFingerprint, dataFilePath, guildDataDir, resolveScoped } from "@/utils/file";
@@ -300,7 +300,9 @@ export function safeClipName(name: string): string | null {
  */
 export function compileSounds(config: SoundsConfig): CompiledSounds {
   const pools = config.pools ?? {};
-  const phoneticDefault = config.phonetic ?? true;
+  // Off unless asked for: in live use every soundalike hit logged was a misfire
+  // ("steve" for "stfu", "boots" for "badass") and none caught a real mishearing.
+  const phoneticDefault = config.phonetic ?? false;
   const triggers: CompiledTrigger[] = [];
 
   for (const trigger of config.triggers ?? []) {
@@ -319,9 +321,12 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
     const forms = words.flatMap(triggerForms);
     if (forms.length === 0) continue;
 
+    // Keys come from single words as written, not from the joined-up form of a
+    // phrase: that form exists for tier one's "shutup", and as a soundalike
+    // "bequiet" fired on "booked" and "bucket".
     const usePhonetic = trigger.phonetic ?? phoneticDefault;
     const phonetic: PhoneticKey[] = usePhonetic
-      ? [...new Set(forms)]
+      ? [...new Set(words.map(normalise))]
           .filter((form) => !form.includes(" ") && form.length >= MIN_PHONETIC_LENGTH)
           .map((form) => ({ codes: codesFor(form), initial: form[0]! }))
       : [];

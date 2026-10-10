@@ -2831,6 +2831,8 @@ function checkVoiceSounds(): void {
       empty: [],
     },
     ignore: ["thank you", "subscribe"],
+    // On explicitly: the tier checks below are about the tier, not the default.
+    phonetic: true,
     triggers: [
       { words: ["swag"], pool: "shutup" },
       { words: ["drip"], pool: "shutup" },
@@ -2936,6 +2938,36 @@ function checkVoiceSounds(): void {
     "phonetic: false falls back to exact matching only",
     matchTrigger("proper swag", exactOnly) !== null &&
       matchTrigger("proper swig", exactOnly) === null,
+  );
+
+  // Off by default: in live use the tier fired "stfu" on "steve" and "badass"
+  // on "boots" far more often than it caught a real mishearing.
+  const byDefault = compileSounds({
+    pools: { shutup: ["a.ogg"] },
+    triggers: [{ words: ["stfu", "badass"], pool: "shutup" }],
+  });
+  check(
+    "voice/sounds",
+    "soundalike matching is off unless the config turns it on",
+    matchTrigger("thank you steve", byDefault) === null &&
+      matchTrigger("the big boots", byDefault) === null &&
+      matchTrigger("just stfu", byDefault) !== null,
+  );
+
+  // A phrase is matched joined-up ("bequiet") in tier one, but that form must
+  // not become a soundalike key: as one it fired on "booked" and "bucket".
+  const phrase = compileSounds({
+    pools: { shutup: ["a.ogg"] },
+    phonetic: true,
+    triggers: [{ words: ["be quiet", "twenty one"], pool: "shutup" }],
+  });
+  check(
+    "voice/sounds",
+    "a phrase gets no soundalike matching through its joined-up form",
+    matchTrigger("i already booked it", phrase) === null &&
+      matchTrigger("in a bucket", phrase) === null &&
+      matchTrigger("look at tonton", phrase) === null &&
+      matchTrigger("just bequiet", phrase) !== null,
   );
 
   check(

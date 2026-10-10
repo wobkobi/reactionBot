@@ -58,7 +58,8 @@ services:
     # ffmpeg conversions can leave orphaned grandchildren; init reaps them.
     init: true
 
-    # Speech recognition holds around 1.9GB with the default whisper-base.en.
+    # Speech recognition holds around 1.9GB with whisper-base.en, and less with
+    # the default whisper-tiny.en.
     # This is an OOM guard, not a target. Remember ZFS ARC is competing for the
     # same RAM: leave the box headroom rather than sizing this to what is free.
     mem_limit: 4g

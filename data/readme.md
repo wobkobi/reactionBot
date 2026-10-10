@@ -208,7 +208,7 @@ rather than sitting in the log.
 | `ambient.minMinutes` / `maxMinutes` | Gap either side of each sound, re-rolled every time. Defaults to 5 and 20; under 10 seconds is refused. |
 | `minMembers` | People a channel needs before the bot joins. Default 1. |
 | `guildCooldownMs` | Default gap between clips from the same pool. Defaults to 30 seconds; a trigger's own `cooldownMs` overrides it. Pools each keep their own gap, so one firing does not silence the rest, and a fixed 5 second floor stops any two clips running together. |
-| `phonetic` | Automatic soundalike matching. Default true. |
+| `phonetic` | Soundalike matching for single-word triggers. Default false. |
 | `ignore` | Phrases that never count. |
 | `logTranscripts` | Echo everything heard, matched or not. Off by default: it writes what people say in voice chat to the log. A debug line, so it also needs `LOG_LEVEL=debug`. |
 | `enabled` | Config-wide default for the per-guild switch. `/autojoin on` overrides it. |
@@ -217,17 +217,17 @@ rather than sitting in the log.
 pool. Three unrelated words sharing one set of clips is the normal case, not a
 workaround.
 
-**You do not list mishearings by hand.** Whisper writes down what it thinks it
-heard, and for short words it usually gets the vowels wrong: "swig" or "sweg"
-for "swag". With `phonetic` on (the default), those match anyway, because the
-matcher compares how a word sounds rather than how it is spelled.
+**Mishearings.** Whisper writes down what it thinks it heard, and for short
+words it sometimes gets the vowels wrong: "swig" or "sweg" for "swag". A trigger
+matches only the words it lists, so add a spelling to `words` when the trigger
+log shows Whisper writing one down differently.
 
-It is deliberately conservative about this, and only accepts a soundalike when
-it shares the trigger's first letter and is not an everyday English word.
-Without those guards a "drip" trigger fires on "trip", and a "swag" trigger
-fires on "sick", "sock", "sack", "seek" and "soak". Set `"phonetic": false` on a
-trigger to demand the exact word, and add spellings to `words` for anything the
-guards turn away.
+`"phonetic": true` (globally or on one trigger) matches soundalikes as well,
+comparing how a word sounds rather than how it is spelled. It only accepts one
+that shares the trigger's first letter and is not an everyday English word, and
+only for single-word triggers - a phrase never gets it. It is off by default
+because in use it fired far more on unrelated words than on mishearings: "stfu"
+caught "steve", and "badass" caught "bots", "boots" and "beats".
 
 **Ambient sounds.** With an `ambient` block the bot also plays a clip now and
 then on its own, at a random gap inside the range, re-rolled each time so it

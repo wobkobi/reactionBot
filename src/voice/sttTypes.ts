@@ -33,9 +33,8 @@ export type SttOut =
  * Default Whisper checkpoint. Transcription sits in the middle of the wait
  * between a word being said and its clip playing, and on base.en that measured
  * about 770ms per utterance - most of a second the joke spends landing. The
- * tiny English-only model roughly halves it. It mishears more, which the
- * phonetic tier and the per-trigger word lists exist to absorb, and a config
- * that would rather have the accuracy than the second sets VOICE_MODEL back to
- * Xenova/whisper-base.en.
+ * tiny English-only model roughly halves it. It mishears more, which costs
+ * missed triggers rather than false ones, and a config that would rather have
+ * the accuracy than the second sets VOICE_MODEL back to Xenova/whisper-base.en.
  */
 export const DEFAULT_MODEL = "Xenova/whisper-tiny.en";
