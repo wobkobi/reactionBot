@@ -11,9 +11,12 @@ import {
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { InteractionContextType } from "discord-api-types/v10";
-import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  InteractionContextType,
+  MessageFlags,
+  SlashCommandBuilder,
+} from "discord.js";
 
 const log = createLogger("cmd/calmdown");
 

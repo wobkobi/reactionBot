@@ -9,7 +9,7 @@ import { CompileItem, compileItems, DetectList, normalise } from "@/tracking/det
 import { configFingerprint, dataFilePath, resolveScoped } from "@/utils/file";
 import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
-import fs from "fs";
+import fs from "node:fs";
 
 const log = createLogger("tracking/words");
 

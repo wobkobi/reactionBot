@@ -1,9 +1,12 @@
 // src/commands/editpost.ts
 
 import { handleEditPostCommand } from "@/media/repostActions";
-import { ContextMenuCommandBuilder } from "@discordjs/builders";
-import { ApplicationCommandType, InteractionContextType } from "discord-api-types/v10";
-import { MessageContextMenuCommandInteraction } from "discord.js";
+import {
+  ApplicationCommandType,
+  ContextMenuCommandBuilder,
+  InteractionContextType,
+  MessageContextMenuCommandInteraction,
+} from "discord.js";
 
 /**
  * Right-click entry for rewriting a moved post. Works on the post itself and

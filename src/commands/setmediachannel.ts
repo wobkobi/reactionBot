@@ -4,14 +4,14 @@ import { loadSettings, saveSettings } from "@/media/settings";
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { InteractionContextType } from "discord-api-types/v10";
 import {
   ChannelType,
   ChatInputCommandInteraction,
+  InteractionContextType,
   MessageFlags,
   PermissionFlagsBits,
   PermissionsBitField,
+  SlashCommandBuilder,
   TextChannel,
 } from "discord.js";
 

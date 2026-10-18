@@ -152,8 +152,9 @@ import {
   TRIGGER_LOG_HEADER,
   type TriggerRecord,
 } from "@/voice/triggerLog";
-import { ApplicationCommandOptionType, ApplicationCommandType } from "discord-api-types/v10";
 import {
+  ApplicationCommandOptionType,
+  ApplicationCommandType,
   type ChatInputCommandInteraction,
   type GuildTextBasedChannel,
   type InteractionReplyOptions,
@@ -164,10 +165,10 @@ import {
   PermissionsBitField,
   type RepliableInteraction,
 } from "discord.js";
-import { EventEmitter } from "events";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /* ------------------------------------------------------------------ types */
 

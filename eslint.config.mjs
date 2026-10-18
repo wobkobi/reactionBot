@@ -32,6 +32,22 @@ export default defineConfig([
       "@typescript-eslint/consistent-type-definitions": "error",
       "@typescript-eslint/explicit-function-return-type": ["warn", { allowExpressions: true }],
 
+      // discord.js re-exports all of these, and none is a declared dependency.
+      // A subpath like "discord-api-types/v10" also gets ".js" appended by
+      // tsc-alias's resolveFullPaths, which the package's exports map rejects,
+      // so the built bot dies on import before it can log anything.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(discord-api-types|@discordjs/(builders|rest|formatters|util))(/|$)",
+              message: "Import from discord.js, which re-exports it.",
+            },
+          ],
+        },
+      ],
+
       // JSDoc enforcement - named declarations/methods only; inline callbacks
       // (collector filters, .map/.catch handlers) stay undocumented.
       "jsdoc/require-jsdoc": [
