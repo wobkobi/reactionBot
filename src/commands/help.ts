@@ -2,15 +2,17 @@
 
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { SlashCommandBuilder } from "@discordjs/builders";
 import {
   APIEmbedField,
   ApplicationCommandOptionType,
   ApplicationCommandType,
+  ChatInputCommandInteraction,
+  EmbedBuilder,
   InteractionContextType,
+  MessageFlags,
   RESTPostAPIApplicationCommandsJSONBody,
-} from "discord-api-types/v10";
-import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from "discord.js";
+  SlashCommandBuilder,
+} from "discord.js";
 
 /** Marks a line that needs admin, for commands Discord cannot filter. */
 const ADMIN_MARK = "🔒";

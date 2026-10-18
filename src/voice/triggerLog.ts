@@ -10,7 +10,7 @@
 import { dataFilePath, guildDataDir } from "@/utils/file";
 import { createLogger } from "@/utils/log";
 import type { ClipVerdict } from "@/voice/playback";
-import fs from "fs";
+import fs from "node:fs";
 
 const log = createLogger("voice/triggerLog");
 

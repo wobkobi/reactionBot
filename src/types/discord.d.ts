@@ -5,11 +5,11 @@
 // sees it: the smoke test's tsconfig covers scripts plus whatever they import,
 // which never reaches index.ts.
 
-import { ContextMenuCommandBuilder } from "@discordjs/builders";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   Collection,
+  ContextMenuCommandBuilder,
   MessageContextMenuCommandInteraction,
   SlashCommandBuilder,
 } from "discord.js";

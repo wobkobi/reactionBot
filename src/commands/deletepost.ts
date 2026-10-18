@@ -1,9 +1,12 @@
 // src/commands/deletepost.ts
 
 import { handleDeletePostCommand } from "@/media/repostActions";
-import { ContextMenuCommandBuilder } from "@discordjs/builders";
-import { ApplicationCommandType, InteractionContextType } from "discord-api-types/v10";
-import { MessageContextMenuCommandInteraction } from "discord.js";
+import {
+  ApplicationCommandType,
+  ContextMenuCommandBuilder,
+  InteractionContextType,
+  MessageContextMenuCommandInteraction,
+} from "discord.js";
 
 /**
  * Right-click entry for taking a moved post down. Works on the post itself and

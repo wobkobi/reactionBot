@@ -13,8 +13,8 @@ import { parseJsonc } from "@/utils/jsonc";
 import { createLogger } from "@/utils/log";
 import { COMMON_WORDS } from "@/voice/commonWords";
 import { doubleMetaphone } from "double-metaphone";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 
 const log = createLogger("voice/sounds");
 

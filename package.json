@@ -1,6 +1,6 @@
 {
   "name": "reactionbot",
-  "version": "3.13.0",
+  "version": "3.13.1",
   "type": "module",
   "scripts": {
     "build": "node -e \"fs.rmSync('build',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc && tsc-alias",
@@ -23,10 +23,6 @@
       "eslint --fix --max-warnings=0 --no-warn-ignored"
     ],
     "**/*.{mjs,cjs,json,md,yml,yaml}": "prettier --write"
-  },
-  "overrides": {
-    "adm-zip": "^0.6.0",
-    "sharp": "^0.35.5"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",

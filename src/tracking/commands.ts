@@ -21,13 +21,14 @@ import { Tracker } from "@/tracking/trackers";
 import { loadWords } from "@/tracking/words";
 import { createLogger } from "@/utils/log";
 import { respond } from "@/utils/respond";
-import { SlashCommandBuilder, SlashCommandSubcommandBuilder } from "@discordjs/builders";
-import { InteractionContextType } from "discord-api-types/v10";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  InteractionContextType,
   MessageFlags,
+  SlashCommandBuilder,
+  SlashCommandSubcommandBuilder,
 } from "discord.js";
 
 const log = createLogger("tracking/commands");

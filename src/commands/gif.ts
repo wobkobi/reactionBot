@@ -12,15 +12,15 @@ import {
 } from "@/tracking/gifs";
 import { isAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { randomUUID } from "crypto";
-import { InteractionContextType } from "discord-api-types/v10";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  InteractionContextType,
   MessageFlags,
+  SlashCommandBuilder,
 } from "discord.js";
+import { randomUUID } from "node:crypto";
 
 /** Slash command definition for `/gif` and its subcommands. */
 export const data = new SlashCommandBuilder()

@@ -17,8 +17,6 @@ import { respond } from "@/utils/respond";
 import { seedAllGuilds, seedGuildData } from "@/utils/seedGuild";
 import { botCommit, botVersion } from "@/utils/version";
 import { onVoiceStateUpdate, shutdownVoice, startVoiceSweep, sweepGuilds } from "@/voice/autojoin";
-import { REST } from "@discordjs/rest";
-import { RESTPostAPIApplicationCommandsJSONBody, Routes } from "discord-api-types/v10";
 import {
   Client,
   Collection,
@@ -27,11 +25,14 @@ import {
   Message,
   MessageFlags,
   Partials,
+  REST,
+  RESTPostAPIApplicationCommandsJSONBody,
+  Routes,
 } from "discord.js";
 import * as dotenv from "dotenv";
-import { readdirSync } from "fs";
-import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // quiet: dotenv otherwise prints a banner of its own before any logger exists,
 // which is noise in a container and invalid JSON in the middle of a JSON log
