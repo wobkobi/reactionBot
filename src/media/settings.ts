@@ -13,6 +13,9 @@ const log = createLogger("media/settings");
 /** Filename for persisted settings. */
 export const SETTINGS_FILE = "media_settings.json";
 
+/** How long the same-channel rewrite prompt waits, whatever `/setdelay` says. */
+export const REWRITE_PROMPT_MS = 15_000;
+
 /**
  * Loads settings for a guild. Returns empty defaults if file is missing.
  * @param guildId - Discord guild ID.
@@ -74,7 +77,7 @@ export function resolveApprovalPlan(
     // Special-case per product spec
     const plan: ApprovalPlan = {
       autoApprove: false,
-      timeoutMs: 15_000,
+      timeoutMs: REWRITE_PROMPT_MS,
       persistIndefinitely: false,
       approveOnTimeout: false,
       promptText: "Rewrite your link here with an embeddable version?",
@@ -116,9 +119,63 @@ export function resolveApprovalPlan(
 }
 
 /**
+ * How long a plan holds the link before something happens to it, for ranking
+ * a member's plan against the guild's. Auto-approve is immediate; a prompt
+ * with no timeout ranks as never.
+ * @param plan - The plan to measure.
+ * @returns The wait in milliseconds.
+ */
+function waitMs(plan: ApprovalPlan): number {
+  if (plan.autoApprove) return 0;
+  if (plan.persistIndefinitely) return Infinity;
+  return plan.timeoutMs ?? Infinity;
+}
+
+/**
+ * Builds the plan a member's preference asks for, worded for a move or a
+ * rewrite in place.
+ * @param pref - The preference in force, after clamping.
+ * @param guildPlan - The guild plan it would replace.
+ * @param sameChannel - Whether the repost target is the source channel.
+ * @returns The member's {@link ApprovalPlan}, or `null` for `"never"`.
+ */
+function planForPref(
+  pref: MemberPref,
+  guildPlan: ApprovalPlan,
+  sameChannel: boolean,
+): ApprovalPlan | null {
+  switch (pref.mode) {
+    case "never":
+      return null;
+    case "instant":
+      return { ...guildPlan, autoApprove: true, timeoutMs: undefined, persistIndefinitely: false };
+    case "countdown":
+      return {
+        autoApprove: false,
+        approveOnTimeout: true,
+        timeoutMs: (pref.seconds ?? 10) * 1000,
+        persistIndefinitely: false,
+        promptText: sameChannel
+          ? "Rewriting your link here with an embeddable version - hit Cancel to keep it as is."
+          : "Moving your media link to the media channel - hit Cancel to keep it here.",
+      };
+    case "ask":
+      return {
+        autoApprove: false,
+        approveOnTimeout: false,
+        timeoutMs: (pref.seconds ?? 10) * 1000,
+        persistIndefinitely: false,
+        promptText: guildPlan.promptText,
+      };
+  }
+}
+
+/**
  * Resolves the plan for one message: a member's own preference when it
- * applies, otherwise the guild `/setdelay` default. Member preferences govern
- * cross-channel moves only, so a same-channel rewrite never consults one.
+ * applies, otherwise the guild default. On a cross-channel move the
+ * preference always wins. On a same-channel rewrite it only replaces the
+ * fixed rewrite prompt when it is strictly quicker, so `"never"` or a longer
+ * wait leaves the guild plan in force there.
  * @param settings - Stored guild settings.
  * @param pref - The poster's stored preference, if they have one.
  * @param sameChannel - Whether the repost target is the source channel.
@@ -131,32 +188,26 @@ export function resolvePlanFor(
   sameChannel: boolean,
 ): ApprovalPlan | null {
   const guildPlan = resolveApprovalPlan(settings.grace, sameChannel);
-  if (sameChannel) return guildPlan;
-
   const effective = clampPref(pref, resolveLimits(settings));
   if (!effective) return guildPlan;
+  if (sameChannel && !quickerThanRewrite(effective)) return guildPlan;
 
-  log.debug("member preference applies", { mode: effective.mode, seconds: effective.seconds });
-  switch (effective.mode) {
-    case "never":
-      return null;
-    case "instant":
-      return { ...guildPlan, autoApprove: true, timeoutMs: undefined, persistIndefinitely: false };
-    case "countdown":
-      return {
-        autoApprove: false,
-        approveOnTimeout: true,
-        timeoutMs: (effective.seconds ?? 10) * 1000,
-        persistIndefinitely: false,
-        promptText: "Moving your media link to the media channel - hit Cancel to keep it here.",
-      };
-    case "ask":
-      return {
-        autoApprove: false,
-        approveOnTimeout: false,
-        timeoutMs: (effective.seconds ?? 10) * 1000,
-        persistIndefinitely: false,
-        promptText: "Move your media link to the media channel?",
-      };
-  }
+  log.debug("member preference applies", {
+    mode: effective.mode,
+    seconds: effective.seconds,
+    sameChannel,
+  });
+  return planForPref(effective, guildPlan, sameChannel);
+}
+
+/**
+ * Whether a preference beats the fixed same-channel rewrite prompt, and so
+ * replaces it. `"never"` never does.
+ * @param pref - The preference in force, after clamping.
+ * @returns True when the member's plan resolves strictly sooner.
+ */
+export function quickerThanRewrite(pref: MemberPref): boolean {
+  const rewrite = resolveApprovalPlan(undefined, true);
+  const own = planForPref(pref, rewrite, true);
+  return !!own && waitMs(own) < waitMs(rewrite);
 }
