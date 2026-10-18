@@ -120,11 +120,11 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   // Prepare rewrite
   const rewrite = rewriteContent(message.content, match, message.author.id);
 
-  // Build the approval plan: the poster's own preference on a cross-channel
-  // move, else the guild default (which handles the same-channel overrides).
+  // Build the approval plan from the poster's own preference and the guild
+  // default. Tracking cleans skip the preference so they always ask.
   const plan = resolvePlanFor(
     settings,
-    sameChannel ? undefined : loadPref(message.guildId!, message.author.id),
+    isTrackingClean ? undefined : loadPref(message.guildId!, message.author.id),
     sameChannel,
   );
   if (!plan) {
@@ -138,7 +138,8 @@ export async function handleMediaMessage(message: Message): Promise<void> {
 
   // Auto-approve or ask. Every prompt offers a third option: hand the poster
   // the rewritten link privately and leave their message untouched. Tracking
-  // cleans always prompt, since the same-channel plan never auto-approves.
+  // cleans always prompt: they skip the poster's preference, and the guild's
+  // same-channel plan never auto-approves.
   let approved = plan.autoApprove;
   if (!approved) {
     const outcome = await requestChoice(

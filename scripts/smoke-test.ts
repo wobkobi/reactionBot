@@ -2126,10 +2126,29 @@ function checkMemberPrefs(): void {
       false,
     )?.autoApprove === false,
   );
+  // A same-channel rewrite takes the preference only when it beats the fixed
+  // 15s prompt; a tie, a longer wait or "never" leaves the prompt in force.
   check(
     "prefs",
-    "same-channel rewrites ignore member preferences",
-    resolvePlanFor(guildDefault, { mode: "instant" }, true)?.timeoutMs === 15_000,
+    "same-channel instant rewrites without asking",
+    resolvePlanFor(guildDefault, { mode: "instant" }, true)?.autoApprove === true,
+  );
+  check(
+    "prefs",
+    "same-channel takes a quicker ask",
+    resolvePlanFor(guildDefault, { mode: "ask", seconds: 10 }, true)?.timeoutMs === 10_000,
+  );
+  check(
+    "prefs",
+    "same-channel keeps the prompt over a tie or a slower wait",
+    resolvePlanFor(guildDefault, { mode: "ask", seconds: 15 }, true)?.timeoutMs === 15_000 &&
+      resolvePlanFor(guildDefault, { mode: "countdown", seconds: 30 }, true)?.approveOnTimeout ===
+        false,
+  );
+  check(
+    "prefs",
+    "same-channel ignores never",
+    resolvePlanFor(guildDefault, { mode: "never" }, true)?.timeoutMs === 15_000,
   );
 
   // What /mydelay show reports: the preference after clamping, not the one

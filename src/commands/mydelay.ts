@@ -1,7 +1,7 @@
 // src/commands/mydelay.ts
 
 import { clampPref, clearPref, loadPref, resolveLimits, savePref } from "@/media/prefs";
-import { loadSettings } from "@/media/settings";
+import { loadSettings, quickerThanRewrite, REWRITE_PROMPT_MS } from "@/media/settings";
 import { GraceSetting, MemberMode, MemberPref, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { respond } from "@/utils/respond";
@@ -13,8 +13,9 @@ const log = createLogger("cmd/mydelay");
 
 /**
  * Slash command definition for `/mydelay`. Governs cross-channel moves of the
- * invoker's own links only; same-channel rewrites and tracking cleans keep
- * asking regardless of what is set here.
+ * invoker's own links outright; on a same-channel rewrite it applies only when
+ * quicker than the fixed rewrite prompt. Tracking cleans keep asking
+ * regardless of what is set here.
  */
 export const data = new SlashCommandBuilder()
   .setName("mydelay")
@@ -101,6 +102,18 @@ function describePref(pref: MemberPref): string {
 }
 
 /**
+ * Names the exception for a preference that loses to the rewrite prompt, so a
+ * member is not left thinking it applies to links that stay in their channel.
+ * @param pref - The preference in force, after clamping.
+ * @returns A trailing sentence, or an empty string when the preference applies
+ * everywhere.
+ */
+function rewriteNote(pref: MemberPref): string {
+  if (quickerThanRewrite(pref)) return "";
+  return ` Links rewritten in place rather than moved still get the usual ${REWRITE_PROMPT_MS / 1000}s prompt.`;
+}
+
+/**
  * Answers `/mydelay show`: what is actually in force, which is not always what
  * the member set - admin bounds are applied on read, so a stored choice can be
  * clamped or ignored after the fact.
@@ -125,7 +138,7 @@ async function replyWithCurrent(
     const clamped = stored?.seconds !== undefined && stored.seconds !== effective.seconds;
     content = `⚙️ In force for you: ${describePref(effective)}.${
       clamped ? ` Your ${stored?.seconds}s was clamped to what this server allows.` : ""
-    }`;
+    }${rewriteNote(effective)}`;
   }
   await respond(interaction, { content, flags: MessageFlags.Ephemeral });
 }
@@ -145,11 +158,11 @@ function confirmation(pref: MemberPref, limits: PersonalLimits): string {
     case "instant":
       return "✅ Your links get moved straight away now, no prompt.";
     case "never":
-      return "✅ Your links stay put, and you won't be prompted about them.";
+      return `✅ Your links stay put, and you won't be prompted about them.${rewriteNote(pref)}`;
     default: {
       const shown = describePref({ mode: pref.mode, seconds });
       const note = wasClamped ? ` (${pref.seconds}s is over this server's limit.)` : "";
-      return `✅ ${shown[0].toUpperCase()}${shown.slice(1)}.${note}`;
+      return `✅ ${shown[0].toUpperCase()}${shown.slice(1)}.${note}${rewriteNote({ mode: pref.mode, seconds })}`;
     }
   }
 }
