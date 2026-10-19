@@ -54,7 +54,7 @@ import {
   VoiceConnectionStatus,
   type VoiceConnection,
 } from "@discordjs/voice";
-import type { Guild, VoiceBasedChannel } from "discord.js";
+import type { Client, Guild, VoiceBasedChannel, VoiceState } from "discord.js";
 
 const log = createLogger("voice/session");
 
@@ -87,6 +87,13 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
+
+/**
+ * Set once {@link closeAllSessions} has run. Shutdown then waits on Discord to
+ * confirm the leaves, and a member moving channels in that window would
+ * otherwise have the reconcile join the bot straight back in.
+ */
+let closedForShutdown = false;
 
 /** A join still waiting for its connection to become ready. */
 interface PendingJoin {
@@ -400,10 +407,12 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
  */
 export async function openSession(channel: VoiceBasedChannel): Promise<boolean> {
   const guildId = channel.guild.id;
+  if (closedForShutdown) return false;
   if (sessions.has(guildId)) return true;
 
   const decoder = await loadOpusDecoder();
-  if (!decoder) return false;
+  // Checked again past the await, since shutdown can land while it loads.
+  if (!decoder || closedForShutdown) return false;
 
   // Nothing arrives while deafened, and a server-deafened bot looks connected
   // and healthy while receiving silence, which is a miserable thing to debug.
@@ -564,11 +573,64 @@ export function activeSessions(): number {
 }
 
 /**
- * Closes every session, used on shutdown.
+ * Closes every session and refuses new ones from then on, used on shutdown.
  * @param reason - Why they are closing, for the log.
+ * @returns The guilds a leave was sent for, to wait on with
+ * {@link waitForVoiceLeave}.
  */
-export function closeAllSessions(reason: string): void {
-  for (const guildId of new Set([...sessions.keys(), ...pending.keys()])) {
-    closeSession(guildId, reason);
-  }
+export function closeAllSessions(reason: string): string[] {
+  closedForShutdown = true;
+  const guildIds = [...new Set([...sessions.keys(), ...pending.keys()])];
+  for (const guildId of guildIds) closeSession(guildId, reason);
+  return guildIds;
+}
+
+/**
+ * Longest shutdown waits for Discord to confirm a voice leave. A confirmation
+ * normally lands within a few hundred ms, and Docker allows 10s after SIGTERM
+ * before it kills the process, so this leaves the rest of that for the gateway
+ * to close cleanly.
+ */
+export const VOICE_LEAVE_TIMEOUT_MS = 3_000;
+
+/**
+ * Waits for Discord to confirm the bot has left voice in each guild given.
+ *
+ * Destroying a connection only queues the leave on the gateway: discord.js
+ * sends a voice state update asynchronously, behind its send queue, so a
+ * process that exits straight after never writes it, and Discord shows the bot
+ * sitting in the channel until the session times out. Confirmation is the bot's
+ * own voice state coming back with no channel.
+ * @param client - The logged-in client.
+ * @param guildIds - Guilds a leave was sent for.
+ * @param timeoutMs - How long to wait before giving up on the rest.
+ * @returns The guilds still showing the bot in voice when it gave up, empty
+ * when every leave was confirmed.
+ */
+export function waitForVoiceLeave(
+  client: Client,
+  guildIds: string[],
+  timeoutMs: number,
+): Promise<string[]> {
+  const stillIn = (guildId: string): boolean =>
+    Boolean(client.guilds.cache.get(guildId)?.members.me?.voice.channelId);
+  const waiting = new Set(guildIds.filter(stillIn));
+  if (waiting.size === 0) return Promise.resolve([]);
+
+  return new Promise((resolve) => {
+    const settle = (): void => {
+      clearTimeout(timer);
+      client.off("voiceStateUpdate", onUpdate);
+      resolve([...waiting]);
+    };
+    const onUpdate = (_old: VoiceState, next: VoiceState): void => {
+      if (next.id !== client.user?.id || stillIn(next.guild.id)) return;
+      waiting.delete(next.guild.id);
+      if (waiting.size === 0) settle();
+    };
+    // Registered before anything can yield, so a confirmation that arrives
+    // straight away is not missed.
+    client.on("voiceStateUpdate", onUpdate);
+    const timer = setTimeout(settle, timeoutMs);
+  });
 }

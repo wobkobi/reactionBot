@@ -618,12 +618,15 @@ export function startVoiceSweep(client: Client, inScope: (guildId: string) => bo
 
 /**
  * Leaves every channel and stops the transcriber.
+ * @returns The guilds a leave was sent for, so shutdown can wait for Discord
+ * to confirm them before the gateway closes.
  */
-export function shutdownVoice(): void {
+export function shutdownVoice(): string[] {
   if (sweepTimer) clearInterval(sweepTimer);
   sweepTimer = null;
   for (const timer of debounces.values()) clearTimeout(timer);
   debounces.clear();
-  closeAllSessions("shutting down");
+  const left = closeAllSessions("shutting down");
   stopStt();
+  return left;
 }

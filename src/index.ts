@@ -1,4 +1,5 @@
 // src/index.ts
+import { closeOpenPrompts, PROMPT_CLOSE_TIMEOUT_MS, sweepStalePrompts } from "@/media/openPrompts";
 import {
   DELETE_BUTTON_ID,
   EDIT_BUTTON_ID,
@@ -17,6 +18,7 @@ import { respond } from "@/utils/respond";
 import { seedAllGuilds, seedGuildData } from "@/utils/seedGuild";
 import { botCommit, botVersion } from "@/utils/version";
 import { onVoiceStateUpdate, shutdownVoice, startVoiceSweep, sweepGuilds } from "@/voice/autojoin";
+import { VOICE_LEAVE_TIMEOUT_MS, waitForVoiceLeave } from "@/voice/session";
 import {
   Client,
   Collection,
@@ -161,6 +163,19 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
     // first run.
     const seeded = seedAllGuilds(client.guilds.cache.keys(), guildInScope);
     if (seeded > 0) boot.info("seeded guild data folders", { guilds: seeded });
+
+    // A clean shutdown closes its prompts; one that died without shutting down
+    // left them posted with buttons nothing answers any more.
+    const inScope = [...client.guilds.cache.keys()].filter(guildInScope);
+    void sweepStalePrompts(client, inScope)
+      .then((swept) => {
+        if (swept > 0) boot.info("took down prompts left by the last run", { count: swept });
+      })
+      .catch((err: unknown) => {
+        log.warn("stale prompt sweep failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   });
 }
 
@@ -301,17 +316,28 @@ process.on("unhandledRejection", (reason) => logSurvived("unhandled rejection", 
 
 // A voice connection outlives the process from Discord's side, so without this
 // a restart (a tsx watch reload especially) leaves a ghost bot sitting in the
-// channel until the gateway times it out. The transcriber's worker also has to
-// be told to stop, or it keeps the event loop alive.
+// channel until the gateway times it out. The leave is only queued on the
+// gateway, so exit waits for Discord to confirm it - see waitForVoiceLeave.
+// The transcriber's worker also has to be told to stop, or it keeps the event
+// loop alive.
 let shuttingDown = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
     boot.info("shutting down", { signal });
-    shutdownVoice();
-    void client.destroy();
-    process.exit(0);
+    void (async () => {
+      // Open prompts close alongside the voice leave rather than after it, so
+      // the two waits share one window instead of adding up.
+      const [stuck, promptsLeft] = await Promise.all([
+        waitForVoiceLeave(client, shutdownVoice(), VOICE_LEAVE_TIMEOUT_MS),
+        closeOpenPrompts(PROMPT_CLOSE_TIMEOUT_MS),
+      ]);
+      if (stuck.length > 0) boot.warn("voice leave not confirmed", { guilds: stuck });
+      if (promptsLeft > 0) boot.warn("prompts not closed", { count: promptsLeft });
+      await client.destroy().catch(() => undefined);
+      process.exit(0);
+    })();
   });
 }
 

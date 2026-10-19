@@ -3,6 +3,7 @@
 // Button prompts with grace handling: requestChoice takes any button set and
 // returns which one was clicked. Only the intended author's clicks count.
 
+import { PROMPT_SHUTDOWN_REASON, trackPrompt, untrackPrompt } from "@/media/openPrompts";
 import { ApprovalOptions, ApprovalPlan, GraceSetting } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { respond } from "@/utils/respond";
@@ -50,11 +51,17 @@ export interface ChoiceOutcome {
    * a countdown must not read as consent - see {@link isApproved}.
    */
   prompted: boolean;
+  /**
+   * Whether shutdown closed the prompt before it was answered or ran out,
+   * which a countdown must not read as consent either - see {@link isApproved}.
+   */
+  interrupted?: boolean;
 }
 
 /**
  * Reads a prompt's outcome against its plan. A countdown moves the link
- * unless it was cancelled, so it needs the prompt to have actually been seen;
+ * unless it was cancelled, so it needs the prompt to have actually been seen
+ * and to have run its full time - a restart cutting it short is not consent;
  * every other plan needs an explicit yes. The "copy" choice never reaches
  * here - the caller hands the link over and returns first.
  * @param plan - The plan the prompt ran under.
@@ -62,6 +69,7 @@ export interface ChoiceOutcome {
  * @returns Whether to go ahead with the move.
  */
 export function isApproved(plan: ApprovalPlan, outcome: ChoiceOutcome): boolean {
+  if (outcome.interrupted) return false;
   return plan.approveOnTimeout
     ? outcome.prompted && outcome.choice !== "no"
     : outcome.choice === "yes";
@@ -171,8 +179,21 @@ export async function requestChoice(
     answered = answerClick(i, opts.privateReplies?.[i.customId]);
   });
 
+  // Recorded until it closes, so shutdown can close it too and a crash leaves
+  // a note for the next start to take it down - see openPrompts.ts.
+  let markClosed = (): void => {};
+  const closed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
+  trackPrompt(
+    channel.guildId,
+    msg.id,
+    { channelId: channel.id, autoDelete },
+    { stop: () => collector.stop(PROMPT_SHUTDOWN_REASON), closed },
+  );
+
   return new Promise((resolve) => {
-    collector.on("end", async () => {
+    collector.on("end", async (_collected: unknown, reason: string) => {
       await answered;
       if (autoDelete) {
         await msg.delete().catch(() => {});
@@ -182,7 +203,13 @@ export async function requestChoice(
         await msg.edit({ components: [] }).catch(() => {});
         log.debug("prompt buttons cleared", { messageId: msg.id });
       }
-      resolve({ choice, prompted: true });
+      untrackPrompt(channel.guildId, msg.id);
+      markClosed();
+      resolve({
+        choice,
+        prompted: true,
+        interrupted: reason === PROMPT_SHUTDOWN_REASON && choice === null,
+      });
     });
   });
 }
