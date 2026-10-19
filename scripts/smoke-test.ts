@@ -102,10 +102,13 @@ import { findVersion, shortCommit } from "@/utils/version";
 import {
   downsampleToMono16k,
   isSilenceFrame,
+  LEVEL_WINDOW_SAMPLES,
+  loudestWindowRms,
   MIN_UTTERANCE_SAMPLES,
   pcmToInt16,
   rms,
   SILENCE_RMS,
+  TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
 import {
@@ -2789,6 +2792,36 @@ function checkVoiceAudio(): void {
     "voice/audio",
     "utteranceVerdict keeps loud speech",
     utteranceVerdict(MIN_UTTERANCE_SAMPLES + 1, 0.2) === "keep",
+  );
+
+  // A quiet 0.2s word inside a 1.5s chunk: averaged over the whole chunk it
+  // sits under the gate, but the window it falls in is well above it.
+  const quietWord = new Float32Array(TARGET_RATE * 1.5);
+  quietWord.fill(0.014, TARGET_RATE * 0.7, TARGET_RATE * 0.9);
+  check(
+    "voice/audio",
+    "a quiet word in a long chunk averages under the gate",
+    rms(quietWord) < SILENCE_RMS,
+  );
+  check(
+    "voice/audio",
+    "loudestWindowRms finds a quiet word in a long chunk",
+    Math.abs(loudestWindowRms(quietWord) - 0.014) < 1e-6 &&
+      utteranceVerdict(quietWord.length, loudestWindowRms(quietWord)) === "keep",
+  );
+  check(
+    "voice/audio",
+    "loudestWindowRms leaves steady near-silence silent",
+    utteranceVerdict(
+      TARGET_RATE * 1.5,
+      loudestWindowRms(new Float32Array(TARGET_RATE * 1.5).fill(SILENCE_RMS / 3)),
+    ) === "silent",
+  );
+  const shortBuffer = new Float32Array(LEVEL_WINDOW_SAMPLES / 2).fill(0.3);
+  check(
+    "voice/audio",
+    "loudestWindowRms of a buffer shorter than a window is its rms",
+    Math.abs(loudestWindowRms(shortBuffer) - rms(shortBuffer)) < 1e-6,
   );
 
   check(

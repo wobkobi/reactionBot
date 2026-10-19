@@ -47,9 +47,9 @@ services:
       # a home-relative cache would otherwise try to write to / and fail.
       HOME: /app/data
       # Pretty output timestamps itself when not attached to a terminal, which
-      # is what the Apps UI log viewer shows. LOG_LEVEL=debug adds the
-      # per-utterance voice decisions; either can be set in the .env instead.
-      LOG_LEVEL: info
+      # is what the Apps UI log viewer shows. Anything set here beats the
+      # env_file, so LOG_LEVEL is left out: it defaults to info, and
+      # LOG_LEVEL=debug in the .env adds the per-utterance voice decisions.
       LOG_FORMAT: pretty
 
     volumes:
