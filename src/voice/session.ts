@@ -11,7 +11,7 @@
 // sentence fires about a chunk after it is said rather than after the sentence.
 
 import { isCalm } from "@/tracking/calm";
-import { createLogger } from "@/utils/log";
+import { createLogger, seconds } from "@/utils/log";
 import { startAmbient, stopAmbient } from "@/voice/ambient";
 import {
   CHUNK_OVERLAP_SAMPLES,
@@ -38,6 +38,7 @@ import {
   playClip,
   POOL_CLIP_COOLDOWN_MS,
   type ClipVerdict,
+  type TriggerSpeaker,
 } from "@/voice/playback";
 import {
   isIgnoredTranscript,
@@ -117,6 +118,13 @@ const pending = new Map<string, PendingJoin>();
 /** Why a pool could not play: every verdict but "play". */
 type Refusal = Exclude<ClipVerdict, "play">;
 
+/** Each refusal as the "trigger not played" line says it; the trigger log keeps the codes. */
+const REFUSAL_TEXT: Record<Refusal, string> = {
+  "pool-cooldown": "pool on cooldown",
+  "guild-floor": "a clip just played",
+  playing: "a clip is still playing",
+};
+
 /** A pool ready to play, or the gap that stopped every candidate. */
 type PoolChoice =
   | { trigger: CompiledTrigger; pool: string }
@@ -184,13 +192,13 @@ function pickFreePool(
 }
 
 /**
- * Plays a clip for a transcript that matched, unless something stops it.
+ * Plays a clip for a transcript that matched, unless something stops it. A
+ * match that is held back says so at info, with what held it and for how
+ * long: a word heard and not answered otherwise looks exactly like a word
+ * not heard at all.
  * @param guildId - Discord guild (server) ID.
- * @param speaker - Who spoke, for the log.
- * @param speaker.userId - Their Discord user ID.
- * @param speaker.userName - The name they go by in the server.
- * @param speaker.confidence - How sure the transcriber was of the matched
- * words, or null when it could not say.
+ * @param speaker - Who spoke and how it went, for the log. `matched` names
+ * every word that fired; the pool that plays narrows it to its own.
  * @param text - What they said, to name the words that fired the pool played.
  * @param matches - Every trigger the transcript fired.
  * @param guildCooldownMs - The guild's configured gap, if it set one.
@@ -198,21 +206,36 @@ function pickFreePool(
  */
 async function playMatch(
   guildId: string,
-  speaker: { userId: string; userName: string; confidence: number | null },
+  speaker: TriggerSpeaker,
   text: string,
   matches: CompiledTrigger[],
   guildCooldownMs: number | undefined,
 ): Promise<MatchResult> {
   // Calm mode silences replies across the bot; a sound bite is a reply that
   // everyone in the call has to hear, so it obeys the same window.
+  const heldBack = (reason: string, pool?: string, readyInMs?: number): void =>
+    log.info(
+      "trigger not played",
+      {
+        guildId,
+        user: speaker.userName,
+        matched: speaker.matched,
+        confidence: speaker.confidence,
+        reason,
+        pool,
+        readyIn: readyInMs ? seconds(readyInMs) : undefined,
+      },
+      { userId: speaker.userId },
+    );
+
   if (isCalm(guildId)) {
-    log.debug("clip suppressed by calm mode", { guildId });
+    heldBack("calm mode");
     return { outcome: "calm", pool: "", clip: "" };
   }
 
   const choice = pickFreePool(guildId, matches, guildCooldownMs);
   if ("verdict" in choice) {
-    log.debug("clip not played", { guildId, userId: speaker.userId, ...choice });
+    heldBack(REFUSAL_TEXT[choice.verdict], choice.name, choice.remainingMs);
     return { outcome: choice.verdict, pool: choice.name, clip: "" };
   }
   const { trigger: match, pool } = choice;
@@ -292,21 +315,11 @@ async function handleUtterance(
   const confidence = matchConfidence(matched, transcript.words);
   const result = await playMatch(
     guildId,
-    { userId, userName, confidence },
+    { userId, userName, matched, confidence, spokeUntil, transcribeMs: transcript.ms },
     text,
     matches,
     compiled.config.guildCooldownMs,
   );
-  if (result.outcome === "played") {
-    // Timed from the last word rather than from the flush, so the number is
-    // the one someone in the call actually waited through.
-    log.debug("clip latency", {
-      guildId,
-      pool: result.pool,
-      durationMs,
-      waitedMs: Date.now() - spokeUntil,
-    });
-  }
   void recordTrigger(guildId, {
     at: heardAt,
     userId,

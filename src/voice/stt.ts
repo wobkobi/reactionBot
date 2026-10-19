@@ -40,6 +40,8 @@ interface PendingJob {
 export interface Transcript {
   text: string;
   words: HeardWord[];
+  /** How long the model itself took, without the wait in the queue. */
+  ms: number;
 }
 
 /**
@@ -203,7 +205,9 @@ function onMessage(message: SttOut): void {
     case "result":
       if (inFlight?.id === message.id) {
         log.debug("transcribed", { id: message.id, ms: message.ms });
-        inFlight.settle(message.text ? { text: message.text, words: message.words } : null);
+        inFlight.settle(
+          message.text ? { text: message.text, words: message.words, ms: message.ms } : null,
+        );
         inFlight = null;
       }
       pump();

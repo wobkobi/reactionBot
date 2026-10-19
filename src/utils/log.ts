@@ -230,6 +230,16 @@ function emit(ns: string, level: LogLevel, msg: string, ctx?: LogFields, detail?
 }
 
 /**
+ * Writes a span of milliseconds as seconds for a log line, so `delay=1.24s`
+ * reads at a glance where `delayMs=1243` has to be worked out.
+ * @param ms - The span in milliseconds.
+ * @returns The span in seconds to two places, with an `s` on the end.
+ */
+export function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
  * Reports the logging settings actually in force, so a run can say how it was
  * configured rather than leaving someone to guess.
  * @returns The resolved threshold and output format.

@@ -98,7 +98,7 @@ import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, WORDS_FILE } from "@/tracking/words";
 import { dataFilePath } from "@/utils/file";
 import { parseJsonc } from "@/utils/jsonc";
-import { createLogger, nameGuilds } from "@/utils/log";
+import { createLogger, nameGuilds, seconds } from "@/utils/log";
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
@@ -2935,6 +2935,12 @@ function checkPrettyLog(): void {
       "log",
       "LOG_TIMESTAMPS=on prints one",
       /^\d{4}-\d\d-\d\dT/.test(line(() => logger.info("stamped"))),
+    );
+
+    check(
+      "log",
+      "a span reads as seconds to two places",
+      seconds(1243) === "1.24s" && seconds(0) === "0.00s",
     );
 
     nameGuilds(() => undefined);
