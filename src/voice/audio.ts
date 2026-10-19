@@ -50,7 +50,8 @@ export const CHUNK_SAMPLES = TARGET_RATE * 1.5;
 export const CHUNK_OVERLAP_SAMPLES = TARGET_RATE * 0.6;
 
 /**
- * Loudness below which an utterance counts as silence. Whisper invents fixed
+ * Loudness below which an utterance counts as silence, compared against its
+ * loudest window (see {@link loudestWindowRms}). Whisper invents fixed
  * phrases ("Thank you.", "you") when handed near-silent audio, so the gate is
  * cheaper and more reliable than filtering the hallucinations afterwards.
  */
@@ -139,9 +140,44 @@ export function rms(samples: Float32Array): number {
 }
 
 /**
+ * Window the silence gate measures loudness over: 100ms at the target rate,
+ * shorter than any spoken word, so one word fills at least one window.
+ */
+export const LEVEL_WINDOW_SAMPLES = TARGET_RATE * 0.1;
+
+/**
+ * Measures the loudest stretch of a buffer rather than its average, so a word
+ * said quietly inside a long chunk is not averaged away by the quiet around
+ * it. Discord's noise suppression leaves the gaps between words near zero, and
+ * over a whole 1.5s chunk that dilution was enough to gate real speech.
+ *
+ * Windows step by half their length, so a word straddling a boundary still
+ * lands whole in one of them.
+ * @param samples - Mono float samples in [-1, 1].
+ * @param windowSamples - Length of each window.
+ * @returns The highest window RMS, or the whole buffer's when it is shorter
+ * than one window.
+ */
+export function loudestWindowRms(
+  samples: Float32Array,
+  windowSamples: number = LEVEL_WINDOW_SAMPLES,
+): number {
+  if (samples.length <= windowSamples) return rms(samples);
+  const hop = Math.max(1, Math.floor(windowSamples / 2));
+  const lastStart = samples.length - windowSamples;
+  let loudest = 0;
+  // The final window is pinned to the end, so a tail the hops fall short of is
+  // still measured.
+  for (let start = 0; ; start = Math.min(start + hop, lastStart)) {
+    loudest = Math.max(loudest, rms(samples.subarray(start, start + windowSamples)));
+    if (start === lastStart) return loudest;
+  }
+}
+
+/**
  * Decides whether a finished utterance is worth the cost of transcribing.
  * @param sampleCount - Samples captured at the target rate.
- * @param level - The buffer's RMS level from {@link rms}.
+ * @param level - The buffer's level from {@link loudestWindowRms}.
  * @returns `"keep"` when it should be transcribed, otherwise why it was dropped.
  */
 export function utteranceVerdict(sampleCount: number, level: number): UtteranceVerdict {

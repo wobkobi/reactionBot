@@ -19,8 +19,8 @@ import {
   concatFloat32,
   downsampleToMono16k,
   isSilenceFrame,
+  loudestWindowRms,
   pcmToInt16,
-  rms,
   TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
@@ -256,11 +256,18 @@ async function handleUtterance(
 ): Promise<void> {
   const guildId = guild.id;
   const durationMs = Math.round((samples.length / TARGET_RATE) * 1000);
-  const verdict = utteranceVerdict(samples.length, rms(samples));
+  const level = loudestWindowRms(samples);
+  const verdict = utteranceVerdict(samples.length, level);
   if (verdict !== "keep") {
-    // Logged with the length: a run of drops just under the floor means the
-    // floor is eating words, and a run well under it means it is doing its job.
-    log.debug("utterance dropped", { guildId, userId, verdict, durationMs });
+    // Logged with the length and level: a run of drops just under either floor
+    // means it is eating words, and a run well under means it is doing its job.
+    log.debug("utterance dropped", {
+      guildId,
+      userId,
+      verdict,
+      durationMs,
+      level: Number(level.toFixed(4)),
+    });
     return;
   }
 
