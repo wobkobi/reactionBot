@@ -342,3 +342,6 @@ pool is not on disk, the day is not counted as spent and they get another go.
 - `<guildId>/bot_replies.json` - links bot replies (slur GIFs, mention
   comebacks) to the message that triggered them, so deleting the trigger
   deletes the reply too (managed by the bot).
+- `<guildId>/open_prompts.json` - button prompts still waiting on an answer, so a
+  prompt left behind by a crash is taken down at the next start (managed by the
+  bot; empty after a clean shutdown).

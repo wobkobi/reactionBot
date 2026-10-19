@@ -38,6 +38,12 @@ import {
   tidyCaption,
 } from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
+import {
+  closeOpenPrompts,
+  OPEN_PROMPTS_FILE,
+  sweepStalePrompts,
+  trackPrompt,
+} from "@/media/openPrompts";
 import { clampPref, clearPref, loadPref, savePref } from "@/media/prefs";
 import {
   blocksRetry,
@@ -122,6 +128,7 @@ import {
 } from "@/voice/autojoin";
 import { entranceFor, localDay, resolveEntranceFile } from "@/voice/entrance";
 import { clipVerdict, POOL_CLIP_COOLDOWN_MS, poolCooldownMs } from "@/voice/playback";
+import { waitForVoiceLeave } from "@/voice/session";
 import {
   AMBIENT_FLOOR_MS,
   AMBIENT_MAX_MS,
@@ -159,6 +166,7 @@ import {
   ApplicationCommandOptionType,
   ApplicationCommandType,
   type ChatInputCommandInteraction,
+  type Client,
   type GuildTextBasedChannel,
   type InteractionReplyOptions,
   type Message,
@@ -941,8 +949,16 @@ async function promptFate(
       return collector;
     },
   };
-  const channel = { id: "c1", send: async () => msg } as unknown as GuildTextBasedChannel;
-  await requestChoice(channel, author as never, [{ id: "no", label: "No", style: 4 }], opts);
+  const channel = {
+    id: "c1",
+    guildId: "__smoketest__",
+    send: async () => msg,
+  } as unknown as GuildTextBasedChannel;
+  try {
+    await requestChoice(channel, author as never, [{ id: "no", label: "No", style: 4 }], opts);
+  } finally {
+    rmSync(path.join(ROOT, "data", "__smoketest__"), { recursive: true, force: true });
+  }
   return fate;
 }
 
@@ -973,6 +989,99 @@ async function checkPromptCleanup(): Promise<void> {
     "a prompt asked to stay keeps its text",
     (await promptFate({ grace: "disabled", autoDelete: false }, "no")) === "stripped",
   );
+}
+
+/**
+ * Verifies a prompt still open at shutdown is closed and tidied away rather
+ * than left in the channel with dead buttons, and that one stranded by a crash
+ * is taken down at the next start.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkPromptShutdown(): Promise<void> {
+  const guild = "__smoketest__";
+  const stored = (): Record<string, unknown> => {
+    const file = path.join(ROOT, "data", guild, OPEN_PROMPTS_FILE);
+    return existsSync(file)
+      ? (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)
+      : {};
+  };
+  try {
+    // A prompt that never ends on its own: only stop() closes it, as only
+    // shutdown would.
+    let fate = "untouched";
+    const author = { id: "u1" };
+    const collector = Object.assign(new EventEmitter(), {
+      stop: (reason: string) => collector.emit("end", new Map(), reason),
+    });
+    const msg = {
+      id: "prompt-live",
+      delete: async () => {
+        fate = "deleted";
+      },
+      edit: async () => {},
+      createMessageComponentCollector: () => collector,
+    };
+    const channel = {
+      id: "c1",
+      guildId: guild,
+      send: async () => msg,
+    } as unknown as GuildTextBasedChannel;
+    const pending = requestChoice(channel, author as never, [{ id: "no", label: "No", style: 4 }], {
+      grace: 30_000,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    check("approval", "an open prompt is recorded on disk", "prompt-live" in stored());
+
+    const left = await closeOpenPrompts(1_000);
+    const outcome = await pending;
+    check(
+      "approval",
+      "shutdown closes an open prompt and tidies it away",
+      left === 0 && fate === "deleted" && outcome.interrupted === true,
+    );
+    check("approval", "a closed prompt is dropped from disk", !("prompt-live" in stored()));
+    check(
+      "approval",
+      "closing with nothing open resolves at once",
+      (await closeOpenPrompts(1_000)) === 0,
+    );
+
+    // Left on disk by a crash: no live handle, just the record.
+    const handled: string[] = [];
+    const message = (id: string): { delete: () => Promise<void>; edit: () => Promise<void> } => ({
+      delete: async () => void handled.push(`${id}:deleted`),
+      edit: async () => void handled.push(`${id}:stripped`),
+    });
+    trackPrompt(guild, "stale-a", { channelId: "c1", autoDelete: true }, null);
+    trackPrompt(guild, "stale-b", { channelId: "c1", autoDelete: false }, null);
+    trackPrompt(guild, "stale-gone", { channelId: "c1", autoDelete: true }, null);
+    const client = {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: {
+            fetch: async (id: string) => {
+              if (id === "stale-gone") throw new Error("Unknown Message");
+              return message(id);
+            },
+          },
+        }),
+      },
+    } as unknown as Client;
+    const swept = await sweepStalePrompts(client, [guild]);
+    check(
+      "approval",
+      "a prompt stranded by a crash is taken down at startup",
+      swept === 2 && handled.includes("stale-a:deleted") && handled.includes("stale-b:stripped"),
+    );
+    check(
+      "approval",
+      "the sweep clears what it handled, gone or not",
+      Object.keys(stored()).length === 0,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+  }
 }
 
 /**
@@ -2184,6 +2293,13 @@ function checkMemberPrefs(): void {
     "countdown stops on cancel",
     isApproved(cd, { choice: "no", prompted: true }) === false,
   );
+  // Shutdown closing the prompt is not the countdown running out: a restart
+  // must not move somebody's link for them.
+  check(
+    "prefs",
+    "countdown cut short by shutdown leaves the link",
+    isApproved(cd, { choice: null, prompted: true, interrupted: true }) === false,
+  );
   const asked = resolvePlanFor(guildDefault, { mode: "ask", seconds: 15 }, false)!;
   check(
     "prefs",
@@ -3248,6 +3364,75 @@ function checkVoiceQueue(): void {
 }
 
 /**
+ * Builds a stand-in client for {@link waitForVoiceLeave}: an emitter with a
+ * guild cache in which the bot sits in a channel in each guild given.
+ * @param guildIds - Guilds the bot starts out in voice in.
+ * @returns The fake client, and a way to have Discord report it left one.
+ */
+function fakeVoiceClient(guildIds: string[]): { client: Client; leave: (guildId: string) => void } {
+  const emitter = new EventEmitter();
+  const me = new Map(
+    guildIds.map((id) => [id, { id: "bot", voice: { channelId: "vc" as string | null } }]),
+  );
+  const cache = new Map(guildIds.map((id) => [id, { members: { me: me.get(id) } }]));
+  const client = Object.assign(emitter, { user: { id: "bot" }, guilds: { cache } });
+  const leave = (guildId: string): void => {
+    const self = me.get(guildId)!;
+    self.voice.channelId = null;
+    emitter.emit("voiceStateUpdate", {}, { id: "bot", guild: { id: guildId } });
+  };
+  return { client: client as unknown as Client, leave };
+}
+
+/**
+ * Shutdown has to wait for Discord to confirm the bot left voice, since the
+ * leave is queued on the gateway and exiting at once drops it unsent.
+ */
+async function checkVoiceLeave(): Promise<void> {
+  check(
+    "voice/leave",
+    "nothing to wait for resolves at once",
+    (await waitForVoiceLeave(fakeVoiceClient([]).client, [], 50)).length === 0,
+  );
+
+  const confirmed = fakeVoiceClient(["g1", "g2"]);
+  const waiting = waitForVoiceLeave(confirmed.client, ["g1", "g2"], 1_000);
+  confirmed.leave("g1");
+  confirmed.leave("g2");
+  const startedAt = Date.now();
+  const stuck = await waiting;
+  check(
+    "voice/leave",
+    "resolves once Discord confirms every leave, before the timeout",
+    stuck.length === 0 && Date.now() - startedAt < 500,
+  );
+
+  const silent = fakeVoiceClient(["g1", "g2"]);
+  const partial = waitForVoiceLeave(silent.client, ["g1", "g2"], 50);
+  silent.leave("g1");
+  const unconfirmed = await partial;
+  check(
+    "voice/leave",
+    "gives up after the timeout, naming the guilds still in voice",
+    unconfirmed.length === 1 && unconfirmed[0] === "g2",
+  );
+
+  const already = fakeVoiceClient(["g1"]);
+  already.leave("g1");
+  check(
+    "voice/leave",
+    "a guild already out of voice is not waited on",
+    (await waitForVoiceLeave(already.client, ["g1"], 1_000)).length === 0,
+  );
+  check(
+    "voice/leave",
+    "listeners are removed once it settles",
+    (already.client as unknown as EventEmitter).listenerCount("voiceStateUpdate") === 0 &&
+      (silent.client as unknown as EventEmitter).listenerCount("voiceStateUpdate") === 0,
+  );
+}
+
+/**
  * Verifies the auto-join guards and the playback arbitration. All the cost
  * control lives in pickChannel, so this is where it gets pinned down.
  */
@@ -3765,6 +3950,7 @@ void (async () => {
     await checkRepostFailureReporting();
     checkEditFreshness();
     await checkPromptCleanup();
+    await checkPromptShutdown();
     checkMediaChannelPermissions();
     checkGuildSeeding();
     checkRepostStore();
@@ -3787,6 +3973,7 @@ void (async () => {
     await checkVoiceTriggerLog();
     checkVoiceQueue();
     checkVoiceJoinRules();
+    await checkVoiceLeave();
 
     printTable();
 
