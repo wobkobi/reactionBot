@@ -22,10 +22,22 @@ export interface SttJob {
 /** Anything the parent sends the worker. */
 export type SttIn = SttInit | SttJob;
 
+/** One word of a transcript, with how sure the model was of it. */
+export interface HeardWord {
+  /** The word as written, punctuation and all. */
+  word: string;
+  /**
+   * The model's probability for the word, from 0 to 1. A word split into
+   * several tokens takes its least likely one, since a mishearing can sit in
+   * any piece of it.
+   */
+  confidence: number;
+}
+
 /** Anything the worker sends back. */
 export type SttOut =
   | { type: "ready"; model: string }
-  | { type: "result"; id: number; text: string; ms: number }
+  | { type: "result"; id: number; text: string; words: HeardWord[]; ms: number }
   | { type: "error"; id: number; message: string }
   | { type: "fatal"; message: string };
 

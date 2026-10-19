@@ -331,8 +331,11 @@ pool is not on disk, the day is not counted as spent and they get another go.
 - `<guildId>/voice_triggers.csv` - one row per transcript that matched a
   trigger: when, who, the whole transcript, the words that fired it, the pool
   and clip, and `played` or what stopped it (`pool-cooldown`, `guild-floor`,
-  `playing`, `calm`, `no-clips`, `missing-file`, `not-played`). Refused
-  matches are kept, since a misfire is fixed in the word list either way.
+  `playing`, `calm`, `no-clips`, `missing-file`, `not-played`), then
+  `confidence`: how sure the transcriber was of the words that fired, 0 to 1.
+  A clear word sits near 1; a name it does not know, heard as the nearest word
+  it does, comes in well under. Refused matches are kept, since a misfire is
+  fixed in the word list either way.
   Only matches are written, never the rest of the call. Safe to delete; the
   next match starts it again with a fresh header.
 - `<guildId>/*_counts.json` - tracker counters, including

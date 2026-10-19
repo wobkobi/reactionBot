@@ -77,7 +77,13 @@ function clipLabel(filePath: string): string {
  * `matched` holds the words as heard, as in the trigger log.
  */
 export type PlayCause =
-  | { cause: "trigger"; userId: string; userName: string; matched: string[] }
+  | {
+      cause: "trigger";
+      userId: string;
+      userName: string;
+      matched: string[];
+      confidence: number | null;
+    }
   | { cause: "entrance"; userId: string }
   | { cause: "ambient" };
 
@@ -277,6 +283,7 @@ export function dropPlayer(guildId: string): void {
  * @param speaker - Who set it off and the words that did it, for the log.
  * @param speaker.userId - Who spoke.
  * @param speaker.userName - The name they go by in the server.
+ * @param speaker.confidence - How sure the transcriber was of the matched words.
  * @param speaker.matched - The words that fired the trigger, as heard.
  * @returns `true` when playback started.
  */
@@ -285,7 +292,7 @@ export async function playClip(
   guildId: string,
   pool: string,
   filePath: string,
-  speaker: { userId: string; userName: string; matched: string[] },
+  speaker: { userId: string; userName: string; matched: string[]; confidence: number | null },
 ): Promise<boolean> {
   const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS, {
     cause: "trigger",

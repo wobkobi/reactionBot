@@ -145,7 +145,13 @@ import {
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
-import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
+import {
+  enqueueBounded,
+  isStale,
+  matchConfidence,
+  resolveWorkerPath,
+  STT_JOB_TTL_MS,
+} from "@/voice/stt";
 import {
   AMBIENT_LUFS,
   cachedOggPath,
@@ -3391,13 +3397,19 @@ async function checkVoiceTriggerLog(): Promise<void> {
     pool: "burp",
     clip: "burp/burp.mp4",
     outcome: "played",
+    confidence: 0.8765,
   };
   check(
     "voice/triggerLog",
     "a row follows the header's column order",
-    TRIGGER_LOG_HEADER === "time,user_id,user_name,heard,matched,pool,clip,outcome" &&
+    TRIGGER_LOG_HEADER === "time,user_id,user_name,heard,matched,pool,clip,outcome,confidence" &&
       csvRow(record) ===
-        '2026-09-18T09:30:00.000Z,331744864385630240,"Chad, obviously",Chad burped.,chad; burped,burp,burp/burp.mp4,played\n',
+        '2026-09-18T09:30:00.000Z,331744864385630240,"Chad, obviously",Chad burped.,chad; burped,burp,burp/burp.mp4,played,0.88\n',
+  );
+  check(
+    "voice/triggerLog",
+    "a match with no confidence leaves the field empty",
+    csvRow({ ...record, confidence: null }).endsWith(",played,\n"),
   );
 
   const guild = "__smoketest_triggerlog__";
@@ -3414,12 +3426,61 @@ async function checkVoiceTriggerLog(): Promise<void> {
       "two rows written at once share one header, BOM first for Excel",
       lines[0] === `\uFEFF${TRIGGER_LOG_HEADER}` &&
         lines.filter((l) => l.includes(TRIGGER_LOG_HEADER)).length === 1 &&
-        lines[1]?.endsWith(",played") === true &&
-        lines[2]?.endsWith(",pool-cooldown") === true,
+        lines[1]?.endsWith(",played,0.88") === true &&
+        lines[2]?.endsWith(",pool-cooldown,0.88") === true,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+
+  // A log written before the confidence column: its header is brought up to
+  // date in place and its rows are kept.
+  const older = "__smoketest_triggerlog_old__";
+  const olderDir = path.join(ROOT, "data", older);
+  rmSync(olderDir, { recursive: true, force: true });
+  try {
+    mkdirSync(olderDir, { recursive: true });
+    const oldRow = "2026-09-01T00:00:00.000Z,1,Blake,China.,china,asian,asian/sting.wav,played";
+    writeFileSync(
+      path.join(olderDir, TRIGGER_LOG_FILE),
+      "\uFEFFtime,user_id,user_name,heard,matched,pool,clip,outcome\n" + oldRow + "\n",
+    );
+    await recordTrigger(older, record);
+    const lines = readFileSync(path.join(olderDir, TRIGGER_LOG_FILE), "utf-8").split("\n");
+    check(
+      "voice/triggerLog",
+      "an older log gets the new header, its rows kept and the new one appended",
+      lines[0] === `\uFEFF${TRIGGER_LOG_HEADER}` &&
+        lines[1] === oldRow &&
+        lines[2]?.endsWith(",played,0.88") === true,
+    );
+  } finally {
+    rmSync(olderDir, { recursive: true, force: true });
+  }
+
+  const heard = [
+    { word: "China,", confidence: 0.41 },
+    { word: "much", confidence: 0.9 },
+    { word: "China.", confidence: 0.83 },
+    { word: "shut", confidence: 0.7 },
+    { word: "up", confidence: 0.95 },
+  ];
+  check(
+    "voice/triggerLog",
+    "a word heard twice counts at its surest, punctuation ignored",
+    matchConfidence(["china"], heard) === 0.83,
+  );
+  check(
+    "voice/triggerLog",
+    "a phrase or several words take the least sure part",
+    matchConfidence(["shut up"], heard) === 0.7 &&
+      matchConfidence(["china", "shut up"], heard) === 0.7,
+  );
+  check(
+    "voice/triggerLog",
+    "a match none of whose words were heard has no confidence",
+    matchConfidence(["chad"], heard) === null && matchConfidence(["china"], []) === null,
+  );
 }
 
 /**

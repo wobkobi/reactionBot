@@ -50,7 +50,7 @@ import {
   resolveClips,
   type CompiledTrigger,
 } from "@/voice/sounds";
-import { startStt, transcribe } from "@/voice/stt";
+import { matchConfidence, startStt, transcribe } from "@/voice/stt";
 import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
 import {
   EndBehaviorType,
@@ -189,6 +189,8 @@ function pickFreePool(
  * @param speaker - Who spoke, for the log.
  * @param speaker.userId - Their Discord user ID.
  * @param speaker.userName - The name they go by in the server.
+ * @param speaker.confidence - How sure the transcriber was of the matched
+ * words, or null when it could not say.
  * @param text - What they said, to name the words that fired the pool played.
  * @param matches - Every trigger the transcript fired.
  * @param guildCooldownMs - The guild's configured gap, if it set one.
@@ -196,7 +198,7 @@ function pickFreePool(
  */
 async function playMatch(
   guildId: string,
-  speaker: { userId: string; userName: string },
+  speaker: { userId: string; userName: string; confidence: number | null },
   text: string,
   matches: CompiledTrigger[],
   guildCooldownMs: number | undefined,
@@ -269,8 +271,9 @@ async function handleUtterance(
     return;
   }
 
-  const text = await transcribe(samples);
-  if (!text) return;
+  const transcript = await transcribe(samples);
+  if (!transcript) return;
+  const { text } = transcript;
 
   const compiled = loadSounds(guildId);
   if (compiled.config.logTranscripts) log.debug("heard", { guildId, userId, text });
@@ -285,9 +288,11 @@ async function handleUtterance(
 
   const heardAt = new Date();
   const userName = displayName(guild, userId);
+  const matched = [...new Set(matches.flatMap((match) => matchedWords(text, match)))];
+  const confidence = matchConfidence(matched, transcript.words);
   const result = await playMatch(
     guildId,
-    { userId, userName },
+    { userId, userName, confidence },
     text,
     matches,
     compiled.config.guildCooldownMs,
@@ -307,7 +312,8 @@ async function handleUtterance(
     userId,
     userName,
     heard: text,
-    matched: [...new Set(matches.flatMap((match) => matchedWords(text, match)))],
+    matched,
+    confidence,
     ...result,
   });
 }
