@@ -150,7 +150,11 @@ export async function replyWithGalleries(
     });
   if (!sent) return false;
 
-  log.info("gallery links sent", { guildId: message.guildId, authorId: message.author.id, ids });
+  log.info(
+    "gallery links sent",
+    { guildId: message.guildId, author: message.author.username, ids },
+    { authorId: message.author.id },
+  );
   // Deleting the message takes the links down with it
   recordReply(message.guildId, message.id, { channelId: sent.channelId, messageId: sent.id });
   // A ready skull makes the vote one click; bots never count, so this one is free

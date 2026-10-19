@@ -202,21 +202,26 @@ export function startStt(): void {
 
   try {
     status = "starting";
-    worker = new Worker(pathToFileURL(workerPath), {
+    const started = new Worker(pathToFileURL(workerPath), {
       // Clearing the inherited argv and re-adding tsx only for the .ts form
       // keeps this working under tsx, under Node's own stripping, and compiled.
       execArgv: path.extname(workerPath) === ".ts" ? ["--import", "tsx"] : [],
     });
-    worker.on("message", onMessage);
-    worker.on("error", (err: unknown) =>
-      handleWorkerGone(err instanceof Error ? err.message : String(err)),
-    );
-    worker.on("exit", (code) => {
-      if (status !== "unavailable") handleWorkerGone(`worker exited with code ${code}`);
+    worker = started;
+    started.on("message", onMessage);
+    // A worker that stopStt let go has not failed: its exit is the terminate
+    // landing, and reading it as a crash would schedule a restart.
+    started.on("error", (err: unknown) => {
+      if (worker === started) handleWorkerGone(err instanceof Error ? err.message : String(err));
     });
-    worker.unref();
-    worker.postMessage({ type: "init", model, cacheDir });
-    log.info("transcriber starting", { model, cacheDir });
+    started.on("exit", (code) => {
+      if (worker === started && status !== "unavailable") {
+        handleWorkerGone(`worker exited with code ${code}`);
+      }
+    });
+    started.unref();
+    started.postMessage({ type: "init", model, cacheDir });
+    log.info("transcriber starting", { model }, { cacheDir });
   } catch (err) {
     handleWorkerGone(err instanceof Error ? err.message : String(err));
   }

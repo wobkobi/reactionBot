@@ -380,7 +380,11 @@ export async function ensurePlayable(
     return null;
   }
 
-  log.info("converting clip to ogg opus", { sourcePath, targetLufs: target });
+  log.info(
+    "converting clip to ogg opus",
+    { clip: path.basename(sourcePath) },
+    { sourcePath, targetLufs: target },
+  );
   if (!(await convert(sourcePath, cached, target))) {
     log.warn("clip conversion failed", { sourcePath });
     return null;

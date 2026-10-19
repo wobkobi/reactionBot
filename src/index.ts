@@ -12,7 +12,7 @@ import { onMessageDelete } from "@/onMessageDelete";
 import { handleSkullVote } from "@/tracking/nhentai";
 import type { CommandModule } from "@/types/discord";
 import { checkDataRoot } from "@/utils/file";
-import { createLogger, logSettings } from "@/utils/log";
+import { createLogger, logSettings, nameGuilds } from "@/utils/log";
 import { gateAutocomplete, gateCommand } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
 import { seedAllGuilds, seedGuildData } from "@/utils/seedGuild";
@@ -84,6 +84,10 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
 
+// Log lines name servers rather than print their snowflakes; the cache fills at
+// login, before any guild has done anything worth logging.
+nameGuilds((guildId) => client.guilds.cache.get(guildId)?.name);
+
 const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -120,7 +124,7 @@ type JSONCommand = RESTPostAPIApplicationCommandsJSONBody;
   }
 
   const names = [...client.commands.keys()];
-  boot.info("commands loaded", { count: names.length, names });
+  boot.info("commands loaded", { count: names.length }, { names });
 
   client.once("clientReady", async () => {
     boot.info("logged in", {
@@ -348,18 +352,18 @@ if (DEV_GUILD_ID) boot.warn("dev guard active, only serving one guild", { guild:
 {
   const settings = logSettings();
   const dataRoot = checkDataRoot();
-  boot.info("environment", {
-    // First thing worth reading after a deploy: a restart that quietly kept
-    // the previous image logs exactly like one that took the new one.
-    version: botVersion(),
-    commit: botCommit(),
-    node: process.version,
-    pid: process.pid,
-    logLevel: settings.level,
-    logFormat: settings.format,
-    dataDir: dataRoot.path,
-    voiceModel: process.env.VOICE_MODEL || "default",
-  });
+  boot.info(
+    "environment",
+    {
+      // First thing worth reading after a deploy: a restart that quietly kept
+      // the previous image logs exactly like one that took the new one.
+      version: botVersion(),
+      commit: botCommit(),
+      logLevel: settings.level,
+      voiceModel: process.env.VOICE_MODEL || "default",
+    },
+    { node: process.version, pid: process.pid, logFormat: settings.format, dataDir: dataRoot.path },
+  );
   // Worth its own line at error level: the bot comes up and answers commands
   // either way, and only reveals this when the first save fails much later.
   if (!dataRoot.writable) {

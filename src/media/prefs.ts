@@ -54,7 +54,7 @@ export function savePref(guildId: string, userId: string, pref: MemberPref): voi
   const map = loadMap(guildId);
   map[userId] = pref;
   saveData(guildId, PREFS_FILE, map);
-  log.info("saved member preference", { guildId, userId, mode: pref.mode, seconds: pref.seconds });
+  log.debug("saved member preference", { guildId, userId, mode: pref.mode, seconds: pref.seconds });
 }
 
 /**
@@ -67,7 +67,7 @@ export function clearPref(guildId: string, userId: string): void {
   if (!(userId in map)) return;
   delete map[userId];
   saveData(guildId, PREFS_FILE, map);
-  log.info("cleared member preference", { guildId, userId });
+  log.debug("cleared member preference", { guildId, userId });
 }
 
 /**

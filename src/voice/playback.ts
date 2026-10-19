@@ -26,6 +26,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import fs from "node:fs";
+import path from "node:path";
 
 const log = createLogger("voice/playback");
 
@@ -58,6 +59,16 @@ const STREAM_TYPES: Record<OpusContainer, StreamType> = {
   "ogg/opus": StreamType.OggOpus,
   "webm/opus": StreamType.WebmOpus,
 };
+
+/**
+ * Names a clip by its folder and file, as the trigger log does, rather than by
+ * a full path that is the same `/app/data/sounds` on every line.
+ * @param filePath - Absolute path of the clip.
+ * @returns The clip's folder and file name.
+ */
+function clipLabel(filePath: string): string {
+  return `${path.basename(path.dirname(filePath))}/${path.basename(filePath)}`;
+}
 
 /**
  * What set a clip off, spread into the "playing clip" log line. Without it a
@@ -230,13 +241,12 @@ async function startPlayback(
         inputType: STREAM_TYPES[playable.container],
       }),
     );
-    log.info("playing clip", {
-      guildId,
-      ...cause,
-      clip: filePath,
-      container: playable.container,
-      durationMs: playable.durationMs,
-    });
+    const { userId, userName, ...shown } = { userId: undefined, userName: undefined, ...cause };
+    log.info(
+      "playing clip",
+      { guildId, ...shown, user: userName, clip: clipLabel(filePath) },
+      { userId, path: filePath, container: playable.container, durationMs: playable.durationMs },
+    );
     return playable;
   } catch (err) {
     log.warn("failed to start playback", {

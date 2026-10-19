@@ -196,7 +196,7 @@ async function deleteRepost(
     await stub?.delete().catch(() => {});
   }
 
-  log.info("author deleted repost", { guildId, movedId: movedMessageId });
+  log.info("author deleted repost", { guildId }, { movedId: movedMessageId });
 }
 
 /**
@@ -344,8 +344,9 @@ export async function handleRepostEditModal(interaction: ModalSubmitInteraction)
     return;
   }
   await notify(interaction, "✅ Updated.");
-  log.info("author edited repost", {
-    guildId: interaction.guildId,
-    movedId: owned.movedMessageId,
-  });
+  log.info(
+    "author edited repost",
+    { guildId: interaction.guildId, by: interaction.user.username },
+    { movedId: owned.movedMessageId },
+  );
 }

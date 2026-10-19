@@ -79,7 +79,7 @@ export function getAutoCalm(guildId: string): { ms: number; messages: number } {
  */
 export function setAutoCalm(guildId: string, ms: number, messages: number): void {
   writeState(guildId, { autoMs: ms, autoMessages: messages });
-  log.info("auto-calm settings saved", { guildId, ms, messages });
+  log.debug("auto-calm settings saved", { guildId, ms, messages });
 }
 
 /**
@@ -93,7 +93,11 @@ export function setAutoCalm(guildId: string, ms: number, messages: number): void
 export function startCalm(guildId: string, durationMs: number, messageCap?: number): number {
   const until = Date.now() + durationMs;
   writeState(guildId, { until, messagesLeft: messageCap });
-  log.info("calm mode started", { guildId, durationMs, messageCap, until });
+  log.info(
+    "calm mode started",
+    { guildId, minutes: Math.round(durationMs / 60_000), messageCap },
+    { until: new Date(until).toISOString() },
+  );
   return until;
 }
 
@@ -103,7 +107,7 @@ export function startCalm(guildId: string, durationMs: number, messageCap?: numb
  */
 export function stopCalm(guildId: string): void {
   writeState(guildId, { until: 0, messagesLeft: undefined });
-  log.info("calm mode stopped", { guildId });
+  log.debug("calm mode stopped", { guildId });
 }
 
 /**

@@ -29,7 +29,11 @@ export async function onMessageDelete(message: Message | PartialMessage): Promis
     const channel = await message.client.channels.fetch(ref.channelId).catch(() => null);
     if (channel?.isTextBased()) {
       await channel.messages.delete(ref.messageId).catch(() => {});
-      log.info("deleted linked reply", { guildId, triggerId: message.id, replyId: ref.messageId });
+      log.info(
+        "deleted linked reply",
+        { guildId },
+        { triggerId: message.id, replyId: ref.messageId },
+      );
     }
   }
 
@@ -52,6 +56,6 @@ export async function onMessageDelete(message: Message | PartialMessage): Promis
       stubMessageId: record.stubMessageId,
       deletedAt: new Date().toISOString(),
     });
-    log.info("cleaned up externally deleted repost", { guildId, movedId: message.id });
+    log.info("cleaned up externally deleted repost", { guildId }, { movedId: message.id });
   }
 }

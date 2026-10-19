@@ -145,7 +145,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     settings.grace = resolveGrace(mode, seconds);
     saveSettings(guildId, settings);
 
-    log.info("grace updated", { guildId, by: userId, mode, seconds });
+    log.info(
+      "grace updated",
+      { guildId, by: interaction.user.username, mode, seconds },
+      { byId: userId },
+    );
 
     const confirmations: Record<"instant" | "seconds" | "disabled", string> = {
       instant: "✅ Links get moved straight away now, no prompt.",
@@ -188,7 +192,11 @@ async function setPersonal(
     settings.personal = next;
     saveSettings(guildId, settings);
 
-    log.info("personal limits updated", { guildId, by: interaction.user.id, ...next });
+    log.info(
+      "personal limits updated",
+      { guildId, by: interaction.user.username, ...next },
+      { byId: interaction.user.id },
+    );
 
     await respond(interaction, {
       content: next.enabled

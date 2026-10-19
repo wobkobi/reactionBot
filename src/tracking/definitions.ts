@@ -215,7 +215,11 @@ export async function offerDefinition(message: Message<true>): Promise<boolean> 
 
   try {
     const mention = `<@${authorId}>`;
-    log.info("definition prompt sent", { guildId, authorId, words: entry.words });
+    log.info(
+      "definition prompt sent",
+      { guildId, author: message.author.username, words: entry.words },
+      { authorId },
+    );
     const outcome = await requestChoice(
       message.channel,
       message.author,
@@ -237,7 +241,11 @@ export async function offerDefinition(message: Message<true>): Promise<boolean> 
     const option = entry.options.find((o) => o.id === outcome.choice);
     if (!option) return false;
 
-    log.info("definition chosen", { guildId, authorId, choice: option.id });
+    log.info(
+      "definition chosen",
+      { guildId, author: message.author.username, choice: option.id },
+      { authorId },
+    );
     const sent = await message
       .reply({
         content: option.reply.replaceAll("{user}", mention),

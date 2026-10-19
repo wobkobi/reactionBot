@@ -497,7 +497,7 @@ export function kickFromChannel(
 
   if (!admin) noteCommand(guildId, now);
   if (verdict === "lost") {
-    log.info("kick lost the toss", { guildId, channelId });
+    log.info("kick lost the toss", { guildId }, { channelId });
     return { verdict, channelId, remainingMs: 0 };
   }
 

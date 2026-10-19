@@ -3,7 +3,12 @@
 // A level picks the stream and, against LOG_LEVEL, whether the line is written
 // at all. The default is info: debug carries a line per transcription and per
 // dropped clip, which buries everything else in a busy call, so it is switched
-// on while chasing a misfire rather than left running.
+// on while chasing a misfire rather than left running. Each record also splits
+// its fields in two: the context someone reading the feed wants, and detail
+// (snowflake IDs, full paths, codec facts) that only prints under debug.
+
+/** Fields attached to a record, written as key=value pairs. */
+export type LogFields = Record<string, unknown>;
 
 /** Supported log levels. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
@@ -37,6 +42,14 @@ function minLevel(): LogLevel {
  */
 function format(): "pretty" | "json" {
   return process.env.LOG_FORMAT?.toLowerCase() === "json" ? "json" : "pretty";
+}
+
+/**
+ * Whether a record's detail fields print, which only debug asks for.
+ * @returns `true` when LOG_LEVEL is debug.
+ */
+function showDetail(): boolean {
+  return minLevel() === "debug";
 }
 
 /**
@@ -77,59 +90,122 @@ function fmtTS(): string {
   return new Date().toISOString();
 }
 
+/** A value that can go on the line bare: no whitespace, quote or `=` to misread. */
+const BARE = /^[^\s"=]+$/;
+
 /**
- * Serialises a context object into key=value pairs.
- * @param ctx - Additional data to include with the log.
- * @returns Space-delimited key=value string or an empty string when no context is provided.
+ * Writes one field value. Strings and lists of plain values go bare when that
+ * reads unambiguously, so `matched=charlie` rather than `matched=["charlie"]`;
+ * anything with a space is quoted so `user="vin diesel"` keeps its edges.
+ * @param v - The value.
+ * @returns The value as it appears after `key=`.
  */
-function flat(ctx?: Record<string, unknown>): string {
-  if (!ctx) return "";
-  return Object.entries(ctx)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(" ");
+function fmtValue(v: unknown): string {
+  if (typeof v === "string") return BARE.test(v) ? v : JSON.stringify(v);
+  if (
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((x) => ["string", "number", "boolean"].includes(typeof x))
+  ) {
+    const joined = v.join(",");
+    if (BARE.test(joined)) return joined;
+  }
+  return JSON.stringify(v) ?? String(v);
+}
+
+// Looks up a guild's name for the pretty format; nothing until the client is up.
+let guildName: (guildId: string) => string | undefined = () => undefined;
+
+/**
+ * Lets the pretty format print servers by name. A `guildId` field then reads
+ * `guild="Name"`, with the raw ID kept only under debug; an ID the lookup
+ * cannot resolve is printed as it is.
+ * @param lookup - Resolves a guild ID to its name.
+ */
+export function nameGuilds(lookup: (guildId: string) => string | undefined): void {
+  guildName = lookup;
 }
 
 /**
- * Whether a pretty line should carry its own timestamp. A terminal is someone
- * watching live, where the time is noise. Anything else is a log someone reads
- * later, and `docker logs` only shows the times it recorded when asked with
- * --timestamps, so a container without this has no clock at all.
+ * Serialises fields into key=value pairs for the pretty format.
+ * @param fields - The record's fields, context then detail.
+ * @param debug - Whether detail is showing, which keeps raw guild IDs too.
+ * @returns Space-delimited key=value pairs, empty when there are none.
+ */
+function flat(fields: LogFields, debug: boolean): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined) continue;
+    const name = k === "guildId" && typeof v === "string" ? guildName(v) : undefined;
+    if (name !== undefined) {
+      parts.push(`guild=${fmtValue(name)}`);
+      if (!debug) continue;
+    }
+    parts.push(`${k}=${fmtValue(v)}`);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * Whether a pretty line should carry its own timestamp. LOG_TIMESTAMPS=off is
+ * for a host that stamps each line itself, as the TrueNAS log viewer does.
+ * Unset, a terminal goes without (someone watching live, where the time is
+ * noise) and anything else gets one, since `docker logs` only shows the times
+ * it recorded when asked with --timestamps.
  * @returns `true` when the timestamp should be printed.
  */
 function wantsTimestamp(): boolean {
+  const setting = process.env.LOG_TIMESTAMPS?.toLowerCase();
+  if (setting === "off") return false;
+  if (setting === "on") return true;
   return !process.stdout.isTTY;
 }
+
+/** Namespace column width, so messages start in line for most subsystems. */
+const NS_WIDTH = 15;
 
 /**
  * Builds a compact, human-readable log line: `level ns msg key=value`.
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
  * @param msg - Message describing the event.
- * @param [ctx] - Optional structured context to append.
+ * @param [ctx] - Fields always written.
+ * @param [detail] - Fields written only under debug.
  * @returns The formatted line.
  */
 function prettyLine(
   ns: string,
   level: LogLevel,
   msg: string,
-  ctx?: Record<string, unknown>,
+  ctx?: LogFields,
+  detail?: LogFields,
 ): string {
+  const debug = showDetail();
+  const fields = flat({ ...ctx, ...(debug ? detail : undefined) }, debug);
   const stamp = wantsTimestamp() ? colour(DIM, fmtTS()) + " " : "";
   const lvl = colour(LEVEL_COLOUR[level], level.toUpperCase().padEnd(5));
-  const tail = ctx ? " " + colour(DIM, flat(ctx)) : "";
-  return `${stamp}${lvl} ${colour(DIM, ns)} ${msg}${tail}`;
+  const tail = fields ? " " + colour(DIM, fields) : "";
+  return `${stamp}${lvl} ${colour(DIM, ns.padEnd(NS_WIDTH))} ${msg}${tail}`;
 }
 
 /**
- * Builds a log line as a single JSON object.
+ * Builds a log line as a single JSON object. Detail is always included: JSON
+ * is for something querying the logs, which has no use for a shorter line.
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
  * @param msg - Message describing the event.
- * @param [ctx] - Optional structured context merged into the JSON payload.
+ * @param [ctx] - Fields merged into the JSON payload.
+ * @param [detail] - Further fields merged in after them.
  * @returns The serialised record.
  */
-function jsonLine(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): string {
-  return JSON.stringify({ ts: fmtTS(), ns, level, msg, ...(ctx ?? {}) });
+function jsonLine(
+  ns: string,
+  level: LogLevel,
+  msg: string,
+  ctx?: LogFields,
+  detail?: LogFields,
+): string {
+  return JSON.stringify({ ts: fmtTS(), ns, level, msg, ...ctx, ...detail });
 }
 
 /**
@@ -137,12 +213,15 @@ function jsonLine(ns: string, level: LogLevel, msg: string, ctx?: Record<string,
  * @param ns - Namespace identifying the subsystem (e.g., "media/repost").
  * @param level - Severity level for the record.
  * @param msg - Message describing the event.
- * @param [ctx] - Optional structured context to include.
+ * @param [ctx] - Fields always written.
+ * @param [detail] - Fields written only under debug, or always as JSON.
  */
-function emit(ns: string, level: LogLevel, msg: string, ctx?: Record<string, unknown>): void {
+function emit(ns: string, level: LogLevel, msg: string, ctx?: LogFields, detail?: LogFields): void {
   if (LEVELS[level] < LEVELS[minLevel()]) return;
   const line =
-    format() === "json" ? jsonLine(ns, level, msg, ctx) : prettyLine(ns, level, msg, ctx);
+    format() === "json"
+      ? jsonLine(ns, level, msg, ctx, detail)
+      : prettyLine(ns, level, msg, ctx, detail);
   // Problems go to stderr so a collector can tell them apart from ordinary
   // output. Docker tags the two streams separately, and a run that only needs
   // watching for trouble can then read stderr alone.
@@ -159,11 +238,14 @@ export function logSettings(): { level: LogLevel; format: "pretty" | "json" } {
   return { level: minLevel(), format: format() };
 }
 
+/** Writes one record: a message, its context, and detail only debug shows. */
+type LogMethod = (msg: string, ctx?: LogFields, detail?: LogFields) => void;
+
 export interface Logger {
-  error: (msg: string, ctx?: Record<string, unknown>) => void;
-  warn: (msg: string, ctx?: Record<string, unknown>) => void;
-  info: (msg: string, ctx?: Record<string, unknown>) => void;
-  debug: (msg: string, ctx?: Record<string, unknown>) => void;
+  error: LogMethod;
+  warn: LogMethod;
+  info: LogMethod;
+  debug: LogMethod;
 }
 
 /**
@@ -173,9 +255,9 @@ export interface Logger {
  */
 export function createLogger(ns: string): Logger {
   return {
-    error: (msg, ctx) => emit(ns, "error", msg, ctx),
-    warn: (msg, ctx) => emit(ns, "warn", msg, ctx),
-    info: (msg, ctx) => emit(ns, "info", msg, ctx),
-    debug: (msg, ctx) => emit(ns, "debug", msg, ctx),
+    error: (msg, ctx, detail) => emit(ns, "error", msg, ctx, detail),
+    warn: (msg, ctx, detail) => emit(ns, "warn", msg, ctx, detail),
+    info: (msg, ctx, detail) => emit(ns, "info", msg, ctx, detail),
+    debug: (msg, ctx, detail) => emit(ns, "debug", msg, ctx, detail),
   };
 }

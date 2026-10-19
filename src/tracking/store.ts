@@ -214,7 +214,7 @@ export function resetUser(guildId: string, storeFile: string, userId: string): C
 
   delete store.users[userId];
   saveStore(guildId, storeFile, store);
-  log.info("reset user", { storeFile, guildId, userId });
+  log.debug("reset user", { storeFile, guildId, userId });
   return store;
 }
 
@@ -227,6 +227,6 @@ export function resetUser(guildId: string, storeFile: string, userId: string): C
 export function resetGuild(guildId: string, storeFile: string): CountStore {
   const empty = createEmptyStore();
   saveStore(guildId, storeFile, empty);
-  log.info("reset guild", { storeFile, guildId });
+  log.debug("reset guild", { storeFile, guildId });
   return empty;
 }

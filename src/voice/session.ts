@@ -24,7 +24,12 @@ import {
   TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
-import { announceEntrance, flushPendingEntrance, forgetPendingEntrance } from "@/voice/entrance";
+import {
+  announceEntrance,
+  displayName,
+  flushPendingEntrance,
+  forgetPendingEntrance,
+} from "@/voice/entrance";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
 import {
   clipStatus,
@@ -132,20 +137,6 @@ interface MatchResult {
  */
 function poolName(trigger: CompiledTrigger): string {
   return trigger.trigger.pool ?? "(inline)";
-}
-
-/**
- * Looks up the name someone goes by in a server, for the trigger log.
- * @param guild - The server they spoke in.
- * @param userId - Who spoke.
- * @returns Their display name, or empty when neither cache has them.
- */
-function displayName(guild: Guild, userId: string): string {
-  return (
-    guild.members.cache.get(userId)?.displayName ??
-    guild.client.users.cache.get(userId)?.username ??
-    ""
-  );
 }
 
 /**
@@ -446,7 +437,11 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
       log.warn("voice connection never became ready", { guildId, channelId: channel.id });
       connection.destroy();
     } else {
-      log.info("join cancelled before ready", { guildId, channelId: channel.id });
+      log.info(
+        "join cancelled before ready",
+        { guildId, channel: channel.name },
+        { channelId: channel.id },
+      );
     }
     return false;
   } finally {
@@ -497,7 +492,7 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
     captureSpeaker(session, guildId, userId);
   });
 
-  log.info("listening", { guildId, channelId: channel.id });
+  log.info("listening", { guildId, channel: channel.name }, { channelId: channel.id });
   return true;
 }
 
@@ -520,7 +515,7 @@ export function closeSession(guildId: string, reason: string): void {
     } catch {
       // Already destroyed; nothing to undo.
     }
-    log.info("join cancelled", { guildId, channelId: joining.channelId, reason });
+    log.info("join cancelled", { guildId, reason }, { channelId: joining.channelId });
   }
   const session = sessions.get(guildId);
   if (!session) return;
