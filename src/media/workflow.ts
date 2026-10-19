@@ -155,11 +155,11 @@ export async function handleMediaMessage(message: Message): Promise<void> {
       },
     );
     if (outcome.choice === "copy") {
-      log.info("poster copied link", {
-        guildId: message.guildId!,
-        from: source.id,
-        which: match.which,
-      });
+      log.info(
+        "poster copied link",
+        { guildId: message.guildId!, which: match.which },
+        { from: source.id },
+      );
       return;
     }
     approved = isApproved(plan, outcome);
@@ -205,13 +205,16 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     return;
   }
 
-  log.info("repost complete", {
-    guildId: message.guildId!,
-    from: source.id,
-    to: target.id,
-    movedId: outcome.moved.id,
-    stubId: outcome.stub?.id ?? null,
-  });
+  log.info(
+    "repost complete",
+    { guildId: message.guildId!, by: message.author.username, from: source.name, to: target.name },
+    {
+      fromId: source.id,
+      toId: target.id,
+      movedId: outcome.moved.id,
+      stubId: outcome.stub?.id ?? null,
+    },
+  );
 
   // Author-only Edit/Delete buttons with audit + stub cleanup (persisted, so
   // they keep working after restarts)

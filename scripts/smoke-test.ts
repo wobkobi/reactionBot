@@ -98,7 +98,7 @@ import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, WORDS_FILE } from "@/tracking/words";
 import { dataFilePath } from "@/utils/file";
 import { parseJsonc } from "@/utils/jsonc";
-import { createLogger } from "@/utils/log";
+import { createLogger, nameGuilds, seconds } from "@/utils/log";
 import { ADMIN_COMMANDS, ADMIN_SUBCOMMANDS, isAdmin, needsAdmin } from "@/utils/permissions";
 import { recordReply, takeReplies } from "@/utils/replyStore";
 import { respond } from "@/utils/respond";
@@ -145,7 +145,13 @@ import {
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
-import { enqueueBounded, isStale, resolveWorkerPath, STT_JOB_TTL_MS } from "@/voice/stt";
+import {
+  enqueueBounded,
+  isStale,
+  matchConfidence,
+  resolveWorkerPath,
+  STT_JOB_TTL_MS,
+} from "@/voice/stt";
 import {
   AMBIENT_LUFS,
   cachedOggPath,
@@ -2839,6 +2845,17 @@ function checkEnvTiming(): void {
       "an unknown LOG_LEVEL falls back to info",
       nonsense.length === 1 && nonsense[0]?.msg === "shown",
     );
+
+    delete process.env.LOG_LEVEL;
+    const withDetail = capture(() => logger.info("detailed", { a: 1 }, { b: 2 }))[0] as Record<
+      string,
+      unknown
+    >;
+    check(
+      "env",
+      "JSON carries detail fields even below debug",
+      withDetail?.a === 1 && withDetail?.b === 2,
+    );
   } finally {
     if (previousId === undefined) delete process.env.YOUR_ID;
     else process.env.YOUR_ID = previousId;
@@ -2846,6 +2863,98 @@ function checkEnvTiming(): void {
     else process.env.LOG_FORMAT = previousFormat;
     if (previousLevel === undefined) delete process.env.LOG_LEVEL;
     else process.env.LOG_LEVEL = previousLevel;
+  }
+}
+
+/**
+ * Verifies the pretty format: detail fields held back until debug, guilds
+ * printed by name, values quoted only when a space would blur their edges,
+ * and LOG_TIMESTAMPS switching the line's own timestamp.
+ */
+function checkPrettyLog(): void {
+  const saved = {
+    LOG_FORMAT: process.env.LOG_FORMAT,
+    LOG_LEVEL: process.env.LOG_LEVEL,
+    LOG_TIMESTAMPS: process.env.LOG_TIMESTAMPS,
+    NO_COLOR: process.env.NO_COLOR,
+  };
+  /**
+   * Runs a logging call and returns the one line it wrote to stdout.
+   * @param write - The logging to capture.
+   * @returns The line, or empty when nothing was written.
+   */
+  const line = (write: () => void): string => {
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (text: string): void => void lines.push(text);
+    try {
+      write();
+    } finally {
+      console.log = realLog;
+    }
+    return lines[0] ?? "";
+  };
+  const logger = createLogger("smoke");
+  const write = (): void =>
+    logger.info(
+      "playing clip",
+      { guildId: "111", user: "vin diesel", matched: ["china"], clip: "asian/sting.wav" },
+      { userId: "222", path: "/app/data/sounds/asian/sting.wav", gone: undefined },
+    );
+  try {
+    process.env.LOG_FORMAT = "pretty";
+    process.env.NO_COLOR = "1";
+    process.env.LOG_TIMESTAMPS = "off";
+    nameGuilds((id) => (id === "111" ? "Stinky Server" : undefined));
+
+    delete process.env.LOG_LEVEL;
+    const info = line(write);
+    check(
+      "log",
+      "info prints the guild by name and leaves detail off",
+      info.includes('guild="Stinky Server"') && !info.includes("guildId") && !info.includes("222"),
+    );
+    check(
+      "log",
+      "a value with a space is quoted and a one-item list goes bare",
+      info.includes('user="vin diesel"') && info.includes("matched=china"),
+    );
+    check("log", "LOG_TIMESTAMPS=off leaves the timestamp off", info.startsWith("INFO "));
+
+    process.env.LOG_LEVEL = "debug";
+    const debug = line(write);
+    check(
+      "log",
+      "debug adds the detail and keeps the raw guild ID",
+      debug.includes("guildId=111") && debug.includes("userId=222") && debug.includes("path="),
+    );
+    check("log", "an undefined field is left off entirely", !debug.includes("gone="));
+
+    process.env.LOG_TIMESTAMPS = "on";
+    check(
+      "log",
+      "LOG_TIMESTAMPS=on prints one",
+      /^\d{4}-\d\d-\d\dT/.test(line(() => logger.info("stamped"))),
+    );
+
+    check(
+      "log",
+      "a span reads as seconds to two places",
+      seconds(1243) === "1.24s" && seconds(0) === "0.00s",
+    );
+
+    nameGuilds(() => undefined);
+    check(
+      "log",
+      "a guild the lookup cannot name keeps its ID",
+      line(() => logger.info("unnamed", { guildId: "333" })).includes("guildId=333"),
+    );
+  } finally {
+    nameGuilds(() => undefined);
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 
@@ -3294,13 +3403,19 @@ async function checkVoiceTriggerLog(): Promise<void> {
     pool: "burp",
     clip: "burp/burp.mp4",
     outcome: "played",
+    confidence: 0.8765,
   };
   check(
     "voice/triggerLog",
     "a row follows the header's column order",
-    TRIGGER_LOG_HEADER === "time,user_id,user_name,heard,matched,pool,clip,outcome" &&
+    TRIGGER_LOG_HEADER === "time,user_id,user_name,heard,matched,pool,clip,outcome,confidence" &&
       csvRow(record) ===
-        '2026-09-18T09:30:00.000Z,331744864385630240,"Chad, obviously",Chad burped.,chad; burped,burp,burp/burp.mp4,played\n',
+        '2026-09-18T09:30:00.000Z,331744864385630240,"Chad, obviously",Chad burped.,chad; burped,burp,burp/burp.mp4,played,0.88\n',
+  );
+  check(
+    "voice/triggerLog",
+    "a match with no confidence leaves the field empty",
+    csvRow({ ...record, confidence: null }).endsWith(",played,\n"),
   );
 
   const guild = "__smoketest_triggerlog__";
@@ -3317,12 +3432,61 @@ async function checkVoiceTriggerLog(): Promise<void> {
       "two rows written at once share one header, BOM first for Excel",
       lines[0] === `\uFEFF${TRIGGER_LOG_HEADER}` &&
         lines.filter((l) => l.includes(TRIGGER_LOG_HEADER)).length === 1 &&
-        lines[1]?.endsWith(",played") === true &&
-        lines[2]?.endsWith(",pool-cooldown") === true,
+        lines[1]?.endsWith(",played,0.88") === true &&
+        lines[2]?.endsWith(",pool-cooldown,0.88") === true,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+
+  // A log written before the confidence column: its header is brought up to
+  // date in place and its rows are kept.
+  const older = "__smoketest_triggerlog_old__";
+  const olderDir = path.join(ROOT, "data", older);
+  rmSync(olderDir, { recursive: true, force: true });
+  try {
+    mkdirSync(olderDir, { recursive: true });
+    const oldRow = "2026-09-01T00:00:00.000Z,1,Blake,China.,china,asian,asian/sting.wav,played";
+    writeFileSync(
+      path.join(olderDir, TRIGGER_LOG_FILE),
+      "\uFEFFtime,user_id,user_name,heard,matched,pool,clip,outcome\n" + oldRow + "\n",
+    );
+    await recordTrigger(older, record);
+    const lines = readFileSync(path.join(olderDir, TRIGGER_LOG_FILE), "utf-8").split("\n");
+    check(
+      "voice/triggerLog",
+      "an older log gets the new header, its rows kept and the new one appended",
+      lines[0] === `\uFEFF${TRIGGER_LOG_HEADER}` &&
+        lines[1] === oldRow &&
+        lines[2]?.endsWith(",played,0.88") === true,
+    );
+  } finally {
+    rmSync(olderDir, { recursive: true, force: true });
+  }
+
+  const heard = [
+    { word: "China,", confidence: 0.41 },
+    { word: "much", confidence: 0.9 },
+    { word: "China.", confidence: 0.83 },
+    { word: "shut", confidence: 0.7 },
+    { word: "up", confidence: 0.95 },
+  ];
+  check(
+    "voice/triggerLog",
+    "a word heard twice counts at its surest, punctuation ignored",
+    matchConfidence(["china"], heard) === 0.83,
+  );
+  check(
+    "voice/triggerLog",
+    "a phrase or several words take the least sure part",
+    matchConfidence(["shut up"], heard) === 0.7 &&
+      matchConfidence(["china", "shut up"], heard) === 0.7,
+  );
+  check(
+    "voice/triggerLog",
+    "a match none of whose words were heard has no confidence",
+    matchConfidence(["chad"], heard) === null && matchConfidence(["china"], []) === null,
+  );
 }
 
 /**
@@ -3940,6 +4104,7 @@ void (async () => {
     await checkCommandsLoad();
     checkCommandVisibility();
     checkEnvTiming();
+    checkPrettyLog();
     await checkInteractionResponses();
     await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();

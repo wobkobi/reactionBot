@@ -74,11 +74,15 @@ export async function offerSkip(
   // Deferred first, since a join waits on the voice connection and can outlast
   // the three seconds a click has to be answered in.
   await click.deferUpdate().catch(() => undefined);
-  log.info("admin skipped the contest wait", {
-    command: interaction.commandName,
-    guildId: interaction.guildId,
-    userId: interaction.user.id,
-  });
+  log.info(
+    "admin skipped the contest wait",
+    {
+      guildId: interaction.guildId,
+      command: interaction.commandName,
+      by: interaction.user.username,
+    },
+    { byId: interaction.user.id },
+  );
   // Ephemeral only matters if the deferral failed and this becomes a fresh
   // reply, which would otherwise post the outcome to the whole channel.
   await respond(click, { content: await act(), components: [], flags: MessageFlags.Ephemeral });

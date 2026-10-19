@@ -18,7 +18,8 @@ const log = createLogger("voice/triggerLog");
 export const TRIGGER_LOG_FILE = "voice_triggers.csv";
 
 /** Column names, in the order {@link csvRow} writes them. */
-export const TRIGGER_LOG_HEADER = "time,user_id,user_name,heard,matched,pool,clip,outcome";
+export const TRIGGER_LOG_HEADER =
+  "time,user_id,user_name,heard,matched,pool,clip,outcome,confidence";
 
 /**
  * Byte-order mark ahead of the header. Excel reads a CSV without one in the
@@ -46,6 +47,12 @@ export interface TriggerRecord {
   /** The clip that played or was chosen, empty when none was. */
   clip: string;
   outcome: TriggerOutcome;
+  /**
+   * How sure the transcriber was of the matched words, from 0 to 1, or null
+   * when it could not say. Last in the row, so rows written before the column
+   * existed still line up under the header.
+   */
+  confidence: number | null;
 }
 
 /**
@@ -78,6 +85,7 @@ export function csvRow(record: TriggerRecord): string {
     record.pool,
     record.clip,
     record.outcome,
+    record.confidence === null ? "" : record.confidence.toFixed(2),
   ];
   return fields.map(csvField).join(",") + "\n";
 }
@@ -88,6 +96,28 @@ export function csvRow(record: TriggerRecord): string {
  * header twice.
  */
 const queues = new Map<string, Promise<void>>();
+
+/** Servers whose log header has been checked against the current one this run. */
+const headerChecked = new Set<string>();
+
+/**
+ * Brings an existing log's header up to date when it is an older, shorter one.
+ * Columns are only ever added at the end, so older rows stay valid with the
+ * new fields left empty; only the first line needs rewriting. Done once per
+ * server per run, and never on a header this code did not write.
+ * @param file - The log's path.
+ * @returns Settles once the header is current or left alone.
+ */
+async function upgradeHeader(file: string): Promise<void> {
+  const content = await fs.promises.readFile(file, "utf-8");
+  const end = content.indexOf("\n");
+  const first = (end === -1 ? content : content.slice(0, end)).replace(BOM, "").trimEnd();
+  if (first === TRIGGER_LOG_HEADER || !TRIGGER_LOG_HEADER.startsWith(`${first},`)) return;
+  const rest = end === -1 ? "" : content.slice(end + 1);
+  const temp = `${file}.tmp`;
+  await fs.promises.writeFile(temp, `${BOM}${TRIGGER_LOG_HEADER}\n${rest}`, "utf-8");
+  await fs.promises.rename(temp, file);
+}
 
 /**
  * Appends one row to a server's log, writing the header first when the file
@@ -104,6 +134,8 @@ async function append(guildId: string, record: TriggerRecord): Promise<void> {
       (s) => s.size,
       () => 0,
     );
+    if (size > 0 && !headerChecked.has(guildId)) await upgradeHeader(file);
+    headerChecked.add(guildId);
     const header = size === 0 ? `${BOM}${TRIGGER_LOG_HEADER}\n` : "";
     await fs.promises.appendFile(file, header + csvRow(record), "utf-8");
   } catch (err) {

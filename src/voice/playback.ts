@@ -8,7 +8,7 @@
 // has passed is worse than no clip, and a queue would be a second unbounded
 // buffer to police.
 
-import { createLogger } from "@/utils/log";
+import { createLogger, seconds } from "@/utils/log";
 import {
   AMBIENT_LUFS,
   ensurePlayable,
@@ -26,6 +26,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import fs from "node:fs";
+import path from "node:path";
 
 const log = createLogger("voice/playback");
 
@@ -60,15 +61,43 @@ const STREAM_TYPES: Record<OpusContainer, StreamType> = {
 };
 
 /**
+ * Names a clip by its folder and file, as the trigger log does, rather than by
+ * a full path that is the same `/app/data/sounds` on every line.
+ * @param filePath - Absolute path of the clip.
+ * @returns The clip's folder and file name.
+ */
+function clipLabel(filePath: string): string {
+  return `${path.basename(path.dirname(filePath))}/${path.basename(filePath)}`;
+}
+
+/**
  * What set a clip off, spread into the "playing clip" log line. Without it a
  * trigger, an entrance and a background sound log identically, and a misfire
  * cannot be traced to the word that caused it without opening the CSV.
  * `matched` holds the words as heard, as in the trigger log.
  */
 export type PlayCause =
-  | { cause: "trigger"; userId: string; userName: string; matched: string[] }
+  | ({ cause: "trigger" } & TriggerSpeaker)
   | { cause: "entrance"; userId: string }
   | { cause: "ambient" };
+
+/** Who set a trigger off and how it went, for the "playing clip" line. */
+export interface TriggerSpeaker {
+  userId: string;
+  /** The name they go by in the server. */
+  userName: string;
+  /** The words that fired the trigger, as heard. */
+  matched: string[];
+  /** How sure the transcriber was of those words, or null when it could not say. */
+  confidence: number | null;
+  /**
+   * When they stopped speaking, epoch ms. The line's delay runs from here to
+   * the clip starting, which is the wait someone in the call sits through.
+   */
+  spokeUntil: number;
+  /** How long the model took to transcribe it, for the debug breakdown. */
+  transcribeMs: number;
+}
 
 /** When a pool last played, and how long what it played ran for. */
 interface PoolClip {
@@ -230,13 +259,30 @@ async function startPlayback(
         inputType: STREAM_TYPES[playable.container],
       }),
     );
-    log.info("playing clip", {
-      guildId,
+    const { userId, userName, spokeUntil, transcribeMs, ...shown } = {
+      userId: undefined,
+      userName: undefined,
+      spokeUntil: undefined,
+      transcribeMs: undefined,
       ...cause,
-      clip: filePath,
-      container: playable.container,
-      durationMs: playable.durationMs,
-    });
+    };
+    log.info(
+      "playing clip",
+      {
+        guildId,
+        ...shown,
+        user: userName,
+        clip: clipLabel(filePath),
+        delay: spokeUntil === undefined ? undefined : seconds(Date.now() - spokeUntil),
+      },
+      {
+        userId,
+        transcribe: transcribeMs === undefined ? undefined : seconds(transcribeMs),
+        path: filePath,
+        container: playable.container,
+        durationMs: playable.durationMs,
+      },
+    );
     return playable;
   } catch (err) {
     log.warn("failed to start playback", {
@@ -264,10 +310,8 @@ export function dropPlayer(guildId: string): void {
  * @param guildId - Discord guild (server) ID.
  * @param pool - Key of the pool it came from, which holds its own gap.
  * @param filePath - Absolute path of the clip to play.
- * @param speaker - Who set it off and the words that did it, for the log.
- * @param speaker.userId - Who spoke.
- * @param speaker.userName - The name they go by in the server.
- * @param speaker.matched - The words that fired the trigger, as heard.
+ * @param speaker - Who set it off and how it went, for the log - see
+ * {@link TriggerSpeaker}.
  * @returns `true` when playback started.
  */
 export async function playClip(
@@ -275,7 +319,7 @@ export async function playClip(
   guildId: string,
   pool: string,
   filePath: string,
-  speaker: { userId: string; userName: string; matched: string[] },
+  speaker: TriggerSpeaker,
 ): Promise<boolean> {
   const started = await startPlayback(connection, guildId, filePath, TRIGGER_LUFS, {
     cause: "trigger",

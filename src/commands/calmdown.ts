@@ -84,7 +84,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const nextMs = minutes !== null ? minutes * 60_000 : current.ms;
     const nextMessages = messages ?? current.messages;
     setAutoCalm(guildId, nextMs, nextMessages);
-    log.info("auto-calm updated via command", { guildId, by: interaction.user.id });
+    log.info(
+      "auto-calm updated via command",
+      { guildId, by: interaction.user.username, minutes: nextMs / 60_000, messages: nextMessages },
+      { byId: interaction.user.id },
+    );
     await respond(interaction, {
       content: `✅ Auto-calm set to ${Math.round(nextMs / 60_000)} minutes or ${nextMessages} messages, whichever comes first.`,
     });
@@ -93,7 +97,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (interaction.options.getSubcommand() === "stop") {
     const wasCalm = calmUntil(guildId) !== null;
     stopCalm(guildId);
-    log.info("calm stopped via command", { guildId, by: interaction.user.id });
+    log.info(
+      "calm stopped via command",
+      { guildId, by: interaction.user.username },
+      { byId: interaction.user.id },
+    );
     await respond(interaction, {
       content: wasCalm ? "GIF replies are back on." : "Calm mode wasn't on - nothing to stop.",
     });
@@ -102,7 +110,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const minutes = interaction.options.getInteger("minutes");
   const until = startCalm(guildId, minutes ? minutes * 60_000 : DEFAULT_CALM_MS);
-  log.info("calm started via command", { guildId, minutes, by: interaction.user.id });
+  log.info(
+    "calm started via command",
+    { guildId, minutes, by: interaction.user.username },
+    { byId: interaction.user.id },
+  );
   await respond(interaction, {
     content: `😌 Calm mode on - no GIF replies until <t:${Math.floor(until / 1000)}:t>.`,
   });

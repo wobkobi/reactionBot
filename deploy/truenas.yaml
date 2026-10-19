@@ -46,11 +46,13 @@ services:
       # uid 568 has no home directory in the image. Anything that falls back to
       # a home-relative cache would otherwise try to write to / and fail.
       HOME: /app/data
-      # Pretty output timestamps itself when not attached to a terminal, which
-      # is what the Apps UI log viewer shows. Anything set here beats the
+      # The Apps UI log viewer stamps every line itself, so the bot does not
+      # print a second timestamp after it. Anything set here beats the
       # env_file, so LOG_LEVEL is left out: it defaults to info, and
-      # LOG_LEVEL=debug in the .env adds the per-utterance voice decisions.
+      # LOG_LEVEL=debug in the .env adds the per-utterance voice decisions and
+      # the IDs and paths info lines leave off.
       LOG_FORMAT: pretty
+      LOG_TIMESTAMPS: "off"
 
     volumes:
       - /mnt/POOL/apps/reactionbot/data:/app/data

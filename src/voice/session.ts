@@ -11,7 +11,7 @@
 // sentence fires about a chunk after it is said rather than after the sentence.
 
 import { isCalm } from "@/tracking/calm";
-import { createLogger } from "@/utils/log";
+import { createLogger, seconds } from "@/utils/log";
 import { startAmbient, stopAmbient } from "@/voice/ambient";
 import {
   CHUNK_OVERLAP_SAMPLES,
@@ -24,7 +24,12 @@ import {
   TARGET_RATE,
   utteranceVerdict,
 } from "@/voice/audio";
-import { announceEntrance, flushPendingEntrance, forgetPendingEntrance } from "@/voice/entrance";
+import {
+  announceEntrance,
+  displayName,
+  flushPendingEntrance,
+  forgetPendingEntrance,
+} from "@/voice/entrance";
 import { loadOpusDecoder, type OpusDecoder } from "@/voice/opus";
 import {
   clipStatus,
@@ -33,6 +38,7 @@ import {
   playClip,
   POOL_CLIP_COOLDOWN_MS,
   type ClipVerdict,
+  type TriggerSpeaker,
 } from "@/voice/playback";
 import {
   isIgnoredTranscript,
@@ -45,7 +51,7 @@ import {
   resolveClips,
   type CompiledTrigger,
 } from "@/voice/sounds";
-import { startStt, transcribe } from "@/voice/stt";
+import { matchConfidence, startStt, transcribe } from "@/voice/stt";
 import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
 import {
   EndBehaviorType,
@@ -112,6 +118,13 @@ const pending = new Map<string, PendingJoin>();
 /** Why a pool could not play: every verdict but "play". */
 type Refusal = Exclude<ClipVerdict, "play">;
 
+/** Each refusal as the "trigger not played" line says it; the trigger log keeps the codes. */
+const REFUSAL_TEXT: Record<Refusal, string> = {
+  "pool-cooldown": "pool on cooldown",
+  "guild-floor": "a clip just played",
+  playing: "a clip is still playing",
+};
+
 /** A pool ready to play, or the gap that stopped every candidate. */
 type PoolChoice =
   | { trigger: CompiledTrigger; pool: string }
@@ -132,20 +145,6 @@ interface MatchResult {
  */
 function poolName(trigger: CompiledTrigger): string {
   return trigger.trigger.pool ?? "(inline)";
-}
-
-/**
- * Looks up the name someone goes by in a server, for the trigger log.
- * @param guild - The server they spoke in.
- * @param userId - Who spoke.
- * @returns Their display name, or empty when neither cache has them.
- */
-function displayName(guild: Guild, userId: string): string {
-  return (
-    guild.members.cache.get(userId)?.displayName ??
-    guild.client.users.cache.get(userId)?.username ??
-    ""
-  );
 }
 
 /**
@@ -193,11 +192,13 @@ function pickFreePool(
 }
 
 /**
- * Plays a clip for a transcript that matched, unless something stops it.
+ * Plays a clip for a transcript that matched, unless something stops it. A
+ * match that is held back says so at info, with what held it and for how
+ * long: a word heard and not answered otherwise looks exactly like a word
+ * not heard at all.
  * @param guildId - Discord guild (server) ID.
- * @param speaker - Who spoke, for the log.
- * @param speaker.userId - Their Discord user ID.
- * @param speaker.userName - The name they go by in the server.
+ * @param speaker - Who spoke and how it went, for the log. `matched` names
+ * every word that fired; the pool that plays narrows it to its own.
  * @param text - What they said, to name the words that fired the pool played.
  * @param matches - Every trigger the transcript fired.
  * @param guildCooldownMs - The guild's configured gap, if it set one.
@@ -205,21 +206,36 @@ function pickFreePool(
  */
 async function playMatch(
   guildId: string,
-  speaker: { userId: string; userName: string },
+  speaker: TriggerSpeaker,
   text: string,
   matches: CompiledTrigger[],
   guildCooldownMs: number | undefined,
 ): Promise<MatchResult> {
   // Calm mode silences replies across the bot; a sound bite is a reply that
   // everyone in the call has to hear, so it obeys the same window.
+  const heldBack = (reason: string, pool?: string, readyInMs?: number): void =>
+    log.info(
+      "trigger not played",
+      {
+        guildId,
+        user: speaker.userName,
+        matched: speaker.matched,
+        confidence: speaker.confidence,
+        reason,
+        pool,
+        readyIn: readyInMs ? seconds(readyInMs) : undefined,
+      },
+      { userId: speaker.userId },
+    );
+
   if (isCalm(guildId)) {
-    log.debug("clip suppressed by calm mode", { guildId });
+    heldBack("calm mode");
     return { outcome: "calm", pool: "", clip: "" };
   }
 
   const choice = pickFreePool(guildId, matches, guildCooldownMs);
   if ("verdict" in choice) {
-    log.debug("clip not played", { guildId, userId: speaker.userId, ...choice });
+    heldBack(REFUSAL_TEXT[choice.verdict], choice.name, choice.remainingMs);
     return { outcome: choice.verdict, pool: choice.name, clip: "" };
   }
   const { trigger: match, pool } = choice;
@@ -278,8 +294,9 @@ async function handleUtterance(
     return;
   }
 
-  const text = await transcribe(samples);
-  if (!text) return;
+  const transcript = await transcribe(samples);
+  if (!transcript) return;
+  const { text } = transcript;
 
   const compiled = loadSounds(guildId);
   if (compiled.config.logTranscripts) log.debug("heard", { guildId, userId, text });
@@ -294,29 +311,22 @@ async function handleUtterance(
 
   const heardAt = new Date();
   const userName = displayName(guild, userId);
+  const matched = [...new Set(matches.flatMap((match) => matchedWords(text, match)))];
+  const confidence = matchConfidence(matched, transcript.words);
   const result = await playMatch(
     guildId,
-    { userId, userName },
+    { userId, userName, matched, confidence, spokeUntil, transcribeMs: transcript.ms },
     text,
     matches,
     compiled.config.guildCooldownMs,
   );
-  if (result.outcome === "played") {
-    // Timed from the last word rather than from the flush, so the number is
-    // the one someone in the call actually waited through.
-    log.debug("clip latency", {
-      guildId,
-      pool: result.pool,
-      durationMs,
-      waitedMs: Date.now() - spokeUntil,
-    });
-  }
   void recordTrigger(guildId, {
     at: heardAt,
     userId,
     userName,
     heard: text,
-    matched: [...new Set(matches.flatMap((match) => matchedWords(text, match)))],
+    matched,
+    confidence,
     ...result,
   });
 }
@@ -446,7 +456,11 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
       log.warn("voice connection never became ready", { guildId, channelId: channel.id });
       connection.destroy();
     } else {
-      log.info("join cancelled before ready", { guildId, channelId: channel.id });
+      log.info(
+        "join cancelled before ready",
+        { guildId, channel: channel.name },
+        { channelId: channel.id },
+      );
     }
     return false;
   } finally {
@@ -497,7 +511,7 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
     captureSpeaker(session, guildId, userId);
   });
 
-  log.info("listening", { guildId, channelId: channel.id });
+  log.info("listening", { guildId, channel: channel.name }, { channelId: channel.id });
   return true;
 }
 
@@ -520,7 +534,7 @@ export function closeSession(guildId: string, reason: string): void {
     } catch {
       // Already destroyed; nothing to undo.
     }
-    log.info("join cancelled", { guildId, channelId: joining.channelId, reason });
+    log.info("join cancelled", { guildId, reason }, { channelId: joining.channelId });
   }
   const session = sessions.get(guildId);
   if (!session) return;

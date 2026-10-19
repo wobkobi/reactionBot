@@ -114,7 +114,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     settings.channelId = channel.id;
     saveSettings(guildId, settings);
 
-    log.info("media channel set", { guildId, channelId: channel.id, by: userId });
+    log.info(
+      "media channel set",
+      { guildId, channel: channel.name, by: interaction.user.username },
+      { channelId: channel.id, byId: userId },
+    );
 
     await respond(interaction, {
       content: `✅ Media channel set to ${channel}`,

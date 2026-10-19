@@ -98,6 +98,20 @@ export function localDay(now: Date): string {
 }
 
 /**
+ * Looks up the name someone goes by in a server, for the trigger log and log lines.
+ * @param guild - The server they spoke in.
+ * @param userId - Who spoke.
+ * @returns Their display name, or empty when neither cache has them.
+ */
+export function displayName(guild: Guild, userId: string): string {
+  return (
+    guild.members.cache.get(userId)?.displayName ??
+    guild.client.users.cache.get(userId)?.username ??
+    ""
+  );
+}
+
+/**
  * Finds the entrance configured for one person.
  * @param config - The guild's entrances config.
  * @param userId - Who was heard.
@@ -274,7 +288,11 @@ export async function announceEntrance(guild: Guild, userId: string): Promise<vo
       ...(filePath ? { files: [filePath] } : {}),
       allowedMentions: { parse: [] },
     });
-    log.info("posted entrance", { guildId: guild.id, userId, channelId, file: post.file });
+    log.info(
+      "posted entrance",
+      { guildId: guild.id, user: displayName(guild, userId), file: post.file },
+      { userId, channelId },
+    );
   } catch (err) {
     // The size is logged with the failure because an upload over the server's
     // limit is the likeliest way this fails, and Discord's own wording for it
@@ -377,7 +395,11 @@ export async function playEntranceSound(
     releaseToday(guild.id, userId, "sound");
     return;
   }
-  log.info("played entrance clip", { guildId: guild.id, userId, pool: post.pool });
+  log.info(
+    "played entrance clip",
+    { guildId: guild.id, user: displayName(guild, userId), pool: post.pool },
+    { userId },
+  );
 }
 
 /**

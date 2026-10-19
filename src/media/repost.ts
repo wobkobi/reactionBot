@@ -153,7 +153,7 @@ export async function repostWithOptionalStub(
     });
     return { failure: blocked ? "blocked" : "failed" };
   }
-  log.info("posted moved message", { movedId: moved.id, targetId: target.id });
+  log.debug("posted moved message", { movedId: moved.id, targetId: target.id });
 
   await original.delete().catch(() => {});
   log.debug("deleted original", { originalId: original.id });

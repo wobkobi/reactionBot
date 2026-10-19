@@ -362,7 +362,11 @@ export async function replyReset(
   try {
     if (target) {
       resetUser(guildId, tracker.storeFile, target.id);
-      log.info("reset user", { storeFile: tracker.storeFile, guildId, userId: target.id });
+      log.info(
+        "reset user",
+        { guildId, tracker: tracker.noun, user: target.username, by: interaction.user.username },
+        { userId: target.id, storeFile: tracker.storeFile },
+      );
       await respond(interaction, {
         content: `✅ ${tracker.noun} stats reset for ${target}.`,
         flags: MessageFlags.Ephemeral,
@@ -370,7 +374,11 @@ export async function replyReset(
       });
     } else {
       resetGuild(guildId, tracker.storeFile);
-      log.info("reset guild", { storeFile: tracker.storeFile, guildId });
+      log.info(
+        "reset guild",
+        { guildId, tracker: tracker.noun, by: interaction.user.username },
+        { storeFile: tracker.storeFile },
+      );
       await respond(interaction, {
         content: `✅ ${tracker.noun} stats reset for the whole server.`,
         flags: MessageFlags.Ephemeral,

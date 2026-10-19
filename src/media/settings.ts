@@ -38,7 +38,7 @@ export function loadSettings(guildId: string): MediaSettings {
  */
 export function saveSettings(guildId: string, next: MediaSettings): void {
   saveData(guildId, SETTINGS_FILE, next);
-  log.info("saved settings", {
+  log.debug("saved settings", {
     guildId,
     channelId: next.channelId ?? null,
     grace: next.grace ?? null,

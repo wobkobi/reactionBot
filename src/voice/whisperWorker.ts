@@ -8,7 +8,7 @@
 // imported as types alone. That keeps it runnable under tsx, under Node's own
 // type stripping, and as compiled JavaScript.
 
-import type { SttIn, SttOut } from "@/voice/sttTypes";
+import type { HeardWord, SttIn, SttOut } from "@/voice/sttTypes";
 import { parentPort } from "node:worker_threads";
 
 /** Shape of the one transformers entry point this worker uses. */
@@ -21,9 +21,77 @@ interface TransformersModule {
   env: Record<string, unknown>;
 }
 
+/** A loaded pipeline: callable, with the tokenizer it decodes through. */
+interface Transcriber {
+  (audio: Float32Array, options?: Record<string, unknown>): Promise<unknown>;
+  tokenizer: {
+    decode: (ids: number[], options?: Record<string, unknown>) => string;
+    convert_tokens_to_ids: (tokens: string[]) => (number | undefined)[];
+  };
+}
+
 /** The loaded pipeline, or null until init succeeds. */
-let transcriber:
-  ((audio: Float32Array, options?: Record<string, unknown>) => Promise<unknown>) | null = null;
+let transcriber: Transcriber | null = null;
+
+/**
+ * Whisper's first special token. Every ID from here up is a control token
+ * (end of text, start of transcript, timestamps) rather than part of a word.
+ */
+let firstSpecialId = Number.POSITIVE_INFINITY;
+
+/** One decoding step: the token picked and the probability it had. */
+interface Step {
+  token: number;
+  p: number;
+}
+
+/**
+ * Builds a logits processor that records each step's pick and its probability.
+ * The pipeline has no way to return scores, but it runs any processor it is
+ * handed after its own, so this one sees the final distribution the token is
+ * drawn from. Decoding is greedy, so the pick is the most likely token and its
+ * softmax probability is the confidence. The logits pass through untouched.
+ * @param steps - Where each step is appended.
+ * @returns The processor.
+ */
+function stepRecorder(steps: Step[]): (ids: unknown, logits: { data: Float32Array }) => unknown {
+  return (_ids, logits) => {
+    const row = logits.data;
+    let best = 0;
+    for (let i = 1; i < row.length; i++) if (row[i]! > row[best]!) best = i;
+    // Softmax of the best entry alone: 1 / sum(exp(x - max)). Suppressed tokens
+    // are -Infinity and add nothing.
+    let sum = 0;
+    for (let i = 0; i < row.length; i++) sum += Math.exp(row[i]! - row[best]!);
+    steps.push({ token: best, p: 1 / sum });
+    return logits;
+  };
+}
+
+/**
+ * Groups recorded steps into words. A token whose text opens with a space
+ * starts a new word; one without continues the last. Control tokens are
+ * skipped, and so are pieces with no letter or digit in them, so a full stop
+ * the model was unsure of does not drag down the word before it.
+ * @param pipe - The loaded pipeline, for its tokenizer.
+ * @param steps - The steps {@link stepRecorder} collected.
+ * @returns The words in order, each with its confidence.
+ */
+function wordsOf(pipe: Transcriber, steps: Step[]): HeardWord[] {
+  const words: HeardWord[] = [];
+  for (const { token, p } of steps) {
+    if (token >= firstSpecialId) continue;
+    const piece = pipe.tokenizer.decode([token]);
+    const last = words.at(-1);
+    if (last && !/^\s/.test(piece)) {
+      last.word += piece;
+      if (/[\p{L}\p{N}]/u.test(piece)) last.confidence = Math.min(last.confidence, p);
+    } else if (piece.trim()) {
+      words.push({ word: piece.trim(), confidence: /[\p{L}\p{N}]/u.test(piece) ? p : 1 });
+    }
+  }
+  return words;
+}
 
 const port = parentPort;
 
@@ -51,7 +119,9 @@ async function init(model: string, cacheDir: string): Promise<void> {
   mod.env.cacheDir = cacheDir;
   mod.env.allowLocalModels = false;
 
-  transcriber = await mod.pipeline("automatic-speech-recognition", model);
+  transcriber = (await mod.pipeline("automatic-speech-recognition", model)) as Transcriber;
+  firstSpecialId =
+    transcriber.tokenizer.convert_tokens_to_ids(["<|endoftext|>"])[0] ?? Number.POSITIVE_INFINITY;
   post({ type: "ready", model });
 }
 
@@ -69,9 +139,17 @@ async function run(id: number, samples: Float32Array): Promise<void> {
     return;
   }
   const startedAt = Date.now();
-  const output = (await transcriber(samples)) as { text?: string } | Array<{ text?: string }>;
+  const steps: Step[] = [];
+  const output = (await transcriber(samples, { logits_processor: [stepRecorder(steps)] })) as
+    { text?: string } | Array<{ text?: string }>;
   const first = Array.isArray(output) ? output[0] : output;
-  post({ type: "result", id, text: (first?.text ?? "").trim(), ms: Date.now() - startedAt });
+  post({
+    type: "result",
+    id,
+    text: (first?.text ?? "").trim(),
+    words: wordsOf(transcriber, steps),
+    ms: Date.now() - startedAt,
+  });
 }
 
 port?.on("message", (message: SttIn) => {

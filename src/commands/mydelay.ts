@@ -198,6 +198,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     if (sub === "clear") {
       clearPref(guildId, userId);
+      log.info(
+        "member preference cleared",
+        { guildId, user: interaction.user.username },
+        { userId },
+      );
       await respond(interaction, {
         content: `✅ Dropped. You're on the server default now: ${describeGuildDefault(settings.grace)}.`,
         flags: MessageFlags.Ephemeral,
@@ -225,7 +230,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       sub === "countdown" || sub === "ask" ? interaction.options.getInteger("seconds", true) : null;
     const pref = resolvePref(sub, seconds);
     savePref(guildId, userId, pref);
-    log.info("member preference updated", { guildId, userId, mode: pref.mode, seconds });
+    log.info(
+      "member preference updated",
+      { guildId, user: interaction.user.username, mode: pref.mode, seconds },
+      { userId },
+    );
 
     await respond(interaction, {
       content: confirmation(pref, limits),
