@@ -11,7 +11,7 @@
 // sentence fires about a chunk after it is said rather than after the sentence.
 
 import { isCalm } from "@/tracking/calm";
-import { createLogger, seconds } from "@/utils/log";
+import { createLogger, seconds, type LogFields } from "@/utils/log";
 import { startAmbient, stopAmbient } from "@/voice/ambient";
 import {
   CHUNK_OVERLAP_SAMPLES,
@@ -52,6 +52,7 @@ import {
   type CompiledTrigger,
 } from "@/voice/sounds";
 import { matchConfidence, startStt, transcribe } from "@/voice/stt";
+import type { HeardWord } from "@/voice/sttTypes";
 import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
 import {
   EndBehaviorType,
@@ -147,6 +148,68 @@ function poolName(trigger: CompiledTrigger): string {
   return trigger.trigger.pool ?? "(inline)";
 }
 
+/** A matched trigger, the words that fired it, and how surely they were heard. */
+export interface WeighedMatch {
+  trigger: CompiledTrigger;
+  matched: string[];
+  confidence: number | null;
+}
+
+/**
+ * Splits matched triggers by their own `minConfidence`: the ones heard surely
+ * enough to play, and the ones that fell short. A match with no confidence to
+ * go on is kept, since the floor is for doubtful hearings and a missing figure
+ * says nothing either way.
+ * @param text - The transcript.
+ * @param matches - Every trigger it fired.
+ * @param words - The transcript's words with their confidence.
+ * @returns The sure and unsure matches, each in the order given.
+ */
+export function weighMatches(
+  text: string,
+  matches: CompiledTrigger[],
+  words: HeardWord[],
+): { sure: WeighedMatch[]; unsure: WeighedMatch[] } {
+  const sure: WeighedMatch[] = [];
+  const unsure: WeighedMatch[] = [];
+  for (const trigger of matches) {
+    const matched = matchedWords(text, trigger);
+    const confidence = matchConfidence(matched, words);
+    const floor = trigger.minConfidence;
+    const short = floor !== undefined && confidence !== null && confidence < floor;
+    (short ? unsure : sure).push({ trigger, matched, confidence });
+  }
+  return { sure, unsure };
+}
+
+/**
+ * Says at info that a match was heard and not answered, with what held it: a
+ * word heard and not answered otherwise looks exactly like a word not heard.
+ * @param guildId - Discord guild (server) ID.
+ * @param speaker - Who spoke and how it went.
+ * @param reason - What held it back, as the line says it.
+ * @param [extra] - Further context: the pool, and how long until it frees up.
+ */
+function heldBack(
+  guildId: string,
+  speaker: TriggerSpeaker,
+  reason: string,
+  extra: LogFields = {},
+): void {
+  log.info(
+    "trigger not played",
+    {
+      guildId,
+      user: speaker.userName,
+      matched: speaker.matched,
+      confidence: speaker.confidence,
+      reason,
+      ...extra,
+    },
+    { userId: speaker.userId },
+  );
+}
+
 /**
  * Chooses which pool a word plays from when it fires several, with even odds
  * across the ones that are free right now.
@@ -194,8 +257,7 @@ function pickFreePool(
 /**
  * Plays a clip for a transcript that matched, unless something stops it. A
  * match that is held back says so at info, with what held it and for how
- * long: a word heard and not answered otherwise looks exactly like a word
- * not heard at all.
+ * long.
  * @param guildId - Discord guild (server) ID.
  * @param speaker - Who spoke and how it went, for the log. `matched` names
  * every word that fired; the pool that plays narrows it to its own.
@@ -213,29 +275,17 @@ async function playMatch(
 ): Promise<MatchResult> {
   // Calm mode silences replies across the bot; a sound bite is a reply that
   // everyone in the call has to hear, so it obeys the same window.
-  const heldBack = (reason: string, pool?: string, readyInMs?: number): void =>
-    log.info(
-      "trigger not played",
-      {
-        guildId,
-        user: speaker.userName,
-        matched: speaker.matched,
-        confidence: speaker.confidence,
-        reason,
-        pool,
-        readyIn: readyInMs ? seconds(readyInMs) : undefined,
-      },
-      { userId: speaker.userId },
-    );
-
   if (isCalm(guildId)) {
-    heldBack("calm mode");
+    heldBack(guildId, speaker, "calm mode");
     return { outcome: "calm", pool: "", clip: "" };
   }
 
   const choice = pickFreePool(guildId, matches, guildCooldownMs);
   if ("verdict" in choice) {
-    heldBack(REFUSAL_TEXT[choice.verdict], choice.name, choice.remainingMs);
+    heldBack(guildId, speaker, REFUSAL_TEXT[choice.verdict], {
+      pool: choice.name,
+      readyIn: choice.remainingMs ? seconds(choice.remainingMs) : undefined,
+    });
     return { outcome: choice.verdict, pool: choice.name, clip: "" };
   }
   const { trigger: match, pool } = choice;
@@ -311,15 +361,39 @@ async function handleUtterance(
 
   const heardAt = new Date();
   const userName = displayName(guild, userId);
-  const matched = [...new Set(matches.flatMap((match) => matchedWords(text, match)))];
+  // A trigger heard less surely than its own floor drops out here. When every
+  // one of them did, the row still names them, so the log shows what a floor
+  // is holding back and whether it sits in the right place.
+  const { sure, unsure } = weighMatches(text, matches, transcript.words);
+  const named = sure.length > 0 ? sure : unsure;
+  const matched = [...new Set(named.flatMap((match) => match.matched))];
   const confidence = matchConfidence(matched, transcript.words);
-  const result = await playMatch(
-    guildId,
-    { userId, userName, matched, confidence, spokeUntil, transcribeMs: transcript.ms },
-    text,
-    matches,
-    compiled.config.guildCooldownMs,
-  );
+  const speaker: TriggerSpeaker = {
+    userId,
+    userName,
+    matched,
+    confidence,
+    spokeUntil,
+    transcribeMs: transcript.ms,
+  };
+
+  let result: MatchResult;
+  if (sure.length > 0) {
+    result = await playMatch(
+      guildId,
+      speaker,
+      text,
+      sure.map((match) => match.trigger),
+      compiled.config.guildCooldownMs,
+    );
+  } else {
+    const first = unsure[0]!.trigger;
+    heldBack(guildId, speaker, "heard unsurely", {
+      pool: poolName(first),
+      needs: first.minConfidence,
+    });
+    result = { outcome: "low-confidence", pool: poolName(first), clip: "" };
+  }
   void recordTrigger(guildId, {
     at: heardAt,
     userId,

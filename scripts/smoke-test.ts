@@ -128,7 +128,7 @@ import {
 } from "@/voice/autojoin";
 import { entranceFor, localDay, resolveEntranceFile } from "@/voice/entrance";
 import { clipVerdict, POOL_CLIP_COOLDOWN_MS, poolCooldownMs } from "@/voice/playback";
-import { waitForVoiceLeave } from "@/voice/session";
+import { waitForVoiceLeave, weighMatches } from "@/voice/session";
 import {
   AMBIENT_FLOOR_MS,
   AMBIENT_MAX_MS,
@@ -3486,6 +3486,51 @@ async function checkVoiceTriggerLog(): Promise<void> {
     "voice/triggerLog",
     "a match none of whose words were heard has no confidence",
     matchConfidence(["chad"], heard) === null && matchConfidence(["china"], []) === null,
+  );
+
+  // "China" written for "Shayna" came in at 0.26 to 0.45 in live calls, and
+  // said outright at 0.92 and above, which is the gap a floor sits in.
+  const floored = compileSounds({
+    triggers: [
+      { words: ["china"], sounds: ["sting.ogg"], minConfidence: 0.6 },
+      { words: ["water"], sounds: ["gulp.ogg"] },
+      { words: ["chad"], sounds: ["woody.ogg"], minConfidence: 50 },
+    ],
+  });
+  const weigh = (
+    text: string,
+    words: { word: string; confidence: number }[],
+  ): ReturnType<typeof weighMatches> => weighMatches(text, matchTriggers(text, floored), words);
+  const misheard = weigh("China!", [{ word: "China!", confidence: 0.29 }]);
+  const said = weigh("China.", [{ word: "China.", confidence: 0.96 }]);
+  check(
+    "voice/session",
+    "a trigger heard less surely than its minConfidence is held back, a sure one is not",
+    misheard.sure.length === 0 &&
+      misheard.unsure[0]?.confidence === 0.29 &&
+      said.sure.length === 1 &&
+      said.unsure.length === 0,
+  );
+  const mixed = weigh("China water", [
+    { word: "China", confidence: 0.3 },
+    { word: "water", confidence: 0.2 },
+  ]);
+  check(
+    "voice/session",
+    "a floor holds back only its own trigger; one without a floor still plays",
+    mixed.sure.length === 1 &&
+      mixed.sure[0]?.matched[0] === "water" &&
+      mixed.unsure[0]?.matched[0] === "china",
+  );
+  check(
+    "voice/session",
+    "a match with no confidence to go on passes its floor",
+    weigh("China.", []).sure.length === 1,
+  );
+  check(
+    "voice/sounds",
+    "a minConfidence outside 0 to 1 is dropped rather than silencing the trigger",
+    floored.triggers[2]?.minConfidence === undefined && floored.triggers[0]?.minConfidence === 0.6,
   );
 }
 

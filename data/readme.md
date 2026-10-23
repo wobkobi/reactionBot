@@ -202,6 +202,7 @@ rather than sitting in the log.
 | `triggers[].pool` | Folder under `data/sounds/` (or a key in `pools`) to draw from. |
 | `triggers[].sounds` | Clips named directly, instead of a pool. |
 | `triggers[].cooldownMs` | Overrides the server gap for this trigger alone. |
+| `triggers[].minConfidence` | How sure the transcriber must be of the words, 0 to 1, before this trigger plays. For a word Whisper writes when it hears a name it does not know: "China" for "Shayna" comes in around 0.3, "China" said outright above 0.9. Pick it from the `confidence` column of `voice_triggers.csv`; a match under it is logged as `low-confidence`. |
 | `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
 | `triggers[].fuzzy` | Stretched-spelling tolerance, as in `words.json`. Rarely useful for speech. |
 | `ambient.pool` / `.sounds` | Where the unprompted sounds come from. Remove the block to switch them off. |
@@ -331,7 +332,8 @@ pool is not on disk, the day is not counted as spent and they get another go.
 - `<guildId>/voice_triggers.csv` - one row per transcript that matched a
   trigger: when, who, the whole transcript, the words that fired it, the pool
   and clip, and `played` or what stopped it (`pool-cooldown`, `guild-floor`,
-  `playing`, `calm`, `no-clips`, `missing-file`, `not-played`), then
+  `playing`, `calm`, `low-confidence`, `no-clips`, `missing-file`,
+  `not-played`), then
   `confidence`: how sure the transcriber was of the words that fired, 0 to 1.
   A clear word sits near 1; a name it does not know, heard as the nearest word
   it does, comes in well under. Refused matches are kept, since a misfire is

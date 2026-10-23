@@ -29,7 +29,13 @@ const BOM = String.fromCharCode(0xfeff);
 
 /** What became of a match: played, or the reason it did not. */
 export type TriggerOutcome =
-  "played" | Exclude<ClipVerdict, "play"> | "calm" | "no-clips" | "missing-file" | "not-played";
+  | "played"
+  | Exclude<ClipVerdict, "play">
+  | "calm"
+  | "low-confidence"
+  | "no-clips"
+  | "missing-file"
+  | "not-played";
 
 /** One row of the log. */
 export interface TriggerRecord {
