@@ -43,6 +43,13 @@ export interface SoundTrigger {
   fuzzy?: boolean;
   phonetic?: boolean;
   cooldownMs?: number;
+  /**
+   * How sure the transcriber has to be of the words, 0 to 1, before this
+   * trigger plays. For a word Whisper falls back on when it hears a name it
+   * does not know: it writes "China" for "Shayna", but far less surely than
+   * for "China" said outright.
+   */
+  minConfidence?: number;
 }
 
 /** One person's entrance: what plays as they arrive, and what gets posted. */
@@ -116,6 +123,8 @@ export interface CompiledTrigger {
   list: DetectList;
   phonetic: PhoneticKey[];
   cooldownMs?: number;
+  /** The trigger's confidence floor, when it set a usable one. */
+  minConfidence?: number;
 }
 
 /** Ambient playback: where its clips come from and how far apart they fall. */
@@ -331,12 +340,21 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
           .map((form) => ({ codes: codesFor(form), initial: form[0]! }))
       : [];
 
+    // A floor outside 0 to 1 is a typo (50 for 0.5, say), and honouring it
+    // would silence the trigger for good, so it is dropped with a warning.
+    const floor = trigger.minConfidence;
+    const usableFloor = typeof floor === "number" && floor >= 0 && floor <= 1;
+    if (floor !== undefined && !usableFloor) {
+      log.warn("trigger minConfidence ignored, it must be 0 to 1", { words, minConfidence: floor });
+    }
+
     triggers.push({
       trigger,
       source,
       list: compileItems(forms.map((word) => ({ word, fuzzy: trigger.fuzzy }))),
       phonetic,
       cooldownMs: trigger.cooldownMs,
+      minConfidence: usableFloor ? floor : undefined,
     });
   }
 
