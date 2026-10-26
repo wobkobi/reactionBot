@@ -186,30 +186,92 @@ export function buildMatcher(phrases: string[]): RegExp | null {
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "gu");
 }
 
+/** One occurrence of a listed word, and where it sits among the text's words. */
+export interface FoundMatch {
+  /** The matched phrase, or a pattern entry's canonical word. */
+  word: string;
+  /** Words of the normalised text ahead of the match. */
+  before: number;
+  /** Words of the normalised text after the match. */
+  after: number;
+}
+
 /**
- * Counts occurrences of any listed phrase or pattern in the text. Literal
- * phrases are recorded under the matched text; pattern hits under the entry's
- * canonical `word`.
+ * Counts the spaces ahead of a position in normalised text. Words there are
+ * separated by exactly one space, so this is the index of the word holding it.
+ * @param norm - Text from {@link normalise}.
+ * @param end - Position to count up to, exclusive.
+ * @returns The number of spaces before `end`.
+ */
+function spacesBefore(norm: string, end: number): number {
+  let n = 0;
+  for (let i = 0; i < end; i++) if (norm[i] === " ") n++;
+  return n;
+}
+
+/**
+ * Finds every occurrence of any listed phrase or pattern in the text, phrases
+ * first. Literal phrases are recorded under the matched text; pattern hits
+ * under the entry's canonical `word`. Positions are counted in words of the
+ * normalised text.
+ * @param text - Raw message content.
+ * @param list - A compiled {@link DetectList} from {@link compileItems}.
+ * @returns Each occurrence with its position.
+ */
+export function findMatches(text: string, list: DetectList): FoundMatch[] {
+  const norm = normalise(text);
+  if (!norm) return [];
+  const lastWord = spacesBefore(norm, norm.length);
+  const found: FoundMatch[] = [];
+  const add = (word: string, m: RegExpExecArray): void => {
+    // Matches never end on a space, so the spaces ahead of a match's end give
+    // the index of its last word: the far side of a multi-word phrase.
+    const end = spacesBefore(norm, m.index + m[0].length);
+    found.push({ word, before: spacesBefore(norm, m.index), after: lastWord - end });
+  };
+
+  const matcher = buildMatcher(list.phrases);
+  if (matcher) {
+    for (const m of norm.matchAll(matcher)) add(m[0], m);
+  }
+  for (const { word, re } of list.patterns) {
+    for (const m of norm.matchAll(re)) add(word, m);
+  }
+
+  return found;
+}
+
+/**
+ * Builds a test for whether a stored word is still on a list: whether the list
+ * would match the word whole. Matching rather than looking the word up keeps a
+ * count filed under an older form of an entry, as long as the list still
+ * catches it, while a word taken off the list fails. Verdicts are kept, since
+ * a leaderboard asks about the same few words once per member.
+ * @param list - A compiled {@link DetectList} from {@link compileItems}.
+ * @returns The test, taking a word as the count stores key it.
+ */
+export function listedIn(list: DetectList): (word: string) => boolean {
+  const verdicts = new Map<string, boolean>();
+  return (word) => {
+    let listed = verdicts.get(word);
+    if (listed === undefined) {
+      listed = findMatches(word, list).some((m) => m.before === 0 && m.after === 0);
+      verdicts.set(word, listed);
+    }
+    return listed;
+  };
+}
+
+/**
+ * Counts occurrences of any listed phrase or pattern in the text, keyed as
+ * {@link findMatches} names them.
  * @param text - Raw message content.
  * @param list - A compiled {@link DetectList} from {@link compileItems}.
  * @returns Map of matched word > occurrence count.
  */
 export function countMatches(text: string, list: DetectList): Map<string, number> {
   const counts = new Map<string, number>();
-  const norm = normalise(text);
-
-  const matcher = buildMatcher(list.phrases);
-  if (matcher) {
-    for (const m of norm.matchAll(matcher)) {
-      counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
-    }
-  }
-
-  for (const { word, re } of list.patterns) {
-    const n = (norm.match(re) ?? []).length;
-    if (n > 0) counts.set(word, (counts.get(word) ?? 0) + n);
-  }
-
+  for (const { word } of findMatches(text, list)) counts.set(word, (counts.get(word) ?? 0) + 1);
   return counts;
 }
 

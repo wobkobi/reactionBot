@@ -51,6 +51,7 @@ import {
   resolveClips,
   type CompiledTrigger,
 } from "@/voice/sounds";
+import { scoreSpoken, startRun, type ChunkPlace } from "@/voice/spokenWords";
 import { matchConfidence, startStt, transcribe } from "@/voice/stt";
 import type { HeardWord } from "@/voice/sttTypes";
 import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
@@ -314,18 +315,22 @@ async function playMatch(
 }
 
 /**
- * Handles one finished utterance: transcribe it, match it, play the clip, and
- * write the match to the server's trigger log whatever became of it.
+ * Handles one finished utterance: transcribe it, score its swears and slurs,
+ * match it, play the clip, and write the match to the server's trigger log
+ * whatever became of it.
  * @param guild - The server the speaker is in.
  * @param userId - Who spoke.
  * @param samples - The utterance as mono 16kHz float samples.
  * @param spokeUntil - When the speaker stopped, epoch ms, for timing the wait.
+ * @param chunk - Where the utterance sits in the speaker's run, so a word
+ * heard again in the overlap with the chunk before is not scored twice.
  */
 async function handleUtterance(
   guild: Guild,
   userId: string,
   samples: Float32Array,
   spokeUntil: number,
+  chunk: ChunkPlace,
 ): Promise<void> {
   const guildId = guild.id;
   const durationMs = Math.round((samples.length / TARGET_RATE) * 1000);
@@ -356,11 +361,16 @@ async function handleUtterance(
     return;
   }
 
+  // Scored before any trigger match, since a swear needs no clip to count, and
+  // before any await, so the chunks of a run are scored in the order they were
+  // cut.
+  const userName = displayName(guild, userId);
+  scoreSpoken(guildId, { userId, userName }, text, chunk);
+
   const matches = matchTriggers(text, compiled);
   if (matches.length === 0) return;
 
   const heardAt = new Date();
-  const userName = displayName(guild, userId);
   // A trigger heard less surely than its own floor drops out here. When every
   // one of them did, the row still names them, so the log shows what a floor
   // is holding back and whether it sits in the right place.
@@ -424,6 +434,9 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
   // which the transcriber has already had, so a flush with nothing fresh would
   // be a repeat and is skipped.
   let fresh = 0;
+  // Every chunk after the first opens with the overlap from the one before.
+  const run = startRun();
+  let index = 0;
 
   /**
    * Sends what has been captured so far for transcription and resets the buffer.
@@ -443,12 +456,15 @@ function captureSpeaker(session: Session, guildId: string, userId: string): void
     total = tail?.length ?? 0;
     fresh = 0;
     const spokeUntil = Date.now() - silenceMs;
-    void handleUtterance(session.guild, userId, samples, spokeUntil).catch((err: unknown) => {
-      log.warn("utterance handling failed", {
-        guildId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    const chunk = { run, index: index++ };
+    void handleUtterance(session.guild, userId, samples, spokeUntil, chunk).catch(
+      (err: unknown) => {
+        log.warn("utterance handling failed", {
+          guildId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
+    );
   };
 
   stream.on("data", (packet: Buffer) => {

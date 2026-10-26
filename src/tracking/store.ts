@@ -42,6 +42,34 @@ export function loadStore(guildId: string, storeFile: string): CountStore {
 }
 
 /**
+ * Which stored words a read counts. Words taken off the word list stay on
+ * disk, so adding one back restores its history; until then a reader passes
+ * this to leave them out.
+ */
+export type WordFilter = (word: string) => boolean;
+
+/**
+ * Loads a store for reading, cut down to the words that pass the filter.
+ * Members left with no words are dropped, so no board ranks a zero.
+ * @param guildId - Discord guild (server) ID.
+ * @param storeFile - JSON filename for this tracker.
+ * @param [listed] - Words to keep; every word when omitted.
+ * @returns The store, or a filtered copy of it.
+ */
+function readStore(guildId: string, storeFile: string, listed?: WordFilter): CountStore {
+  const store = loadStore(guildId, storeFile);
+  if (!listed) return store;
+  const keep = (counts: UserCounts): UserCounts =>
+    Object.fromEntries(Object.entries(counts).filter(([word]) => listed(word)));
+  const users: Record<string, UserCounts> = {};
+  for (const [userId, counts] of Object.entries(store.users)) {
+    const kept = keep(counts);
+    if (Object.keys(kept).length > 0) users[userId] = kept;
+  }
+  return { users, totals: keep(store.totals) };
+}
+
+/**
  * Persists a tracker store to disk for a guild.
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
@@ -92,10 +120,16 @@ export function incrementCounts(
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param userId - Discord user ID.
+ * @param [listed] - Words to count; every word when omitted.
  * @returns Total count for the user.
  */
-export function getUserTotal(guildId: string, storeFile: string, userId: string): number {
-  const u = loadStore(guildId, storeFile).users[userId];
+export function getUserTotal(
+  guildId: string,
+  storeFile: string,
+  userId: string,
+  listed?: WordFilter,
+): number {
+  const u = readStore(guildId, storeFile, listed).users[userId];
   if (!u) return 0;
   return Object.values(u).reduce((a, b) => a + b, 0);
 }
@@ -105,20 +139,31 @@ export function getUserTotal(guildId: string, storeFile: string, userId: string)
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param userId - Discord user ID.
+ * @param [listed] - Words to include; every word when omitted.
  * @returns The user's word > count map.
  */
-export function getUserCounts(guildId: string, storeFile: string, userId: string): UserCounts {
-  return loadStore(guildId, storeFile).users[userId] ?? {};
+export function getUserCounts(
+  guildId: string,
+  storeFile: string,
+  userId: string,
+  listed?: WordFilter,
+): UserCounts {
+  return readStore(guildId, storeFile, listed).users[userId] ?? {};
 }
 
 /**
  * Returns the guild-wide word > count totals for a tracker.
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
+ * @param [listed] - Words to include; every word when omitted.
  * @returns The word > total count map.
  */
-export function getTotals(guildId: string, storeFile: string): Record<string, number> {
-  return loadStore(guildId, storeFile).totals;
+export function getTotals(
+  guildId: string,
+  storeFile: string,
+  listed?: WordFilter,
+): Record<string, number> {
+  return readStore(guildId, storeFile, listed).totals;
 }
 
 /**
@@ -128,14 +173,16 @@ export function getTotals(guildId: string, storeFile: string): Record<string, nu
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param limit - Max number of users to return (default 10).
+ * @param [listed] - Words to count; every word when omitted.
  * @returns Array of `{ userId, total, favourite }` sorted desc by total.
  */
 export function getTopUsers(
   guildId: string,
   storeFile: string,
   limit = 10,
+  listed?: WordFilter,
 ): Array<{ userId: string; total: number; favourite: string | null }> {
-  const store = loadStore(guildId, storeFile);
+  const store = readStore(guildId, storeFile, listed);
   const rows = Object.entries(store.users).map(([userId, counts]) => {
     let total = 0;
     let favourite: string | null = null;
@@ -158,14 +205,16 @@ export function getTopUsers(
  * @param guildId - Discord guild (server) ID.
  * @param storeFile - JSON filename for this tracker.
  * @param limit - Max words to return (default 10).
+ * @param [listed] - Words to include; every word when omitted.
  * @returns Array of `{ word, count }` sorted desc by count.
  */
 export function getTopWords(
   guildId: string,
   storeFile: string,
   limit = 10,
+  listed?: WordFilter,
 ): Array<{ word: string; count: number }> {
-  const store = loadStore(guildId, storeFile);
+  const store = readStore(guildId, storeFile, listed);
   const rows = Object.entries(store.totals).map(([word, count]) => ({ word, count }));
   rows.sort((a, b) => b.count - a.count);
   return rows.slice(0, Math.max(0, limit));
@@ -178,6 +227,7 @@ export function getTopWords(
  * @param storeFile - JSON filename for this tracker.
  * @param word - The word to rank users by (lowercased).
  * @param limit - Max number of users to return (default 10).
+ * @param [listed] - Words to count; every word when omitted.
  * @returns Array of `{ userId, count }` sorted desc by that word's count.
  */
 export function getTopUsersForWord(
@@ -185,9 +235,10 @@ export function getTopUsersForWord(
   storeFile: string,
   word: string,
   limit = 10,
+  listed?: WordFilter,
 ): Array<{ userId: string; count: number }> {
   const w = word.toLowerCase();
-  const store = loadStore(guildId, storeFile);
+  const store = readStore(guildId, storeFile, listed);
   const rows = Object.entries(store.users)
     .map(([userId, counts]) => ({ userId, count: counts[w] ?? 0 }))
     .filter((r) => r.count > 0);

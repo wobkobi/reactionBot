@@ -6,7 +6,7 @@
 // entirely while calm mode is on.
 
 import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
-import { countMatches } from "@/tracking/detect";
+import { countMatches, listedIn } from "@/tracking/detect";
 import { getUserTotal } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { CompiledWords } from "@/tracking/words";
@@ -228,13 +228,18 @@ export async function respondToMessage(
       startCalm(message.guildId, auto.ms, auto.messages);
     }
 
-    // {count}: running author total for tracked types, else the hits in this
-    // message (react-only types have no store at all).
+    // {count}: running author total for tracked types, counting only words
+    // still listed so it agrees with the tracker command, else the hits in
+    // this message (react-only types have no store at all).
     const track = compiled.def.track;
-    const storeFile =
-      track === "swears" ? SWEARS.storeFile : track === "slurs" ? SLURS.storeFile : null;
-    const count = storeFile
-      ? getUserTotal(message.guildId, storeFile, message.author.id)
+    const tracker = track === "swears" ? SWEARS : track === "slurs" ? SLURS : null;
+    const count = tracker
+      ? getUserTotal(
+          message.guildId,
+          tracker.storeFile,
+          message.author.id,
+          listedIn(words.tracks[tracker.track]),
+        )
       : [...hits.values()].reduce((a, b) => a + b, 0);
 
     log.info("response fired", { guildId: message.guildId, type: typeName, categories });

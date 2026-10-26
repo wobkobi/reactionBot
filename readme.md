@@ -13,7 +13,7 @@ hears a word.
 - **Tracking junk** - `?utm_...` and `fbclid` tails are stripped on the way through. Functional
   parameters are left alone.
 - **Trackers** - per-server counters for swears and slurs, with leaderboards and a targeted-group
-  breakdown.
+  breakdown. Words said in a voice channel the bot is listening in count the same as typed ones.
 - **Reactions and replies** - phrase reactions, spell-out reactions in letter emojis, and GIF or
   text replies to slurs.
 - **Mention comebacks** - ping the bot, get a playground insult back.
