@@ -6,7 +6,7 @@
 // file only wires the two together and adds whatever is unique to it (e.g.
 // `/slurs groups`).
 
-import { aggregateByCategory } from "@/tracking/detect";
+import { aggregateByCategory, listedIn } from "@/tracking/detect";
 import {
   getTopUsers,
   getTopUsersForWord,
@@ -16,6 +16,7 @@ import {
   getUserTotal,
   resetGuild,
   resetUser,
+  type WordFilter,
 } from "@/tracking/store";
 import { Tracker } from "@/tracking/trackers";
 import { loadWords } from "@/tracking/words";
@@ -132,15 +133,30 @@ async function replyError(
 }
 
 /**
- * Every word recorded for a tracker in this guild, most-used first. Backs both
- * {@link autocompleteWord} and the free-text check in {@link replyTopUsers}, so
- * the two always agree on what counts as a known word.
+ * The stored words a tracker still counts: the ones its current word list
+ * matches. Every read below passes this, so a word taken out of words.json
+ * drops off the boards and totals at once, without touching the counts on disk.
+ * @param guildId - Discord guild (server) ID.
+ * @param tracker - The tracker whose list to check against.
+ * @returns The filter, from {@link listedIn}.
+ */
+function listedWords(guildId: string, tracker: Tracker): WordFilter {
+  return listedIn(loadWords(guildId).tracks[tracker.track]);
+}
+
+/**
+ * Every word recorded for a tracker in this guild and still on its list,
+ * most-used first. Backs both {@link autocompleteWord} and the free-text check
+ * in {@link replyTopUsers}, so the two always agree on what counts as a known
+ * word.
  * @param guildId - Discord guild (server) ID.
  * @param tracker - The tracker whose store to read.
  * @returns The recorded words, most-used first.
  */
 function recordedWords(guildId: string, tracker: Tracker): string[] {
-  return getTopWords(guildId, tracker.storeFile, Infinity).map((r) => r.word);
+  return getTopWords(guildId, tracker.storeFile, Infinity, listedWords(guildId, tracker)).map(
+    (r) => r.word,
+  );
 }
 
 /**
@@ -196,15 +212,16 @@ export async function replyTopUsers(
     }
 
     const limit = interaction.options.getInteger("limit") ?? DEFAULT_LIMIT;
+    const listed = listedWords(guildId, tracker);
     // Word-specific rankings already name the word in the title; overall
     // rankings carry each user's favourite (most-used) word instead.
     const ranked = word
-      ? getTopUsersForWord(guildId, tracker.storeFile, word, limit).map((r) => ({
+      ? getTopUsersForWord(guildId, tracker.storeFile, word, limit, listed).map((r) => ({
           userId: r.userId,
           n: r.count,
           favourite: null as string | null,
         }))
-      : getTopUsers(guildId, tracker.storeFile, limit).map((r) => ({
+      : getTopUsers(guildId, tracker.storeFile, limit, listed).map((r) => ({
           userId: r.userId,
           n: r.total,
           favourite: r.favourite,
@@ -249,7 +266,12 @@ export async function replyTopWords(
   }
   try {
     const limit = interaction.options.getInteger("limit") ?? DEFAULT_LIMIT;
-    const rows = getTopWords(interaction.guildId, tracker.storeFile, limit);
+    const rows = getTopWords(
+      interaction.guildId,
+      tracker.storeFile,
+      limit,
+      listedWords(interaction.guildId, tracker),
+    );
     const lines = rows.map((r, i) => `**${i + 1}.** ${r.word} - **${r.count}**`);
     const embed = new EmbedBuilder()
       .setTitle(tracker.wordsTitle)
@@ -282,13 +304,14 @@ export async function replyCategoryBreakdown(
     return;
   }
   try {
-    const { category } = loadWords(interaction.guildId).tracks[tracker.track];
+    const list = loadWords(interaction.guildId).tracks[tracker.track];
+    const listed = listedIn(list);
     const target = interaction.options.getUser("user");
     const counts = target
-      ? getUserCounts(interaction.guildId, tracker.storeFile, target.id)
-      : getTotals(interaction.guildId, tracker.storeFile);
+      ? getUserCounts(interaction.guildId, tracker.storeFile, target.id, listed)
+      : getTotals(interaction.guildId, tracker.storeFile, listed);
 
-    const rows = aggregateByCategory(counts, category);
+    const rows = aggregateByCategory(counts, list.category);
     const lines = rows.map((r, i) => `**${i + 1}.** ${r.category} - **${r.count}**`);
     const title = target ? `Groups ${target.username} offends most` : "Most-targeted groups";
 
@@ -323,7 +346,12 @@ export async function replyUserTotal(
   }
   try {
     const target = interaction.options.getUser("user") ?? interaction.user;
-    const total = getUserTotal(interaction.guildId, tracker.storeFile, target.id);
+    const total = getUserTotal(
+      interaction.guildId,
+      tracker.storeFile,
+      target.id,
+      listedWords(interaction.guildId, tracker),
+    );
     const isSelf = target.id === interaction.user.id;
     const subject = isSelf ? "You" : `${target}`;
     const has = isSelf ? "have" : "has";

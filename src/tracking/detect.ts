@@ -242,6 +242,27 @@ export function findMatches(text: string, list: DetectList): FoundMatch[] {
 }
 
 /**
+ * Builds a test for whether a stored word is still on a list: whether the list
+ * would match the word whole. Matching rather than looking the word up keeps a
+ * count filed under an older form of an entry, as long as the list still
+ * catches it, while a word taken off the list fails. Verdicts are kept, since
+ * a leaderboard asks about the same few words once per member.
+ * @param list - A compiled {@link DetectList} from {@link compileItems}.
+ * @returns The test, taking a word as the count stores key it.
+ */
+export function listedIn(list: DetectList): (word: string) => boolean {
+  const verdicts = new Map<string, boolean>();
+  return (word) => {
+    let listed = verdicts.get(word);
+    if (listed === undefined) {
+      listed = findMatches(word, list).some((m) => m.before === 0 && m.after === 0);
+      verdicts.set(word, listed);
+    }
+    return listed;
+  };
+}
+
+/**
  * Counts occurrences of any listed phrase or pattern in the text, keyed as
  * {@link findMatches} names them.
  * @param text - Raw message content.

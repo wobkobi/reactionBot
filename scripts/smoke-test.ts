@@ -77,6 +77,7 @@ import {
   countMatches,
   findMatches,
   type FoundMatch,
+  listedIn,
   wordToPattern,
 } from "@/tracking/detect";
 import {
@@ -98,7 +99,7 @@ import {
   RESPONSE_COOLDOWN_MS,
   RESPONSE_SPAM_THRESHOLD,
 } from "@/tracking/responses";
-import { getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
+import { getTopUsers, getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, WORDS_FILE } from "@/tracking/words";
@@ -1634,6 +1635,43 @@ function checkTrackers(): void {
       "trackers",
       "store records a word total",
       getTopWords(guild, SWEARS.storeFile)[0]?.word === "bender",
+    );
+
+    // "buck" stands in for a word counted once and since taken off the list.
+    const listed = listedIn(words.tracks.slurs);
+    check(
+      "trackers",
+      "a word the list still matches is listed; one taken off it, or a phrase around one, is not",
+      listed("duck") && listed("goose") && !listed("buck") && !listed("dumb goose"),
+    );
+    incrementCounts(
+      guild,
+      SLURS.storeFile,
+      "u2",
+      new Map([
+        ["duck", 1],
+        ["buck", 4],
+      ]),
+    );
+    incrementCounts(guild, SLURS.storeFile, "u3", new Map([["buck", 9]]));
+    const top = getTopUsers(guild, SLURS.storeFile, 10, listed);
+    check(
+      "trackers",
+      "boards and totals leave out words no longer listed",
+      getTopWords(guild, SLURS.storeFile, 10, listed)
+        .map((r) => r.word)
+        .join() === "duck" &&
+        getUserTotal(guild, SLURS.storeFile, "u2", listed) === 1 &&
+        top.length === 1 &&
+        top[0]?.userId === "u2" &&
+        top[0].total === 1 &&
+        top[0].favourite === "duck",
+    );
+    check(
+      "trackers",
+      "a word no longer listed keeps its counts on disk",
+      getUserTotal(guild, SLURS.storeFile, "u2") === 5 &&
+        getUserTotal(guild, SLURS.storeFile, "u3") === 9,
     );
   } finally {
     rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
