@@ -46,6 +46,16 @@
   // written to the server's voice_triggers.csv regardless.
   "logTranscripts": false,
 
+  // How sure the transcriber has to be of a trigger's words, 0 to 1, before it
+  // plays. Under 0.2 (the default), matches were nearly all misheard. A trigger
+  // can set its own "minConfidence" in place of this one, which a slur trigger
+  // wants: Whisper is unsure of those even said plainly.
+  "minConfidence": 0.2,
+
+  // The same for a swear or slur counting on /swears and /slurs. Lower, at 0.1
+  // by default, for the same reason.
+  "countMinConfidence": 0.1,
+
   // Turns voice on for every server without needing /autojoin on in each.
   "enabled": false,
 

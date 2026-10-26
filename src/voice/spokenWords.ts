@@ -7,13 +7,16 @@
 // Long speech arrives as overlapping chunks (CHUNK_OVERLAP_SAMPLES in
 // audio.ts), so a word said near a cut is transcribed twice: at the end of one
 // chunk and again at the start of the next. The transcriber gives no timings,
-// so position in the transcript stands in for time - see stitchCounts.
+// so position in the transcript stands in for time - see stitchCounts. A word
+// heard less surely than the server's floor is logged and not counted.
 
 import { findMatches, type FoundMatch } from "@/tracking/detect";
 import { incrementCounts } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, type TrackKey } from "@/tracking/words";
 import { createLogger } from "@/utils/log";
+import { matchConfidence } from "@/voice/stt";
+import type { HeardWord } from "@/voice/sttTypes";
 
 const log = createLogger("voice/spokenWords");
 
@@ -81,7 +84,34 @@ export function stitchCounts(
 }
 
 /**
+ * Splits a chunk's matches by how surely each was heard. A match with no
+ * confidence to go on is kept, as a trigger's is: the floor is for doubtful
+ * hearings, and a missing figure says nothing either way.
+ * @param found - The chunk's matches, from {@link findMatches}.
+ * @param heard - The transcript's words with their confidence.
+ * @param floor - Confidence a match needs to count, 0 to 1.
+ * @returns The sure and unsure matches, each in the order given.
+ */
+export function weighFound(
+  found: FoundMatch[],
+  heard: HeardWord[],
+  floor: number,
+): { sure: FoundMatch[]; unsure: FoundMatch[] } {
+  const sure: FoundMatch[] = [];
+  const unsure: FoundMatch[] = [];
+  for (const match of found) {
+    const confidence = matchConfidence([match.text], heard);
+    (confidence !== null && confidence < floor ? unsure : sure).push(match);
+  }
+  return { sure, unsure };
+}
+
+/**
  * Counts the swears and slurs in one chunk of speech against the speaker.
+ *
+ * A match heard less surely than the floor is logged and not counted. It is
+ * left out of the seam too, so a surer hearing of the same word in the next
+ * chunk still counts rather than being taken for the copy.
  *
  * Chunks reach here in the order they were cut, since the transcriber works
  * through them one at a time, but one can go missing: dropped under load, or
@@ -92,14 +122,18 @@ export function stitchCounts(
  * @param speaker - Who spoke, by ID and by name for the log.
  * @param speaker.userId - Discord user ID the counts go to.
  * @param speaker.userName - Display name, for the log line.
- * @param text - The chunk's transcript.
+ * @param transcript - What the chunk was heard as.
+ * @param transcript.text - The chunk's transcript.
+ * @param transcript.words - Its words with their confidence.
  * @param chunk - The chunk's place in its run; the run is updated with it.
+ * @param floor - Confidence a word needs to count, 0 to 1.
  */
 export function scoreSpoken(
   guildId: string,
   speaker: { userId: string; userName: string },
-  text: string,
+  transcript: { text: string; words: HeardWord[] },
   chunk: ChunkPlace,
+  floor: number,
 ): void {
   const { run, index } = chunk;
   const words = loadWords(guildId);
@@ -107,17 +141,48 @@ export function scoreSpoken(
   const tails = new Map<TrackKey, Map<string, number>>();
 
   for (const tracker of [SWEARS, SLURS]) {
-    const found = findMatches(text, words.tracks[tracker.track]);
+    const found = findMatches(transcript.text, words.tracks[tracker.track]);
+    const { sure, unsure } = weighFound(found, transcript.words, floor);
     const seam = follows ? run.tails.get(tracker.track) : undefined;
-    const { counts, tail } = stitchCounts(found, seam);
+    const { counts, tail } = stitchCounts(sure, seam);
     tails.set(tracker.track, tail);
-    if (counts.size === 0) continue;
-    incrementCounts(guildId, tracker.storeFile, speaker.userId, counts);
+    if (counts.size > 0) incrementCounts(guildId, tracker.storeFile, speaker.userId, counts);
+
     // Slurs at info, as a typed one is; swears are too common to be worth more
-    // than debug.
-    const fields = { guildId, user: speaker.userName, words: [...counts.keys()] };
-    if (tracker === SLURS) log.info("slur heard in voice", fields, { userId: speaker.userId });
-    else log.debug("swear heard in voice", fields, { userId: speaker.userId });
+    // than debug. Each line carries the least sure of its words, so a floor
+    // can be tuned from the log.
+    const line = tracker === SLURS ? log.info : log.debug;
+    const confidenceOf = (matches: FoundMatch[]): number | null =>
+      matchConfidence(
+        matches.map((m) => m.text),
+        transcript.words,
+      );
+    if (counts.size > 0) {
+      line(
+        `${tracker.noun} heard in voice`,
+        {
+          guildId,
+          user: speaker.userName,
+          words: [...counts.keys()],
+          confidence: confidenceOf(sure.filter((m) => counts.has(m.word))),
+        },
+        { userId: speaker.userId },
+      );
+    }
+    if (unsure.length > 0) {
+      line(
+        `${tracker.noun} not counted`,
+        {
+          guildId,
+          user: speaker.userName,
+          words: [...new Set(unsure.map((m) => m.word))],
+          confidence: confidenceOf(unsure),
+          reason: "heard unsurely",
+          needs: floor,
+        },
+        { userId: speaker.userId },
+      );
+    }
   }
 
   run.scored = index;

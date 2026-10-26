@@ -10,7 +10,7 @@
 import { compileItems, countMatches, normalise, type DetectList } from "@/tracking/detect";
 import { configFingerprint, dataFilePath, guildDataDir, resolveScoped } from "@/utils/file";
 import { parseJsonc } from "@/utils/jsonc";
-import { createLogger } from "@/utils/log";
+import { createLogger, type LogFields } from "@/utils/log";
 import { COMMON_WORDS } from "@/voice/commonWords";
 import { doubleMetaphone } from "double-metaphone";
 import fs from "node:fs";
@@ -94,6 +94,17 @@ export interface SoundsConfig {
   guildCooldownMs?: number;
   phonetic?: boolean;
   logTranscripts?: boolean;
+  /**
+   * How sure the transcriber has to be of a trigger's words, 0 to 1, before it
+   * plays, for a trigger without its own `minConfidence`. Defaults to
+   * {@link DEFAULT_MIN_CONFIDENCE}.
+   */
+  minConfidence?: number;
+  /**
+   * How sure the transcriber has to be of a swear or slur, 0 to 1, before it
+   * counts on the trackers. Defaults to {@link DEFAULT_COUNT_CONFIDENCE}.
+   */
+  countMinConfidence?: number;
   ignore?: string[];
   pools?: Record<string, string[]>;
   triggers?: SoundTrigger[];
@@ -123,8 +134,8 @@ export interface CompiledTrigger {
   list: DetectList;
   phonetic: PhoneticKey[];
   cooldownMs?: number;
-  /** The trigger's confidence floor, when it set a usable one. */
-  minConfidence?: number;
+  /** Confidence a match needs to play: the trigger's own floor, else the server's. */
+  minConfidence: number;
 }
 
 /** Ambient playback: where its clips come from and how far apart they fall. */
@@ -140,6 +151,41 @@ export interface CompiledSounds {
   triggers: CompiledTrigger[];
   ignore: DetectList;
   ambient: CompiledAmbient | null;
+  /** Confidence a swear or slur heard in voice needs to count, 0 to 1. */
+  countFloor: number;
+}
+
+/**
+ * Trigger confidence floor when the config sets none. In the trigger log,
+ * ordinary words matched under 0.2 were nearly all misheard or made up out of
+ * background noise: "Good night, bye." at 0.15 and "They just don't drink
+ * back." at 0.16, neither of them said, and "I'm going to go to the bathroom"
+ * word for word, for three people, under 0.1.
+ */
+export const DEFAULT_MIN_CONFIDENCE = 0.2;
+
+/**
+ * Floor for counting a swear or slur heard in voice when the config sets none.
+ * Lower than {@link DEFAULT_MIN_CONFIDENCE}, since Whisper is unsure of slurs
+ * even said plainly: seven real ones came in between 0.10 and 0.18. Sentences
+ * it made up scored 0.04 to 0.07, so the floor sits just above those.
+ */
+export const DEFAULT_COUNT_CONFIDENCE = 0.1;
+
+/**
+ * Reads a confidence floor from the config. A value outside 0 to 1 is a typo
+ * (50 for 0.5, say), and honouring it would silence everything under it for
+ * good, so it is dropped with a warning.
+ * @param value - The configured floor, if any.
+ * @param key - The setting's name, for the warning.
+ * @param [context] - What the floor belongs to, for the warning.
+ * @returns The floor, or undefined when none was set or it was unusable.
+ */
+function readFloor(value: unknown, key: string, context: LogFields = {}): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "number" && value >= 0 && value <= 1) return value;
+  log.warn(`${key} ignored, it must be 0 to 1`, { ...context, [key]: value });
+  return undefined;
 }
 
 /** Default gap either side of an ambient sound when the config gives none. */
@@ -312,6 +358,7 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
   // Off unless asked for: in live use every soundalike hit logged was a misfire
   // ("steve" for "stfu", "boots" for "badass") and none caught a real mishearing.
   const phoneticDefault = config.phonetic ?? false;
+  const floor = readFloor(config.minConfidence, "minConfidence") ?? DEFAULT_MIN_CONFIDENCE;
   const triggers: CompiledTrigger[] = [];
 
   for (const trigger of config.triggers ?? []) {
@@ -340,26 +387,25 @@ export function compileSounds(config: SoundsConfig): CompiledSounds {
           .map((form) => ({ codes: codesFor(form), initial: form[0]! }))
       : [];
 
-    // A floor outside 0 to 1 is a typo (50 for 0.5, say), and honouring it
-    // would silence the trigger for good, so it is dropped with a warning.
-    const floor = trigger.minConfidence;
-    const usableFloor = typeof floor === "number" && floor >= 0 && floor <= 1;
-    if (floor !== undefined && !usableFloor) {
-      log.warn("trigger minConfidence ignored, it must be 0 to 1", { words, minConfidence: floor });
-    }
-
     triggers.push({
       trigger,
       source,
       list: compileItems(forms.map((word) => ({ word, fuzzy: trigger.fuzzy }))),
       phonetic,
       cooldownMs: trigger.cooldownMs,
-      minConfidence: usableFloor ? floor : undefined,
+      minConfidence: readFloor(trigger.minConfidence, "minConfidence", { words }) ?? floor,
     });
   }
 
   const ignore = compileItems((config.ignore ?? []).map((word) => ({ word })));
-  return { config, triggers, ignore, ambient: compileAmbient(config, pools) };
+  return {
+    config,
+    triggers,
+    ignore,
+    ambient: compileAmbient(config, pools),
+    countFloor:
+      readFloor(config.countMinConfidence, "countMinConfidence") ?? DEFAULT_COUNT_CONFIDENCE,
+  };
 }
 
 /**
