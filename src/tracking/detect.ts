@@ -190,6 +190,8 @@ export function buildMatcher(phrases: string[]): RegExp | null {
 export interface FoundMatch {
   /** The matched phrase, or a pattern entry's canonical word. */
   word: string;
+  /** The normalised text that matched, which a pattern can spell unlike `word`. */
+  text: string;
   /** Words of the normalised text ahead of the match. */
   before: number;
   /** Words of the normalised text after the match. */
@@ -227,7 +229,7 @@ export function findMatches(text: string, list: DetectList): FoundMatch[] {
     // Matches never end on a space, so the spaces ahead of a match's end give
     // the index of its last word: the far side of a multi-word phrase.
     const end = spacesBefore(norm, m.index + m[0].length);
-    found.push({ word, before: spacesBefore(norm, m.index), after: lastWord - end });
+    found.push({ word, text: m[0], before: spacesBefore(norm, m.index), after: lastWord - end });
   };
 
   const matcher = buildMatcher(list.phrases);

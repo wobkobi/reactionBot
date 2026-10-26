@@ -202,7 +202,7 @@ rather than sitting in the log.
 | `triggers[].pool` | Folder under `data/sounds/` (or a key in `pools`) to draw from. |
 | `triggers[].sounds` | Clips named directly, instead of a pool. |
 | `triggers[].cooldownMs` | Overrides the server gap for this trigger alone. |
-| `triggers[].minConfidence` | How sure the transcriber must be of the words, 0 to 1, before this trigger plays. For a word Whisper writes when it hears a name it does not know: "China" for "Shayna" comes in around 0.3, "China" said outright above 0.9. Pick it from the `confidence` column of `voice_triggers.csv`; a match under it is logged as `low-confidence`. |
+| `triggers[].minConfidence` | How sure the transcriber must be of the words, 0 to 1, before this trigger plays, in place of the top-level `minConfidence`. For a word Whisper writes when it hears a name it does not know: "China" for "Shayna" comes in around 0.3, "China" said outright above 0.9. Pick it from the `confidence` column of `voice_triggers.csv`; a match under it is logged as `low-confidence`. |
 | `triggers[].phonetic` | Overrides the global `phonetic` for this trigger. |
 | `triggers[].fuzzy` | Stretched-spelling tolerance, as in `words.json`. Rarely useful for speech. |
 | `ambient.pool` / `.sounds` | Where the unprompted sounds come from. Remove the block to switch them off. |
@@ -212,6 +212,8 @@ rather than sitting in the log.
 | `phonetic` | Soundalike matching for single-word triggers. Default false. |
 | `ignore` | Phrases that never count. |
 | `logTranscripts` | Echo everything heard, matched or not. Off by default: it writes what people say in voice chat to the log. A debug line, so it also needs `LOG_LEVEL=debug`. |
+| `minConfidence` | How sure the transcriber must be of a trigger's words, 0 to 1, before it plays, for every trigger that sets no `minConfidence` of its own. Defaults to 0.2: ordinary words matched under that were nearly all misheard or made up from background noise. A match under it is logged as `low-confidence`. Give a slur trigger its own lower floor, since Whisper is unsure of those even said plainly. |
+| `countMinConfidence` | How sure the transcriber must be of a swear or slur, 0 to 1, before it counts on `/swears` and `/slurs`. Defaults to 0.1, lower than `minConfidence` because real slurs come in from 0.10. A word under it gets a `slur not counted` line at info (`swear not counted` at debug) with its confidence. |
 | `enabled` | Config-wide default for the per-guild switch. `/autojoin on` overrides it. |
 
 **Several words, one sound.** Point as many triggers as you like at the same

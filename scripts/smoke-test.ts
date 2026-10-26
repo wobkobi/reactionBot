@@ -142,6 +142,8 @@ import {
   type CompiledSounds,
   type CompiledTrigger,
   compileSounds,
+  DEFAULT_COUNT_CONFIDENCE,
+  DEFAULT_MIN_CONFIDENCE,
   hasSomethingToPlay,
   isIgnoredTranscript,
   matchedWords,
@@ -152,7 +154,7 @@ import {
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
-import { scoreSpoken, SEAM_WORDS, startRun, stitchCounts } from "@/voice/spokenWords";
+import { scoreSpoken, SEAM_WORDS, startRun, stitchCounts, weighFound } from "@/voice/spokenWords";
 import {
   enqueueBounded,
   isStale,
@@ -160,6 +162,7 @@ import {
   resolveWorkerPath,
   STT_JOB_TTL_MS,
 } from "@/voice/stt";
+import type { HeardWord } from "@/voice/sttTypes";
 import {
   AMBIENT_LUFS,
   cachedOggPath,
@@ -3558,14 +3561,21 @@ async function checkVoiceTriggerLog(): Promise<void> {
   );
   const mixed = weigh("China water", [
     { word: "China", confidence: 0.3 },
-    { word: "water", confidence: 0.2 },
+    { word: "water", confidence: 0.25 },
   ]);
   check(
     "voice/session",
-    "a floor holds back only its own trigger; one without a floor still plays",
+    "a floor holds back only its own trigger; one without a floor plays above the server's",
     mixed.sure.length === 1 &&
       mixed.sure[0]?.matched[0] === "water" &&
       mixed.unsure[0]?.matched[0] === "china",
+  );
+  // "They just don't drink back." came in at 0.16, and nobody had said it.
+  const misheardDrink = weigh("water back", [{ word: "water", confidence: 0.16 }]);
+  check(
+    "voice/session",
+    "a trigger without a floor is held back under the server's",
+    misheardDrink.sure.length === 0 && misheardDrink.unsure[0]?.confidence === 0.16,
   );
   check(
     "voice/session",
@@ -3574,8 +3584,42 @@ async function checkVoiceTriggerLog(): Promise<void> {
   );
   check(
     "voice/sounds",
-    "a minConfidence outside 0 to 1 is dropped rather than silencing the trigger",
-    floored.triggers[2]?.minConfidence === undefined && floored.triggers[0]?.minConfidence === 0.6,
+    "a trigger's minConfidence outside 0 to 1 falls back to the server's",
+    floored.triggers[2]?.minConfidence === DEFAULT_MIN_CONFIDENCE &&
+      floored.triggers[1]?.minConfidence === DEFAULT_MIN_CONFIDENCE &&
+      floored.triggers[0]?.minConfidence === 0.6,
+  );
+  check(
+    "voice/sounds",
+    "swears and slurs count from their own lower floor by default",
+    floored.countFloor === DEFAULT_COUNT_CONFIDENCE &&
+      DEFAULT_COUNT_CONFIDENCE < DEFAULT_MIN_CONFIDENCE,
+  );
+  const strict = compileSounds({
+    minConfidence: 0.3,
+    countMinConfidence: 0.15,
+    triggers: [
+      { words: ["china"], sounds: ["sting.ogg"], minConfidence: 0.05 },
+      { words: ["water"], sounds: ["gulp.ogg"] },
+    ],
+  });
+  check(
+    "voice/sounds",
+    "the server's floors cover triggers without their own, and counting, separately",
+    strict.triggers[1]?.minConfidence === 0.3 &&
+      strict.triggers[0]?.minConfidence === 0.05 &&
+      strict.countFloor === 0.15,
+  );
+  const typo = compileSounds({
+    minConfidence: 5,
+    countMinConfidence: -1,
+    triggers: [{ words: ["water"], sounds: ["gulp.ogg"] }],
+  });
+  check(
+    "voice/sounds",
+    "a server floor outside 0 to 1 is dropped for the default",
+    typo.triggers[0]?.minConfidence === DEFAULT_MIN_CONFIDENCE &&
+      typo.countFloor === DEFAULT_COUNT_CONFIDENCE,
   );
 }
 
@@ -3611,7 +3655,34 @@ function checkVoiceSpokenWords(): void {
     phrase[0]?.before === 1 && phrase[0].after === 1,
   );
 
-  const at = (word: string, before: number, after: number): FoundMatch => ({ word, before, after });
+  const slurs = loadWords(SMOKE_GUILD).tracks.slurs;
+  const stretched = findMatches("you absolute duuucks", slurs);
+  check(
+    "voice/spoken",
+    "a fuzzy match keeps the text it matched as well as the listed word",
+    stretched[0]?.word === "duck" && stretched[0].text === "duuucks",
+  );
+  const weighed = weighFound(
+    findMatches("fuck this shitshow wanker", swears),
+    [
+      { word: "fuck", confidence: 0.6 },
+      { word: "shitshow", confidence: 0.05 },
+    ],
+    0.1,
+  );
+  check(
+    "voice/spoken",
+    "a match under the floor is unsure; one over it or with no confidence is sure",
+    weighed.sure.map((m) => m.word).join() === "fuck,wanker" &&
+      weighed.unsure.map((m) => m.word).join() === "shitshow",
+  );
+
+  const at = (word: string, before: number, after: number): FoundMatch => ({
+    word,
+    text: word,
+    before,
+    after,
+  });
   const first = stitchCounts([at("fuck", 0, 6), at("wanker", 6, 0)]);
   check(
     "voice/spoken",
@@ -3647,25 +3718,50 @@ function checkVoiceSpokenWords(): void {
     const run = startRun();
     const speaker = { userId: "v1", userName: "Speaker" };
     const swearsSaid = (): number => getUserTotal(SMOKE_GUILD, SWEARS.storeFile, "v1");
-    scoreSpoken(SMOKE_GUILD, speaker, "what a load of rubbish oh fuck", { run, index: 0 });
+    const slursSaid = (): number => getUserTotal(SMOKE_GUILD, SLURS.storeFile, "v1");
+    const heard = (
+      text: string,
+      words: HeardWord[] = [],
+    ): { text: string; words: HeardWord[] } => ({
+      text,
+      words,
+    });
+    const floor = DEFAULT_COUNT_CONFIDENCE;
+    scoreSpoken(
+      SMOKE_GUILD,
+      speaker,
+      heard("what a load of rubbish oh fuck"),
+      { run, index: 0 },
+      floor,
+    );
     check("voice/spoken", "a swear said in a call scores on the swear tracker", swearsSaid() === 1);
-    scoreSpoken(SMOKE_GUILD, speaker, "fuck me that was close", { run, index: 1 });
+    scoreSpoken(SMOKE_GUILD, speaker, heard("fuck me that was close"), { run, index: 1 }, floor);
     check(
       "voice/spoken",
       "the next chunk's copy of a word on the cut is not scored again",
       swearsSaid() === 1,
     );
-    scoreSpoken(SMOKE_GUILD, speaker, "fuck off honestly", { run, index: 3 });
+    scoreSpoken(SMOKE_GUILD, speaker, heard("fuck off honestly"), { run, index: 3 }, floor);
     check(
       "voice/spoken",
       "a chunk after one that went missing scores its opening words",
       swearsSaid() === 2,
     );
-    scoreSpoken(SMOKE_GUILD, speaker, "you absolute duck", { run, index: 4 });
+    scoreSpoken(SMOKE_GUILD, speaker, heard("you absolute duck"), { run, index: 4 }, floor);
     check(
       "voice/spoken",
       "a slur said in a call scores on the slur tracker",
-      getUserTotal(SMOKE_GUILD, SLURS.storeFile, "v1") === 1 && swearsSaid() === 2,
+      slursSaid() === 1 && swearsSaid() === 2,
+    );
+    const unsure = heard("what a goose", [{ word: "goose", confidence: 0.05 }]);
+    scoreSpoken(SMOKE_GUILD, speaker, unsure, { run, index: 5 }, floor);
+    check("voice/spoken", "a slur heard under the floor is not counted", slursSaid() === 1);
+    const sure = heard("goose honestly", [{ word: "goose", confidence: 0.4 }]);
+    scoreSpoken(SMOKE_GUILD, speaker, sure, { run, index: 6 }, floor);
+    check(
+      "voice/spoken",
+      "a surer hearing after an unsure one on the cut still counts",
+      slursSaid() === 2,
     );
   } finally {
     rmSync(path.join(ROOT, "data", SMOKE_GUILD), { recursive: true, force: true });

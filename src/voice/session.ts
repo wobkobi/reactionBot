@@ -157,7 +157,7 @@ export interface WeighedMatch {
 }
 
 /**
- * Splits matched triggers by their own `minConfidence`: the ones heard surely
+ * Splits matched triggers by their `minConfidence`: the ones heard surely
  * enough to play, and the ones that fell short. A match with no confidence to
  * go on is kept, since the floor is for doubtful hearings and a missing figure
  * says nothing either way.
@@ -176,8 +176,7 @@ export function weighMatches(
   for (const trigger of matches) {
     const matched = matchedWords(text, trigger);
     const confidence = matchConfidence(matched, words);
-    const floor = trigger.minConfidence;
-    const short = floor !== undefined && confidence !== null && confidence < floor;
+    const short = confidence !== null && confidence < trigger.minConfidence;
     (short ? unsure : sure).push({ trigger, matched, confidence });
   }
   return { sure, unsure };
@@ -365,13 +364,13 @@ async function handleUtterance(
   // before any await, so the chunks of a run are scored in the order they were
   // cut.
   const userName = displayName(guild, userId);
-  scoreSpoken(guildId, { userId, userName }, text, chunk);
+  scoreSpoken(guildId, { userId, userName }, transcript, chunk, compiled.countFloor);
 
   const matches = matchTriggers(text, compiled);
   if (matches.length === 0) return;
 
   const heardAt = new Date();
-  // A trigger heard less surely than its own floor drops out here. When every
+  // A trigger heard less surely than its floor drops out here. When every
   // one of them did, the row still names them, so the log shows what a floor
   // is holding back and whether it sits in the right place.
   const { sure, unsure } = weighMatches(text, matches, transcript.words);
