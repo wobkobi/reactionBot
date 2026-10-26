@@ -10,6 +10,8 @@ export interface SttInit {
   type: "init";
   model: string;
   cacheDir: string;
+  /** Threads for onnxruntime, or absent to keep its default of one per physical core. */
+  threads?: number;
 }
 
 /** One utterance to transcribe. */

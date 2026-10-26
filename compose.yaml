@@ -34,7 +34,8 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # No cpu request: outside Swarm a reservation guarantees nothing, and a cap
-    # would only slow this down. Give the host enough instead - base.en takes
-    # ~1.5s per utterance on 4 cores against 4.8s on 2, and past ~3s utterances
-    # age out of the queue unheard. On 2 cores use whisper-tiny.en.
+    # No cpu reservation: outside Swarm it guarantees nothing. A `cpus:` cap works
+    # on a shared host, since the transcriber sizes its threads to the cap rather
+    # than to the machine. Leave it enough - base.en takes ~1.5s per utterance on
+    # 4 cores against 4.8s on 2, and an utterance that waits 8s is dropped
+    # unheard. On 2 cores use whisper-tiny.en.

@@ -161,6 +161,7 @@ import {
   matchConfidence,
   resolveWorkerPath,
   STT_JOB_TTL_MS,
+  whisperThreads,
 } from "@/voice/stt";
 import type { HeardWord } from "@/voice/sttTypes";
 import {
@@ -3792,6 +3793,29 @@ function checkVoiceQueue(): void {
     "a job past its ttl is stale",
     isStale(1000, 1000 + STT_JOB_TTL_MS, STT_JOB_TTL_MS) &&
       !isStale(1000, 1000 + STT_JOB_TTL_MS - 1, STT_JOB_TTL_MS),
+  );
+
+  check(
+    "voice/stt",
+    "no cpu limit keeps onnxruntime's thread default",
+    whisperThreads(null, 12) === undefined &&
+      whisperThreads("", 12) === undefined &&
+      whisperThreads("max 100000\n", 12) === undefined,
+  );
+  check(
+    "voice/stt",
+    "a cpu limit leaves one cpu of it to the rest of the bot",
+    whisperThreads("400000 100000\n", 12) === 3 && whisperThreads("250000 100000", 12) === 1,
+  );
+  check(
+    "voice/stt",
+    "a limit of one cpu or less still gets a thread",
+    whisperThreads("100000 100000", 12) === 1 && whisperThreads("50000 100000", 12) === 1,
+  );
+  check(
+    "voice/stt",
+    "a limit as big as the machine is no limit",
+    whisperThreads("1200000 100000", 12) === undefined,
   );
 
   // Built from real paths: a file:// URL without a drive letter is not absolute

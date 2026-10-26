@@ -87,7 +87,9 @@ without a restart, and the Whisper model cache survives an update rather than do
 
 Voice wants roughly 4 GB and 4 cores. The default model is `whisper-tiny.en`, chosen for how quickly
 a clip arrives after the word; set `VOICE_MODEL=Xenova/whisper-base.en` to mishear less at about
-400ms more delay. Without voice the bot is happy in a few hundred MB.
+400ms more delay. Without voice the bot is happy in a few hundred MB. On a host shared with other
+apps, cap it with `cpus:` in the compose file: the transcriber sizes its threads to the cap and
+leaves one CPU of it for the rest of the bot.
 
 ## Commands
 

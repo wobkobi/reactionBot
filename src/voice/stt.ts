@@ -8,7 +8,15 @@
 // fired late is worse than one not fired at all.
 
 import { createLogger } from "@/utils/log";
-import { DEFAULT_MODEL, type HeardWord, type SttJob, type SttOut } from "@/voice/sttTypes";
+import {
+  DEFAULT_MODEL,
+  type HeardWord,
+  type SttInit,
+  type SttJob,
+  type SttOut,
+} from "@/voice/sttTypes";
+import { readFileSync } from "node:fs";
+import { cpus } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -114,6 +122,42 @@ export function enqueueBounded<T>(pending: T[], job: T, max: number): { queue: T
  */
 export function isStale(enqueuedAt: number, now: number, ttlMs: number): boolean {
   return now - enqueuedAt >= ttlMs;
+}
+
+/**
+ * Sizes Whisper's thread pool to a container CPU limit. onnxruntime takes one
+ * thread per physical core and never looks at the limit, so under a cap its
+ * threads can spend the whole quota between them, and the kernel then pauses
+ * every thread in the container, clip playback included, until the next
+ * period. One CPU of the limit is left to the rest of the bot for that reason.
+ * @param cpuMax - cgroup v2's cpu.max: "<quota> <period>" in microseconds, or
+ * "max <period>" when there is no limit. Null when it could not be read.
+ * @param machineCpus - Logical CPUs on the machine, from os.cpus(). Not
+ * availableParallelism(): Node folds the cgroup quota into that, so under a
+ * limit of 4 it reads 4 and the limit looks as big as the machine.
+ * @returns The thread count, or undefined to keep onnxruntime's default.
+ */
+export function whisperThreads(cpuMax: string | null, machineCpus: number): number | undefined {
+  const [quota, period] = (cpuMax ?? "").trim().split(/\s+/).map(Number);
+  // "max" parses to NaN and an empty file to 0: both mean no limit.
+  if (!quota || !period) return undefined;
+  const limit = quota / period;
+  // A limit as big as the machine is no limit, and the default already fits it.
+  if (limit >= machineCpus) return undefined;
+  return Math.max(1, Math.floor(limit) - 1);
+}
+
+/**
+ * Reads the container's CPU limit.
+ * @returns The contents of cgroup v2's cpu.max, or null where there is none to
+ * read: Windows, macOS, or a host still on cgroup v1.
+ */
+function readCpuMax(): string | null {
+  try {
+    return readFileSync("/sys/fs/cgroup/cpu.max", "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -237,6 +281,7 @@ export function startStt(): void {
   const workerPath = resolveWorkerPath(import.meta.url);
   const model = sttModel();
   const cacheDir = process.env.VOICE_MODEL_DIR || path.join(process.cwd(), "data", "models");
+  const threads = whisperThreads(readCpuMax(), cpus().length);
 
   try {
     status = "starting";
@@ -258,8 +303,9 @@ export function startStt(): void {
       }
     });
     started.unref();
-    started.postMessage({ type: "init", model, cacheDir });
-    log.info("transcriber starting", { model }, { cacheDir });
+    const init: SttInit = { type: "init", model, cacheDir, threads };
+    started.postMessage(init);
+    log.info("transcriber starting", { model, threads: threads ?? "default" }, { cacheDir });
   } catch (err) {
     handleWorkerGone(err instanceof Error ? err.message : String(err));
   }

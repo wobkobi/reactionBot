@@ -109,8 +109,9 @@ function post(message: SttOut): void {
  * failing every job forever.
  * @param model - Checkpoint name to load.
  * @param cacheDir - Directory to download and cache weights into.
+ * @param threads - Threads for onnxruntime, or undefined to keep its default.
  */
-async function init(model: string, cacheDir: string): Promise<void> {
+async function init(model: string, cacheDir: string, threads: number | undefined): Promise<void> {
   // A non-literal specifier keeps TypeScript from resolving the package, so the
   // project typechecks and builds with this optional dependency absent.
   const specifier = "@huggingface/transformers";
@@ -119,7 +120,17 @@ async function init(model: string, cacheDir: string): Promise<void> {
   mod.env.cacheDir = cacheDir;
   mod.env.allowLocalModels = false;
 
-  transcriber = (await mod.pipeline("automatic-speech-recognition", model)) as Transcriber;
+  // Spinning keeps idle pool threads busy-waiting for the next op. It measured
+  // a third to a half of each job's CPU time for no gain in speed, and under a
+  // container CPU limit the spin is billed against the quota like real work.
+  const sessionOptions: Record<string, unknown> = {
+    extra: { session: { intra_op: { allow_spinning: "0" } } },
+  };
+  if (threads) sessionOptions.intraOpNumThreads = threads;
+
+  transcriber = (await mod.pipeline("automatic-speech-recognition", model, {
+    session_options: sessionOptions,
+  })) as Transcriber;
   firstSpecialId =
     transcriber.tokenizer.convert_tokens_to_ids(["<|endoftext|>"])[0] ?? Number.POSITIVE_INFINITY;
   post({ type: "ready", model });
@@ -154,7 +165,7 @@ async function run(id: number, samples: Float32Array): Promise<void> {
 
 port?.on("message", (message: SttIn) => {
   if (message.type === "init") {
-    init(message.model, message.cacheDir).catch((err: unknown) => {
+    init(message.model, message.cacheDir, message.threads).catch((err: unknown) => {
       post({ type: "fatal", message: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     });
