@@ -72,7 +72,13 @@ import {
   promptWindow,
   readDefinitions,
 } from "@/tracking/definitions";
-import { aggregateByCategory, countMatches, wordToPattern } from "@/tracking/detect";
+import {
+  aggregateByCategory,
+  countMatches,
+  findMatches,
+  type FoundMatch,
+  wordToPattern,
+} from "@/tracking/detect";
 import {
   addGif,
   GifResult,
@@ -145,6 +151,7 @@ import {
   safeClipName,
   type SoundsConfig,
 } from "@/voice/sounds";
+import { scoreSpoken, SEAM_WORDS, startRun, stitchCounts } from "@/voice/spokenWords";
 import {
   enqueueBounded,
   isStale,
@@ -3535,6 +3542,99 @@ async function checkVoiceTriggerLog(): Promise<void> {
 }
 
 /**
+ * Verifies swears and slurs said in a call score on the same trackers as typed
+ * ones: match positions, the stitch across overlapping chunks that keeps a
+ * word on a cut from counting twice, and the stores it all lands in.
+ */
+function checkVoiceSpokenWords(): void {
+  writeSmokeWords();
+  const swears = loadWords(SMOKE_GUILD).tracks.swears;
+
+  const found = findMatches("oh fuck this, what a shitshow", swears);
+  check(
+    "voice/spoken",
+    "matches carry the words ahead of and after them",
+    found.length === 2 &&
+      found[0]?.word === "fuck" &&
+      found[0].before === 1 &&
+      found[0].after === 4 &&
+      found[1]?.word === "shitshow" &&
+      found[1].before === 5 &&
+      found[1].after === 0,
+  );
+  const phrase = findMatches("i cant be arsed today", {
+    phrases: ["cant be arsed"],
+    patterns: [],
+    category: new Map(),
+  });
+  check(
+    "voice/spoken",
+    "a phrase is placed from its first word and its last",
+    phrase[0]?.before === 1 && phrase[0].after === 1,
+  );
+
+  const at = (word: string, before: number, after: number): FoundMatch => ({ word, before, after });
+  const first = stitchCounts([at("fuck", 0, 6), at("wanker", 6, 0)]);
+  check(
+    "voice/spoken",
+    "a chunk with nothing before it counts every match and passes on its closing words",
+    first.counts.get("fuck") === 1 &&
+      first.counts.get("wanker") === 1 &&
+      first.tail.get("wanker") === 1 &&
+      !first.tail.has("fuck"),
+  );
+  const seam = new Map([["fuck", 1]]);
+  check(
+    "voice/spoken",
+    "a word heard on both sides of a cut counts once",
+    stitchCounts([at("fuck", 0, 5)], seam).counts.size === 0,
+  );
+  check(
+    "voice/spoken",
+    "the seam claims one sighting per word the chunk before closed on",
+    stitchCounts([at("fuck", 0, 5), at("fuck", 1, 4)], seam).counts.get("fuck") === 1,
+  );
+  check(
+    "voice/spoken",
+    "the same word past the opening words is said again and counts",
+    stitchCounts([at("fuck", SEAM_WORDS, 1)], seam).counts.get("fuck") === 1,
+  );
+  check(
+    "voice/spoken",
+    "an opening word the chunk before did not close on counts",
+    stitchCounts([at("wanker", 0, 5)], seam).counts.get("wanker") === 1,
+  );
+
+  try {
+    const run = startRun();
+    const speaker = { userId: "v1", userName: "Speaker" };
+    const swearsSaid = (): number => getUserTotal(SMOKE_GUILD, SWEARS.storeFile, "v1");
+    scoreSpoken(SMOKE_GUILD, speaker, "what a load of rubbish oh fuck", { run, index: 0 });
+    check("voice/spoken", "a swear said in a call scores on the swear tracker", swearsSaid() === 1);
+    scoreSpoken(SMOKE_GUILD, speaker, "fuck me that was close", { run, index: 1 });
+    check(
+      "voice/spoken",
+      "the next chunk's copy of a word on the cut is not scored again",
+      swearsSaid() === 1,
+    );
+    scoreSpoken(SMOKE_GUILD, speaker, "fuck off honestly", { run, index: 3 });
+    check(
+      "voice/spoken",
+      "a chunk after one that went missing scores its opening words",
+      swearsSaid() === 2,
+    );
+    scoreSpoken(SMOKE_GUILD, speaker, "you absolute duck", { run, index: 4 });
+    check(
+      "voice/spoken",
+      "a slur said in a call scores on the slur tracker",
+      getUserTotal(SMOKE_GUILD, SLURS.storeFile, "v1") === 1 && swearsSaid() === 2,
+    );
+  } finally {
+    rmSync(path.join(ROOT, "data", SMOKE_GUILD), { recursive: true, force: true });
+  }
+}
+
+/**
  * Verifies the transcriber's load shedding and the worker path resolution that
  * has to work under tsx, under Node's own type stripping, and once compiled.
  */
@@ -4181,6 +4281,7 @@ void (async () => {
     checkVoiceAudio();
     checkVoiceSounds();
     await checkVoiceTriggerLog();
+    checkVoiceSpokenWords();
     checkVoiceQueue();
     checkVoiceJoinRules();
     await checkVoiceLeave();
