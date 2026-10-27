@@ -157,8 +157,9 @@ counted against them.
 ## sounds.json - voice sound bites
 
 The bot can sit in a voice channel, listen to what people say, and play a clip
-back when it hears a trigger. Speech is transcribed locally with Whisper; no
-audio and no transcript leaves the machine or is written to disk.
+back when it hears a trigger. Speech is transcribed locally, with Moonshine
+unless `VOICE_MODEL` picks Whisper; no audio and no transcript leaves the
+machine or is written to disk.
 
 Off until an admin runs `/autojoin on` in the server. Once on, the bot joins any
 voice channel that has people in it and leaves when the channel empties. `/join`
@@ -220,10 +221,10 @@ rather than sitting in the log.
 pool. Three unrelated words sharing one set of clips is the normal case, not a
 workaround.
 
-**Mishearings.** Whisper writes down what it thinks it heard, and for short
-words it sometimes gets the vowels wrong: "swig" or "sweg" for "swag". A trigger
-matches only the words it lists, so add a spelling to `words` when the trigger
-log shows Whisper writing one down differently.
+**Mishearings.** The transcriber writes down what it thinks it heard, and for
+short words it sometimes gets the vowels wrong: "swig" or "sweg" for "swag". A
+trigger matches only the words it lists, so add a spelling to `words` when the
+trigger log shows one written down differently.
 
 `"phonetic": true` (globally or on one trigger) matches soundalikes as well,
 comparing how a word sounds rather than how it is spelled. It only accepts one
@@ -317,8 +318,9 @@ pool is not on disk, the day is not counted as spent and they get another go.
   it per server).
 - `sounds/` - the clip files themselves, plus a `.cache/` of clips converted to
   Ogg Opus. Safe to delete; it is rebuilt on demand.
-- `models/` - the downloaded Whisper model (a few hundred MB, fetched on first
-  use). Safe to delete; it is re-downloaded. Set `VOICE_MODEL_DIR` to move it.
+- `models/` - the downloaded speech model (about 240MB for the default, 100MB
+  for moonshine-tiny, a few hundred for Whisper, fetched on first use). Safe
+  to delete; it is re-downloaded. Set `VOICE_MODEL_DIR` to move it.
 - `<guildId>/voice.json` - whether voice listening is on for that server
   (managed by `/autojoin on` and `/autojoin off`).
 - `<guildId>/media_settings.json` - `/setmediachannel` and `/setdelay`

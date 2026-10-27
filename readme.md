@@ -19,8 +19,8 @@ hears a word.
 - **Mention comebacks** - ping the bot, get a playground insult back.
 - **"Define your terms"** - words with an innocent second meaning earn a button prompt asking which
   was meant, and the bot posts that definition.
-- **Voice sound bites** - the bot listens in voice channels, transcribes locally with Whisper, and
-  plays a clip when it hears a trigger word.
+- **Voice sound bites** - the bot listens in voice channels, transcribes locally with Moonshine (or
+  Whisper), and plays a clip when it hears a trigger word.
 - **Entrances** - a configured member gets a clip played as they join voice, and a video or message
   posted in a text channel the first time the bot hears them speak. Once a day each.
 
@@ -66,7 +66,7 @@ every transcript that matched a trigger goes to that server's `voice_triggers.cs
 The image sets `ONNXRUNTIME_NODE_INSTALL=skip`. Without it, the speech recognition package downloads
 a CUDA execution provider on linux/x64 that nothing here uses, since transcription runs on the CPU.
 
-`data/` must be a volume: it holds the configuration, the counters, the sound clips and the Whisper
+`data/` must be a volume: it holds the configuration, the counters, the sound clips and the speech
 model cache. The image is Debian-based because the speech recognition library ships no musl build,
 so voice silently fails to load on Alpine.
 
@@ -83,11 +83,16 @@ version tag instead of `latest` if you would rather choose when that happens, an
 to roll back to.
 
 Config is not code: `words.json`, `sounds.json` and the clips are read from the volume and picked up
-without a restart, and the Whisper model cache survives an update rather than downloading again.
+without a restart, and the speech model cache survives an update rather than downloading again.
 
-Voice wants roughly 4 GB and 4 cores. The default model is `whisper-tiny.en`, chosen for how quickly
-a clip arrives after the word; set `VOICE_MODEL=Xenova/whisper-base.en` to mishear less at about
-400ms more delay. Without voice the bot is happy in a few hundred MB.
+Voice wants roughly 1 GB and 2 cores. The default model is `moonshine-base`, chosen for how quickly
+a clip arrives after the word: it transcribes a chunk of speech in about 150ms where Whisper takes
+400ms. `VOICE_MODEL=onnx-community/moonshine-tiny-ONNX` is twice as fast but mishears more words
+said on their own. `VOICE_MODEL=Xenova/whisper-tiny.en` or `Xenova/whisper-base.en` switches to
+Whisper, which wants 4 GB and 4 cores; base.en mishears less at about 400ms more delay. Without
+voice the bot is happy in a few hundred MB. On a host shared with other apps, cap it with `cpus:` in
+the compose file: the transcriber sizes its threads to the cap and leaves one CPU of it for the rest
+of the bot.
 
 ## Commands
 

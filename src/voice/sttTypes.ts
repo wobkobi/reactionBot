@@ -10,6 +10,8 @@ export interface SttInit {
   type: "init";
   model: string;
   cacheDir: string;
+  /** Threads for onnxruntime, or absent to keep its default of one per physical core. */
+  threads?: number;
 }
 
 /** One utterance to transcribe. */
@@ -42,11 +44,15 @@ export type SttOut =
   | { type: "fatal"; message: string };
 
 /**
- * Default Whisper checkpoint. Transcription sits in the middle of the wait
- * between a word being said and its clip playing, and on base.en that measured
- * about 770ms per utterance - most of a second the joke spends landing. The
- * tiny English-only model roughly halves it. It mishears more, which costs
- * missed triggers rather than false ones, and a config that would rather have
- * the accuracy than the second sets VOICE_MODEL back to Xenova/whisper-base.en.
+ * Default speech model. Transcription sits in the middle of the wait between a
+ * word being said and its clip playing. Whisper pads every clip to 30s and
+ * turns it into a spectrogram first, so whisper-tiny.en took ~530ms on a 2s
+ * chunk and ~460ms on "Nice shot." alike. Moonshine reads the raw audio at its
+ * own length: its base model took ~140ms on a 2.1s chunk and ~80ms on "Nice
+ * shot, man." on the same CPU, and its tiny model about half that. Base is the
+ * default because tiny misheard more of the words said on their own, which is
+ * how most triggers come, and turned one of the bot's own clips into words. A
+ * config that wants tiny sets VOICE_MODEL to onnx-community/moonshine-tiny-ONNX;
+ * Whisper is Xenova/whisper-tiny.en, or Xenova/whisper-base.en to mishear less.
  */
-export const DEFAULT_MODEL = "Xenova/whisper-tiny.en";
+export const DEFAULT_MODEL = "onnx-community/moonshine-base-ONNX";

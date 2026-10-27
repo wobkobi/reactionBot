@@ -60,11 +60,17 @@ services:
     # ffmpeg conversions can leave orphaned grandchildren; init reaps them.
     init: true
 
-    # Speech recognition holds around 1.9GB with whisper-base.en, and less with
-    # the default whisper-tiny.en.
+    # Speech recognition holds around 700MB with the default moonshine-base, and
+    # around 1.9GB with whisper-base.en.
     # This is an OOM guard, not a target. Remember ZFS ARC is competing for the
     # same RAM: leave the box headroom rather than sizing this to what is free.
     mem_limit: 4g
+
+    # Capped because the box runs other apps and VMs too. Counted in CPU threads,
+    # not cores: on a 6-core, 12-thread CPU, 4 is a third of it. The transcriber
+    # sizes its threads to this and leaves one of the 4 to the rest of the bot,
+    # so a busy call queues speech rather than pausing clip playback.
+    cpus: 4
 
     logging:
       driver: json-file

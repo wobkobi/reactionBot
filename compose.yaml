@@ -22,8 +22,9 @@ services:
     # ffmpeg conversions can leave orphaned grandchildren; init reaps them.
     init: true
 
-    # Speech recognition sits around 1.9GB with whisper-base.en, so this is an
-    # OOM guard rather than a target. whisper-tiny.en fits in 2G.
+    # Speech recognition sits around 700MB with the default moonshine-base and
+    # around 1.9GB with whisper-base.en, so this is an OOM guard rather than a
+    # target.
     mem_limit: 4g
 
     # Without a cap the log file grows until the disk does not. Three 10MB files
@@ -34,7 +35,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # No cpu request: outside Swarm a reservation guarantees nothing, and a cap
-    # would only slow this down. Give the host enough instead - base.en takes
-    # ~1.5s per utterance on 4 cores against 4.8s on 2, and past ~3s utterances
-    # age out of the queue unheard. On 2 cores use whisper-tiny.en.
+    # No cpu reservation: outside Swarm it guarantees nothing. A `cpus:` cap works
+    # on a shared host, since the transcriber sizes its threads to the cap rather
+    # than to the machine. The default moonshine-base is comfortable on 2: ~180ms
+    # a chunk on the one thread that leaves it. Whisper wants more - base.en
+    # takes ~1.5s per utterance on 4 cores against 4.8s on 2, and an utterance
+    # that waits 8s is dropped unheard.
