@@ -3,7 +3,7 @@
 // Parent side of the speech-to-text worker: lifecycle, a bounded job queue, and
 // the promise plumbing that turns worker messages back into awaited results.
 //
-// The queue sheds load rather than growing. If people talk faster than Whisper
+// The queue sheds load rather than growing. If people talk faster than the model
 // transcribes, the oldest utterance is dropped first, because a sound bite
 // fired late is worse than one not fired at all.
 
@@ -96,7 +96,7 @@ let queue: PendingJob[] = [];
  */
 export function resolveWorkerPath(moduleUrl: string): string {
   const here = fileURLToPath(moduleUrl);
-  return path.join(path.dirname(here), `whisperWorker${path.extname(here)}`);
+  return path.join(path.dirname(here), `sttWorker${path.extname(here)}`);
 }
 
 /**
@@ -125,7 +125,7 @@ export function isStale(enqueuedAt: number, now: number, ttlMs: number): boolean
 }
 
 /**
- * Sizes Whisper's thread pool to a container CPU limit. onnxruntime takes one
+ * Sizes the speech model's thread pool to a container CPU limit. onnxruntime takes one
  * thread per physical core and never looks at the limit, so under a cap its
  * threads can spend the whole quota between them, and the kernel then pauses
  * every thread in the container, clip playback included, until the next
@@ -137,7 +137,7 @@ export function isStale(enqueuedAt: number, now: number, ttlMs: number): boolean
  * limit of 4 it reads 4 and the limit looks as big as the machine.
  * @returns The thread count, or undefined to keep onnxruntime's default.
  */
-export function whisperThreads(cpuMax: string | null, machineCpus: number): number | undefined {
+export function sttThreads(cpuMax: string | null, machineCpus: number): number | undefined {
   const [quota, period] = (cpuMax ?? "").trim().split(/\s+/).map(Number);
   // "max" parses to NaN and an empty file to 0: both mean no limit.
   if (!quota || !period) return undefined;
@@ -281,7 +281,7 @@ export function startStt(): void {
   const workerPath = resolveWorkerPath(import.meta.url);
   const model = sttModel();
   const cacheDir = process.env.VOICE_MODEL_DIR || path.join(process.cwd(), "data", "models");
-  const threads = whisperThreads(readCpuMax(), cpus().length);
+  const threads = sttThreads(readCpuMax(), cpus().length);
 
   try {
     status = "starting";

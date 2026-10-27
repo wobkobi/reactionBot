@@ -66,7 +66,7 @@ yarn-error.log*
 !/data/global/definitions.example.jsonc
 !/data/global/sounds.example.jsonc
 # The clip files themselves stay local, but the note explaining how to format
-# them ships. data/models/ (the Whisper cache, a few hundred MB) is already
+# them ships. data/models/ (the speech model cache, a few hundred MB at most) is already
 # covered by the /data/* rule above.
 !/data/sounds/
 /data/sounds/*

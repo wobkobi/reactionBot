@@ -161,7 +161,7 @@ import {
   matchConfidence,
   resolveWorkerPath,
   STT_JOB_TTL_MS,
-  whisperThreads,
+  sttThreads,
 } from "@/voice/stt";
 import type { HeardWord } from "@/voice/sttTypes";
 import {
@@ -3798,24 +3798,24 @@ function checkVoiceQueue(): void {
   check(
     "voice/stt",
     "no cpu limit keeps onnxruntime's thread default",
-    whisperThreads(null, 12) === undefined &&
-      whisperThreads("", 12) === undefined &&
-      whisperThreads("max 100000\n", 12) === undefined,
+    sttThreads(null, 12) === undefined &&
+      sttThreads("", 12) === undefined &&
+      sttThreads("max 100000\n", 12) === undefined,
   );
   check(
     "voice/stt",
     "a cpu limit leaves one cpu of it to the rest of the bot",
-    whisperThreads("400000 100000\n", 12) === 3 && whisperThreads("250000 100000", 12) === 1,
+    sttThreads("400000 100000\n", 12) === 3 && sttThreads("250000 100000", 12) === 1,
   );
   check(
     "voice/stt",
     "a limit of one cpu or less still gets a thread",
-    whisperThreads("100000 100000", 12) === 1 && whisperThreads("50000 100000", 12) === 1,
+    sttThreads("100000 100000", 12) === 1 && sttThreads("50000 100000", 12) === 1,
   );
   check(
     "voice/stt",
     "a limit as big as the machine is no limit",
-    whisperThreads("1200000 100000", 12) === undefined,
+    sttThreads("1200000 100000", 12) === undefined,
   );
 
   // Built from real paths: a file:// URL without a drive letter is not absolute
@@ -3825,8 +3825,8 @@ function checkVoiceQueue(): void {
   check(
     "voice/stt",
     "the worker resolves beside its caller with a matching extension",
-    fromTs.endsWith(path.join("src", "voice", "whisperWorker.ts")) &&
-      fromJs.endsWith(path.join("build", "voice", "whisperWorker.js")),
+    fromTs.endsWith(path.join("src", "voice", "sttWorker.ts")) &&
+      fromJs.endsWith(path.join("build", "voice", "sttWorker.js")),
   );
 }
 

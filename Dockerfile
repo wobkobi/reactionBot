@@ -58,7 +58,7 @@ RUN mkdir -p data && chown -R node:node /app/data
 
 USER node
 
-# Config, counters, clips and the Whisper model cache. Without a volume a
+# Config, counters, clips and the speech model cache. Without a volume a
 # restart loses the configuration and re-downloads the model.
 VOLUME ["/app/data"]
 

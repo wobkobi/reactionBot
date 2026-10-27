@@ -1,15 +1,15 @@
 // src/voice/audio.ts
 
 // PCM helpers for the voice capture path. Discord delivers 48kHz stereo signed
-// 16-bit audio once Opus is decoded; Whisper wants 16kHz mono float samples in
-// [-1, 1]. 48000 / 16000 is exactly 3, so the conversion is a clean 3:1
-// decimation with a box filter rather than a resampler, which keeps the whole
-// step in plain JS and off ffmpeg.
+// 16-bit audio once Opus is decoded; the speech model wants 16kHz mono float
+// samples in [-1, 1]. 48000 / 16000 is exactly 3, so the conversion is a clean
+// 3:1 decimation with a box filter rather than a resampler, which keeps the
+// whole step in plain JS and off ffmpeg.
 
 /** Sample rate Discord delivers after Opus decoding. */
 export const SOURCE_RATE = 48_000;
 
-/** Sample rate Whisper expects. */
+/** Sample rate the speech model expects, Moonshine and Whisper alike. */
 export const TARGET_RATE = 16_000;
 
 /** Exact ratio between the two rates, so decimation needs no interpolation. */
@@ -34,10 +34,11 @@ export const MIN_UTTERANCE_SAMPLES = TARGET_RATE * 0.25;
 
 /**
  * Fresh speech between cuts while someone keeps talking: 1.5s at the target
- * rate. Whisper pads every call to 30s, so a chunk costs the same ~400ms as a
- * whole utterance, and this sets the trade: a word inside a sentence fires
- * within about a chunk plus that, and each speaker costs about a third of a
- * core while talking. Halving it roughly doubles the load.
+ * rate. A word inside a sentence fires within about a chunk plus the time to
+ * transcribe it. The default Moonshine reads a chunk at its own length, ~60ms
+ * with the overlap. Whisper pads every call to 30s, so under it a chunk costs
+ * the same ~400ms as a whole utterance, each speaker costs about a third of a
+ * core while talking, and halving this roughly doubles the load.
  */
 export const CHUNK_SAMPLES = TARGET_RATE * 1.5;
 
