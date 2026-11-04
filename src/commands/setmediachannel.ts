@@ -40,23 +40,75 @@ export function missingMediaPermissions(perms: Readonly<PermissionsBitField>): s
 
 /**
  * Command definition for /setmediachannel. The picker only offers text
- * channels, so a category or voice channel can't be chosen by mistake.
+ * channels, so a category or voice channel can't be chosen by mistake. The
+ * channel is optional: leaving it out clears the setting.
  */
 export const data = new SlashCommandBuilder()
   .setName("setmediachannel")
-  .setDescription("📺 Set where media links get reposted")
+  .setDescription("📺 Set or clear where media links get reposted")
   .addChannelOption((option) =>
     option
       .setName("channel")
-      .setDescription("Text channel to post transformed media into")
+      .setDescription(
+        "Text channel to repost media into - leave empty to rewrite links where posted",
+      )
       .addChannelTypes(ChannelType.GuildText)
-      .setRequired(true),
+      .setRequired(false),
   )
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Executes the `/setmediachannel` command: authorises the invoker, persists
- * the target channel, and confirms to the user.
+ * Removes the guild's media channel. With none stored, the target resolves to
+ * the channel each link was posted in, so links get rewritten in place.
+ * @param interaction - The command interaction context, already authorised.
+ * @param guildId - The guild to clear the setting for.
+ * @returns A promise that resolves when the reply has been sent.
+ */
+async function clearMediaChannel(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+): Promise<void> {
+  try {
+    const settings = loadSettings(guildId);
+    const previous = settings.channelId;
+    if (!previous) {
+      await respond(interaction, {
+        content: "ℹ️ No media channel is set - links are already rewritten where they're posted.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    delete settings.channelId;
+    saveSettings(guildId, settings);
+
+    log.info(
+      "media channel cleared",
+      { guildId, by: interaction.user.username },
+      { previousId: previous, byId: interaction.user.id },
+    );
+
+    await respond(interaction, {
+      content: `✅ Media channel cleared (was <#${previous}>). Links now get rewritten in the channel they're posted in.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  } catch (err) {
+    log.error("failed to clear media channel", {
+      guildId,
+      userId: interaction.user.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await respond(interaction, {
+      content: "⚠️ There was an error.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
+/**
+ * Executes the `/setmediachannel` command: authorises the invoker, then
+ * persists the target channel, or clears it when none was given, and
+ * confirms to the user.
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the reply has been sent.
  */
@@ -67,7 +119,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const channel = interaction.options.getChannel("channel", true) as TextChannel;
+  const channel = interaction.options.getChannel("channel") as TextChannel | null;
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
@@ -76,7 +128,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  log.debug("invoked", { guildId, userId, targetChannelId: channel.id });
+  log.debug("invoked", { guildId, userId, targetChannelId: channel?.id ?? null });
+
+  if (!channel) {
+    await clearMediaChannel(interaction, guildId);
+    return;
+  }
 
   // Read the bot's own permissions off the cached channel rather than the
   // option, which Discord resolves without overwrites applied. Being unable to

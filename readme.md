@@ -9,7 +9,8 @@ hears a word.
 
 - **Media links** - TikTok, Twitter/X, Instagram, Reddit, Bluesky, Threads and Tumblr links get a
   Yes/Copy/No prompt, then move to the media channel rewritten to an embed-friendly frontend, with a
-  pointer left behind. Authors can edit or delete a moved post by right-clicking it.
+  pointer left behind. With no media channel set, they're rewritten in the channel they were posted
+  in instead. Authors can edit or delete a moved post by right-clicking it.
 - **Tracking junk** - `?utm_...` and `fbclid` tails are stripped on the way through. Functional
   parameters are left alone.
 - **Trackers** - per-server counters for swears and slurs, with leaderboards and a targeted-group
@@ -102,14 +103,14 @@ actually run, marking admin entries 🔒.
 
 ### Media
 
-| Command                                                | What it does                                           |
-| ------------------------------------------------------ | ------------------------------------------------------ |
-| `/setmediachannel`                                     | Where media links get reposted (admin)                 |
-| `/setdelay instant\|seconds\|disabled`                 | How long the author gets to answer the prompt (admin)  |
-| `/setdelay personal`                                   | What members may set for themselves (admin)            |
-| `/mydelay instant\|countdown\|ask\|never\|show\|clear` | Your own links only                                    |
-| `/calmdown start\|stop\|auto`                          | Pause replies; reactions and counting continue (admin) |
-| `/help`                                                | List the commands you can run                          |
+| Command                                                | What it does                                            |
+| ------------------------------------------------------ | ------------------------------------------------------- |
+| `/setmediachannel [channel]`                           | Where media links get reposted; empty clears it (admin) |
+| `/setdelay instant\|seconds\|disabled`                 | How long the author gets to answer the prompt (admin)   |
+| `/setdelay personal`                                   | What members may set for themselves (admin)             |
+| `/mydelay instant\|countdown\|ask\|never\|show\|clear` | Your own links only                                     |
+| `/calmdown start\|stop\|auto`                          | Pause replies; reactions and counting continue (admin)  |
+| `/help`                                                | List the commands you can run                           |
 
 Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete post**. Author only.
 
