@@ -24,11 +24,15 @@ const log = createLogger("media/approval");
  * How long a `"disabled"` (no-timeout) prompt actually stays live. Each one
  * holds a collector and an unresolved promise for its whole life, so "waits
  * for an answer" cannot mean literally forever - an unanswered prompt would
- * pin both until the process restarts. A day is far longer than anyone takes
- * to answer, and a prompt still up after one is abandoned: it is taken down
- * and the link is left alone.
+ * pin both until the process restarts. It also sits in the channel all that
+ * time, and only the poster can clear it. Six hours covers someone stepping
+ * away and coming back; a prompt still up after that is abandoned: it is taken
+ * down and the link is left alone.
  */
-export const INDEFINITE_PROMPT_MS = 24 * 60 * 60_000;
+export const INDEFINITE_PROMPT_MS = 6 * 60 * 60_000;
+
+/** {@link INDEFINITE_PROMPT_MS} as command copy reads it, so the two cannot drift. */
+export const INDEFINITE_PROMPT_LABEL = `${INDEFINITE_PROMPT_MS / 3_600_000} hours`;
 
 /** One button in a {@link requestChoice} prompt. */
 export interface ChoiceButton {

@@ -147,8 +147,8 @@ author's clicks count, and saying the word again while they still owe an answer
 does not stack a second question. How long they get follows the guild's
 `/setdelay`, scaled up by ten and held between 5 minutes and an hour - a
 question is not the reflex a link prompt is. `/setdelay disabled` is taken at
-face value, so the question never expires and picking a meaning is the only way
-out; `instant` takes the floor instead of skipping the question. Personal
+face value, so the question waits 6 hours for a meaning to be picked;
+`instant` takes the floor instead of skipping the question. Personal
 `/mydelay` settings do not apply. This is separate from `responses.json` - a
 word can
 earn a reply *and* the question, and picking a meaning never changes what was

@@ -1,5 +1,6 @@
 // src/commands/setdelay.ts
 
+import { INDEFINITE_PROMPT_LABEL } from "@/media/approval";
 import { resolveLimits } from "@/media/prefs";
 import { loadSettings, saveSettings } from "@/media/settings";
 import { GraceSetting, PersonalLimits } from "@/media/types";
@@ -20,7 +21,7 @@ const log = createLogger("cmd/setdelay");
  * self-explanatory - no mode/value combination to get wrong:
  * - `/setdelay instant` - move links immediately, no prompt
  * - `/setdelay seconds seconds:<1-300>` - prompt that times out
- * - `/setdelay disabled` - prompt that waits up to a day for an answer
+ * - `/setdelay disabled` - prompt that waits up to {@link INDEFINITE_PROMPT_LABEL} for an answer
  *
  * `/setdelay personal` sits alongside them, governing what members may pick
  * for themselves with `/mydelay` rather than the default itself.
@@ -45,7 +46,9 @@ export const data = new SlashCommandBuilder()
       ),
   )
   .addSubcommand((sub) =>
-    sub.setName("disabled").setDescription("Always ask, and wait up to a day for an answer"),
+    sub
+      .setName("disabled")
+      .setDescription(`Always ask, and wait up to ${INDEFINITE_PROMPT_LABEL} for an answer`),
   )
   .addSubcommand((sub) =>
     sub
@@ -154,7 +157,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const confirmations: Record<"instant" | "seconds" | "disabled", string> = {
       instant: "✅ Links get moved straight away now, no prompt.",
       seconds: `✅ Posters get ${seconds}s to hit Yes or No before the prompt gives up.`,
-      disabled: "✅ Posters always get asked, and the prompt waits up to a day for an answer.",
+      disabled: `✅ Posters always get asked, and the prompt waits up to ${INDEFINITE_PROMPT_LABEL} for an answer.`,
     };
     await respond(interaction, { content: confirmations[mode], flags: MessageFlags.Ephemeral });
   } catch (err) {

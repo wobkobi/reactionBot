@@ -28,7 +28,7 @@ export const MAX_OPTIONS = 5;
 /** Shortest window a question gets, however brisk `/setdelay` is. */
 export const MIN_PROMPT_MS = 5 * 60_000;
 
-/** Longest window short of `/setdelay disabled`, which never expires at all. */
+/** Longest window short of `/setdelay disabled`, which waits `INDEFINITE_PROMPT_MS`. */
 export const MAX_PROMPT_MS = 60 * 60_000;
 
 /** How much longer a question runs than the link prompt `/setdelay` sizes. */
@@ -42,12 +42,12 @@ export const PROMPT_GRACE_MULTIPLIER = 10;
  * spirit rather than to the second: scaled up, then held between
  * {@link MIN_PROMPT_MS} and {@link MAX_PROMPT_MS}.
  *
- * "disabled" is the one value taken literally - a question that never expires
- * is exactly a question that has to be answered. "instant" cannot be: there is
- * nothing to go ahead and do without an answer, so it takes the floor instead
- * of skipping the question.
+ * "disabled" is the one value taken literally - it waits as long as any prompt
+ * can (`INDEFINITE_PROMPT_MS`), which is exactly a question that has to be
+ * answered. "instant" cannot be: there is nothing to go ahead and do without
+ * an answer, so it takes the floor instead of skipping the question.
  * @param grace - The guild's configured `/setdelay` value.
- * @returns The window in milliseconds, or "disabled" to never expire.
+ * @returns The window in milliseconds, or "disabled" for the longest wait.
  */
 export function promptWindow(grace: GraceSetting | undefined): number | "disabled" {
   if (grace === "disabled") return "disabled";
@@ -176,9 +176,9 @@ function loadEntries(guildId: string): CompiledEntry[] {
 // repeating the word.
 const lastPrompt = new Map<string, number>();
 
-// Per guild:user questions still waiting on an answer. The question does not
-// expire, and each one holds a live collector, so one person saying the word
-// again must not stack a second: they answer the one they have.
+// Per guild:user questions still waiting on an answer. The question can stay
+// open for hours, and each one holds a live collector, so one person saying
+// the word again must not stack a second: they answer the one they have.
 const openPrompts = new Set<string>();
 
 /**
