@@ -59,6 +59,7 @@ import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/tran
 import { MediaSettings } from "@/media/types";
 import { buildFailureNotice } from "@/media/workflow";
 import { isFreshEdit } from "@/onMessage";
+import { checkReplyLimit } from "@/tracking/calm";
 import { trackerCommand } from "@/tracking/commands";
 import {
   compileEntries,
@@ -1707,6 +1708,25 @@ function checkSlurResponses(): void {
     "responder",
     "fills {user}/{count} placeholders",
     fillPlaceholders("{user} said a slur #{count}", "<@1>", 7) === "<@1> said a slur #7",
+  );
+  // Guild-wide reply limit: a full window refuses, and slots free up as the
+  // oldest replies age out of it.
+  const limit = { replies: 2, ms: 60_000 };
+  check(
+    "responder",
+    "reply limit allows replies below the cap",
+    checkReplyLimit([1_000], 2_000, limit).allowed,
+  );
+  check(
+    "responder",
+    "reply limit refuses a full window",
+    !checkReplyLimit([1_000, 2_000], 3_000, limit).allowed,
+  );
+  const aged = checkReplyLimit([1_000, 30_000], 61_000, limit);
+  check(
+    "responder",
+    "reply limit frees slots as replies age out",
+    aged.allowed && aged.recent.join(",") === "30000",
   );
   // Tagged replies: generic always applies; a tagged reply only joins matching categories.
   const config = {

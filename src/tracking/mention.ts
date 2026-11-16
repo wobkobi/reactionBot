@@ -2,10 +2,11 @@
 
 // Playground-grade comeback when someone @s the bot, drawn from insults.json
 // (guild, then global). The pool lives only in that file - with no file the
-// bot stays quiet. Shares the word replies' cooldown, spam escalation and
-// calm-mode silence, so pinging the bot cannot be used to talk over them.
+// bot stays quiet. Shares the word replies' cooldown, spam escalation, reply
+// limit and calm-mode silence, so pinging the bot cannot be used to talk over
+// them.
 
-import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
+import { getAutoCalm, isCalm, startCalm, takeReplySlot } from "@/tracking/calm";
 import {
   chooseReply,
   fillPlaceholders,
@@ -86,7 +87,8 @@ export function mentionsBot(message: Message<true>): boolean {
 
 /**
  * Fires back at whoever mentioned the bot. Silent during calm mode, within the
- * author's cooldown, or when no insults.json configures a pool; the spam
+ * author's cooldown, once the guild's reply limit is spent, or when no
+ * insults.json configures a pool; the spam
  * window is guild-wide, and tripping it sends the "enough" line once and starts
  * calm mode - the same shape as the word replies. Best-effort.
  * @param message - The guild message to consider.
@@ -122,16 +124,19 @@ export async function respondToMention(message: Message<true>): Promise<boolean>
     randomIndex,
   );
   if (!chosen) return false;
-  lastReply.set(userKey, now);
 
   // Spam escalation: the "enough" line is the last word - go calm so the ping
   // spam stops earning answers, and reset the window so it fires once per
-  // episode.
+  // episode. Calm starts even when the reply limit holds the line back.
   if (times.length >= RESPONSE_SPAM_THRESHOLD) {
     spamHits.set(guildId, []);
     const auto = getAutoCalm(guildId);
     startCalm(guildId, auto.ms, auto.messages);
   }
+
+  // Same guild-wide budget as the word replies.
+  if (!takeReplySlot(guildId)) return false;
+  lastReply.set(userKey, now);
 
   log.info("mention comeback fired", { guildId, authorId });
   const filled = fillPlaceholders(

@@ -4,7 +4,9 @@ import {
   calmUntil,
   DEFAULT_CALM_MS,
   getAutoCalm,
+  getReplyLimit,
   setAutoCalm,
+  setReplyLimit,
   startCalm,
   stopCalm,
 } from "@/tracking/calm";
@@ -56,10 +58,74 @@ export const data = new SlashCommandBuilder()
           .setMaxValue(1000),
       ),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName("limit")
+      .setDescription("Show or change how many GIF replies the whole server gets per window")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("replies")
+          .setDescription("Replies allowed per window, across everyone (1-100)")
+          .setMinValue(1)
+          .setMaxValue(100),
+      )
+      .addIntegerOption((opt) =>
+        opt
+          .setName("minutes")
+          .setDescription("Window length (1-1440)")
+          .setMinValue(1)
+          .setMaxValue(1440),
+      ),
+  )
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Executes `/calmdown`: starts or stops the guild's calm window. Admin only.
+ * Describes a reply limit for a reply, e.g. "3 GIF replies per 2 minutes".
+ * @param replies - Replies allowed per window.
+ * @param ms - Window length in milliseconds.
+ * @returns The phrase.
+ */
+function describeLimit(replies: number, ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  return `${replies} GIF ${replies === 1 ? "reply" : "replies"} per ${minutes === 1 ? "minute" : `${minutes} minutes`}`;
+}
+
+/**
+ * Executes `/calmdown limit`: shows the guild's reply limit, or changes
+ * whichever of its two parts were given.
+ * @param interaction - The command interaction context.
+ * @param guildId - Discord guild (server) ID.
+ * @returns A promise that resolves when the reply is sent.
+ */
+async function executeLimit(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+): Promise<void> {
+  const current = getReplyLimit(guildId);
+  const replies = interaction.options.getInteger("replies");
+  const minutes = interaction.options.getInteger("minutes");
+  if (replies === null && minutes === null) {
+    await respond(interaction, {
+      content: `Reply limit: ${describeLimit(current.replies, current.ms)}, across the whole server.`,
+    });
+    return;
+  }
+  const nextReplies = replies ?? current.replies;
+  const nextMs = minutes !== null ? minutes * 60_000 : current.ms;
+  setReplyLimit(guildId, nextReplies, nextMs);
+  log.info(
+    "reply limit updated via command",
+    { guildId, by: interaction.user.username, replies: nextReplies, minutes: nextMs / 60_000 },
+    { byId: interaction.user.id },
+  );
+  await respond(interaction, {
+    content: `✅ Reply limit set to ${describeLimit(nextReplies, nextMs)}, across the whole server.`,
+  });
+}
+
+/**
+ * Executes `/calmdown`: starts or stops the guild's calm window, or shows and
+ * changes the auto-calm and reply limit settings. Admin only.
  * @param interaction - The command interaction context.
  * @returns A promise that resolves when the reply is sent.
  */
@@ -71,6 +137,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (!(await requireAdmin(interaction))) return;
 
   const guildId = interaction.guildId;
+  if (interaction.options.getSubcommand() === "limit") {
+    await executeLimit(interaction, guildId);
+    return;
+  }
   if (interaction.options.getSubcommand() === "auto") {
     const current = getAutoCalm(guildId);
     const minutes = interaction.options.getInteger("minutes");
