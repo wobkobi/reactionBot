@@ -25,8 +25,8 @@ hears a word.
 - **Entrances** - a configured member gets a clip played as they join voice, and a video or message
   posted in a text channel the first time the bot hears them speak. Once a day each.
 
-Replies are rate-limited per person and go quiet during calm mode. Reactions and counting carry on
-regardless.
+Replies are rate-limited per person, capped server-wide (1 per 2 minutes by default, changed with
+`/calmdown limit`), and go quiet during calm mode. Reactions and counting carry on regardless.
 
 ## Setup
 
@@ -103,14 +103,14 @@ actually run, marking admin entries 🔒.
 
 ### Media
 
-| Command                                                | What it does                                            |
-| ------------------------------------------------------ | ------------------------------------------------------- |
-| `/setmediachannel [channel]`                           | Where media links get reposted; empty clears it (admin) |
-| `/setdelay instant\|seconds\|disabled`                 | How long the author gets to answer the prompt (admin)   |
-| `/setdelay personal`                                   | What members may set for themselves (admin)             |
-| `/mydelay instant\|countdown\|ask\|never\|show\|clear` | Your own links only                                     |
-| `/calmdown start\|stop\|auto`                          | Pause replies; reactions and counting continue (admin)  |
-| `/help`                                                | List the commands you can run                           |
+| Command                                                | What it does                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------- |
+| `/setmediachannel [channel]`                           | Where media links get reposted; empty clears it (admin)       |
+| `/setdelay instant\|seconds\|disabled`                 | How long the author gets to answer the prompt (admin)         |
+| `/setdelay personal`                                   | What members may set for themselves (admin)                   |
+| `/mydelay instant\|countdown\|ask\|never\|show\|clear` | Your own links only                                           |
+| `/calmdown start\|stop\|auto\|limit`                   | Pause or cap replies; reactions and counting continue (admin) |
+| `/help`                                                | List the commands you can run                                 |
 
 Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete post**. Author only.
 

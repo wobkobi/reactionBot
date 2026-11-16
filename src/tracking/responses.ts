@@ -2,10 +2,10 @@
 
 // Configurable replies to detected words, per type from words.json: a random
 // GIF/text from the type's pool, escalating to its "enough" reply when a user
-// spams that type in quick succession, rate-limited per user and silenced
-// entirely while calm mode is on.
+// spams that type in quick succession, rate-limited per user and per guild
+// (the reply limit), and silenced entirely while calm mode is on.
 
-import { getAutoCalm, isCalm, startCalm } from "@/tracking/calm";
+import { getAutoCalm, isCalm, startCalm, takeReplySlot } from "@/tracking/calm";
 import { countMatches, listedIn } from "@/tracking/detect";
 import { getUserTotal } from "@/tracking/store";
 import { SLURS, SWEARS } from "@/tracking/trackers";
@@ -167,7 +167,8 @@ export function chooseReply(
  * author-attributed tracks (swears, slurs), otherwise the hits in this
  * message. The spam window is guild-wide per type (any mix of users can trip
  * it); when it fires, the "enough" reply is sent once, the window resets, and
- * calm mode starts automatically. Best-effort.
+ * calm mode starts automatically. A spent guild reply limit (see
+ * takeReplySlot) keeps the bot quiet. Best-effort.
  * @param message - The guild message to consider.
  * @param words - The compiled word config for this guild.
  * @returns A promise resolving to `true` once a reply has been spent on this
@@ -216,17 +217,23 @@ export async function respondToMessage(
       randomIndex,
     );
     if (!chosen) continue;
-    lastReply.set(userKey, now);
 
     // Spam escalation: the "enough" reply is the last word - go calm so the
     // channel isn't flooded with more replies while the spam continues (ends
     // after the time limit or the message limit, whichever comes first), and
-    // reset the window so the spam reply fires once per episode.
+    // reset the window so the spam reply fires once per episode. Calm starts
+    // even when the reply limit then holds the "enough" reply back.
     if (times.length >= RESPONSE_SPAM_THRESHOLD) {
       spamHits.set(spamKey, []);
       const auto = getAutoCalm(message.guildId);
       startCalm(message.guildId, auto.ms, auto.messages);
     }
+
+    // Guild-wide reply limit: every type and user draws on one budget, so a
+    // spent budget silences the rest of the types too. The per-user cooldown
+    // only starts on a reply actually sent.
+    if (!takeReplySlot(message.guildId)) return false;
+    lastReply.set(userKey, now);
 
     // {count}: running author total for tracked types, counting only words
     // still listed so it agrees with the tracker command, else the hits in
