@@ -30,6 +30,7 @@ import {
   mirrorProblem,
   pickInstagramFrontend,
 } from "@/media/embedCheck";
+import { buildStyledUrl, findStyledLink } from "@/media/embedStyle";
 import {
   CAPTION_MAX_CHARS,
   decodeEntities,
@@ -62,6 +63,7 @@ import { buildFailureNotice } from "@/media/workflow";
 import { isFreshEdit } from "@/onMessage";
 import { checkReplyLimit } from "@/tracking/calm";
 import { trackerCommand } from "@/tracking/commands";
+import { countryFlags, flagFor, MAX_FLAGS } from "@/tracking/countries";
 import {
   compileEntries,
   DEFINITIONS_FILE,
@@ -331,7 +333,15 @@ function checkLinkTransforms(): void {
     ["https://redd.it/abc1", "https://vxreddit.com/abc1"],
     [
       "https://bsky.app/profile/h.bsky.social/post/ID1",
-      "https://fxbsky.app/profile/h.bsky.social/post/ID1",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/en",
+    ],
+    [
+      "https://bsky.app/profile/h.bsky.social/post/ID1/",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/en",
+    ],
+    [
+      "https://bsky.app/profile/h.bsky.social/post/ID1/photo/2",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/photo/2/en",
     ],
     ["https://www.threads.net/@u/post/ID1", "https://viewthreads.com/@u/post/ID1"],
     ["https://www.tumblr.com/blog/123/slug", "https://tpmblr.com/blog/123/slug"],
@@ -354,6 +364,69 @@ function checkLinkTransforms(): void {
     const got = m ? buildTransformedUrl(m) : "(no match)";
     check("transforms", `${input} -> ${expected}`, got === expected);
   }
+
+  // Embed styles are read back off the posted link and rebuilt from it
+  const fx = findStyledLink("look https://fixupx.com/u/status/1/photo/2/en wow");
+  check(
+    "styles",
+    "reads an X link's style, translation and path",
+    fx?.family === "x" && fx.style === "" && fx.toggle && fx.path === "u/status/1/photo/2",
+  );
+  check(
+    "styles",
+    "media only keeps translation last",
+    fx !== null && buildStyledUrl(fx, "g", true) === "https://g.fixupx.com/u/status/1/photo/2/en",
+  );
+  check(
+    "styles",
+    "translation can be switched off",
+    fx !== null && buildStyledUrl(fx, "", false) === "https://fixupx.com/u/status/1/photo/2",
+  );
+  const cunny = findStyledLink("https://cunnyx.com/u/status/1/en");
+  check(
+    "styles",
+    "cunnyx moves to fixupx for a flag, and back to the poster's frontend for the full embed",
+    cunny !== null &&
+      buildStyledUrl(cunny, "t", true, "229791342547566592") ===
+        "https://t.fixupx.com/u/status/1/en" &&
+      buildStyledUrl(
+        findStyledLink("https://t.fixupx.com/u/status/1/en")!,
+        "",
+        true,
+        "229791342547566592",
+      ) === "https://cunnyx.com/u/status/1/en",
+  );
+  const bsky = findStyledLink("https://m.fxbsky.app/profile/h.bsky.social/post/ID1");
+  check(
+    "styles",
+    "reads a Bluesky link's flag",
+    bsky?.family === "bluesky" && bsky.style === "m" && !bsky.toggle,
+  );
+  const tt = findStyledLink("https://hq.a.tnktok.com/@u/video/123");
+  check(
+    "styles",
+    "reads TikTok's high quality and caption flags",
+    tt?.family === "tiktok" && tt.style === "a" && tt.toggle,
+  );
+  check(
+    "styles",
+    "TikTok flags rebuild in fxTikTok's order",
+    tt !== null &&
+      buildStyledUrl(tt, "d", true) === "https://hq.d.tnktok.com/@u/video/123" &&
+      buildStyledUrl(tt, "", false) === "https://tnktok.com/@u/video/123",
+  );
+  check(
+    "styles",
+    "short TikTok links keep their id",
+    buildStyledUrl(findStyledLink("https://d.tnktok.com/ZSXow1G3u")!, "a", false) ===
+      "https://a.tnktok.com/ZSXow1G3u",
+  );
+  check(
+    "styles",
+    "links with no styles, or flags the menu doesn't offer, are skipped",
+    findStyledLink("https://ins.so/reel/AbC https://vxreddit.com/r/x/comments/a") === null &&
+      findStyledLink("https://zz.fixupx.com/u/status/1") === null,
+  );
 
   // Per-poster frontend override: one user's X links route to the cunnyx
   // mirror, every other poster keeps the default.
@@ -1570,6 +1643,35 @@ function checkReactions(): void {
     (phraseToEmojis("5b to israel") ?? []).join("") === "5️⃣🇧🇹🇴🇮🇸🇷🇦🇪🇱",
   );
   check("reactions", "repeated digits skip the spell-out", phraseToEmojis("1488") === null);
+
+  // Country flags: in order of mention, each once, longer names first
+  const flags = (s: string): string => countryFlags(s).join(" ");
+  check("flags", "an ISO code builds its flag", flagFor("nz") === "🇳🇿");
+  check(
+    "flags",
+    "countries flag in order of mention, each once",
+    flags("New Zealand, then the U.S.A., then nz again") === "🇳🇿 🇺🇸",
+  );
+  check("flags", "a longer name wins over the one inside it", flags("papua new guinea") === "🇵🇬");
+  check(
+    "flags",
+    "continent and food phrases flag nothing",
+    flags("south america and a turkey sandwich, guinea pig") === "",
+  );
+  check(
+    "flags",
+    "names that are usually people or pronouns flag nothing",
+    flags("us chad jordan georgia") === "",
+  );
+  check("flags", "accents and apostrophes are folded", flags("Côte d'Ivoire") === "🇨🇮");
+  check("flags", "UK nations get their own flags", flags("england v wales") === "🏴󠁧󠁢󠁥󠁮󠁧󠁿 🏴󠁧󠁢󠁷󠁬󠁳󠁿");
+  check(
+    "flags",
+    "a long list stops at the cap",
+    countryFlags(
+      "france spain italy germany poland greece norway sweden finland denmark iceland ireland",
+    ).length === MAX_FLAGS,
+  );
   check(
     "reactions",
     "over the reaction cap skips the spell-out",

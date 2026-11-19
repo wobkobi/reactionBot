@@ -15,8 +15,8 @@ hears a word.
   parameters are left alone.
 - **Trackers** - per-server counters for swears and slurs, with leaderboards and a targeted-group
   breakdown. Words said in a voice channel the bot is listening in count the same as typed ones.
-- **Reactions and replies** - phrase reactions, spell-out reactions in letter emojis, and GIF or
-  text replies to slurs.
+- **Reactions and replies** - phrase reactions, spell-out reactions in letter emojis, a flag for
+  each country named (up to 10 per message), and GIF or text replies to slurs.
 - **Mention comebacks** - ping the bot, get a playground insult back.
 - **"Define your terms"** - words with an innocent second meaning earn a button prompt asking which
   was meant, and the bot posts that definition.
@@ -113,6 +113,11 @@ actually run, marking admin entries 🔒.
 | `/help`                                                | List the commands you can run                                 |
 
 Right-click a moved post or its pointer, then **Apps > Edit post** or **Delete post**. Author only.
+
+On an X, Bluesky or TikTok post, **Edit post** also has dropdowns for how the link embeds. X and
+Bluesky: full embed, media only, text only, combined images, direct media or old embed, plus English
+translation on or off. TikTok: video only, with caption or full embed, plus high quality on or off
+(some devices can't play it).
 
 ### Trackers and replies
 

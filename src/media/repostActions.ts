@@ -1,24 +1,34 @@
 // src/media/repostActions.ts
 
 // Author-only edit/delete of moved messages, reached by right-clicking the post
-// or its pointer stub (Apps > Edit post / Delete post). Resolved against the
-// persisted repost records, not in-memory collectors, so they keep working
-// across restarts. Older posts still carrying a button row are handled here too.
+// or its pointer stub (Apps > Edit post / Delete post). Edit post also switches
+// the link's embed style.
+// Resolved against the persisted repost records, not in-memory collectors, so
+// they keep working across restarts. Older posts still carrying a button row
+// are handled here too.
 
 import { appendDeletionLog } from "@/media/audit";
+import {
+  buildStyledUrl,
+  findStyledLink,
+  StyledLink,
+  styleOptions,
+  toggleLabel,
+} from "@/media/embedStyle";
 import { findRepostForMessage, removeRepost, RepostRecord, saveRepost } from "@/media/repostStore";
 import { createLogger } from "@/utils/log";
 import { respond } from "@/utils/respond";
 import {
-  ActionRowBuilder,
   ButtonInteraction,
   GuildTextBasedChannel,
+  LabelBuilder,
   Message,
   MessageContextMenuCommandInteraction,
   MessageFlags,
   ModalBuilder,
   ModalSubmitInteraction,
   RepliableInteraction,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
@@ -37,6 +47,10 @@ export const DELETE_BUTTON_ID = "repost:delete";
 export const EDIT_MODAL_PREFIX = "repost:editmodal:";
 /** Custom ID of the text input inside the edit modal. */
 export const EDIT_INPUT_ID = "repost:editinput";
+/** Custom ID of the edit modal's embed style dropdown. */
+const STYLE_INPUT_ID = "repost:styleinput";
+/** Custom ID of the edit modal's translation/high-quality dropdown. */
+const TOGGLE_INPUT_ID = "repost:toggleinput";
 
 /** Discord's message content cap, minus headroom for the mention prefix. */
 const EDIT_MAX_LENGTH = 1_900;
@@ -200,9 +214,50 @@ async function deleteRepost(
 }
 
 /**
- * Opens the edit modal, seeded with the moved message's current text. The
- * moved message ID rides in the modal's custom ID so the submit handler knows
- * what to rewrite.
+ * Builds the two style dropdowns for a post's link: the embed style, and the
+ * family's on/off switch (translation or high quality), each preset to what
+ * the link shows now.
+ * @param link - The post's styled link.
+ * @returns The two labelled dropdowns.
+ */
+function styleLabels(link: StyledLink): [LabelBuilder, LabelBuilder] {
+  const style = new StringSelectMenuBuilder()
+    .setCustomId(STYLE_INPUT_ID)
+    .setRequired(false)
+    .addOptions(
+      styleOptions(link.family).map((o) => ({
+        // Discord refuses an empty option value, so the full embed's "" travels as "full"
+        value: o.value || "full",
+        label: o.label,
+        description: o.description,
+        default: o.value === link.style,
+      })),
+    );
+  const toggle = new StringSelectMenuBuilder()
+    .setCustomId(TOGGLE_INPUT_ID)
+    .setRequired(false)
+    .addOptions(
+      { value: "on", label: "On", default: link.toggle },
+      { value: "off", label: "Off", default: !link.toggle },
+    );
+  return [
+    new LabelBuilder().setLabel("Embed style").setStringSelectMenuComponent(style),
+    new LabelBuilder()
+      .setLabel(toggleLabel(link.family))
+      .setDescription(
+        link.family === "tiktok"
+          ? "Sharper video, but some devices can't play it"
+          : "Only posts in another language change",
+      )
+      .setStringSelectMenuComponent(toggle),
+  ];
+}
+
+/**
+ * Opens the edit modal, seeded with the moved message's current text, plus
+ * the style dropdowns when its link has styles to pick from. The moved
+ * message ID rides in the modal's custom ID so the submit handler knows what
+ * to rewrite.
  * @param interaction - The interaction to show the modal on.
  * @param movedMessageId - ID of the moved message being edited.
  * @param currentText - Text to prefill, already stripped of the prefix line.
@@ -215,7 +270,6 @@ async function showEditModal(
 ): Promise<void> {
   const input = new TextInputBuilder()
     .setCustomId(EDIT_INPUT_ID)
-    .setLabel("Message")
     .setStyle(TextInputStyle.Paragraph)
     .setValue(currentText.slice(0, EDIT_MAX_LENGTH))
     .setMaxLength(EDIT_MAX_LENGTH)
@@ -223,8 +277,54 @@ async function showEditModal(
   const modal = new ModalBuilder()
     .setCustomId(`${EDIT_MODAL_PREFIX}${movedMessageId}`)
     .setTitle("Edit your post")
-    .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    .addLabelComponents(new LabelBuilder().setLabel("Message").setTextInputComponent(input));
+  const link = findStyledLink(currentText);
+  if (link) modal.addLabelComponents(...styleLabels(link));
   await interaction.showModal(modal);
+}
+
+/**
+ * Reads a dropdown's pick from a modal submit. Dropdowns are optional and
+ * only sent for posts with a styled link, so a missing one reads as no pick.
+ * @param interaction - The modal submit interaction.
+ * @param customId - The dropdown's custom ID.
+ * @returns The picked value, or `null` when there is none.
+ */
+function pickedValue(interaction: ModalSubmitInteraction, customId: string): string | null {
+  try {
+    return interaction.fields.getStringSelectValues(customId)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Applies the modal's style picks to the styled link in the new text. Picks
+ * apply to whatever styled link the edited text still holds, so a poster who
+ * also pasted a different link gets the style on that one.
+ * @param interaction - The modal submit interaction.
+ * @param text - The poster's new text.
+ * @param authorId - The poster, for their X frontend.
+ * @returns The text with the link restyled, or unchanged when it has none.
+ */
+function applyStylePicks(
+  interaction: ModalSubmitInteraction,
+  text: string,
+  authorId: string,
+): string {
+  const link = findStyledLink(text);
+  if (!link) return text;
+  const style = pickedValue(interaction, STYLE_INPUT_ID);
+  const toggle = pickedValue(interaction, TOGGLE_INPUT_ID);
+  const url = buildStyledUrl(
+    link,
+    style === null ? link.style : style === "full" ? "" : style,
+    toggle === null ? link.toggle : toggle === "on",
+    authorId,
+  );
+  // Inserted through a function so a "$" in the URL isn't read as a
+  // replacement pattern (see rewriteContent)
+  return text.replace(link.url, () => url);
 }
 
 /**
@@ -317,11 +417,12 @@ export async function handleRepostEditModal(interaction: ModalSubmitInteraction)
   const owned = await resolveOwnedRepost(interaction, interaction.guildId, movedMessageId);
   if (!owned) return;
 
-  const newText = interaction.fields.getTextInputValue(EDIT_INPUT_ID).trim();
-  if (!newText) {
+  const typed = interaction.fields.getTextInputValue(EDIT_INPUT_ID).trim();
+  if (!typed) {
     await notify(interaction, "⚠️ The post can't be empty - use Delete post instead.");
     return;
   }
+  const newText = applyStylePicks(interaction, typed, owned.record.authorId);
 
   const moved = await fetchMoved(interaction, owned.record, owned.movedMessageId);
   if (!moved) {

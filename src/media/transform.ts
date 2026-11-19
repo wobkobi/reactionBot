@@ -80,12 +80,29 @@ const TWITTER_FRONTEND_OVERRIDES: Record<string, string> = {
 };
 
 /**
- * FxEmbed language segment appended to every X link. FxEmbed only translates
- * when the post's own language differs from this one, so an English post
- * embeds exactly as it would without it and the bot never has to look the
- * language up itself. cunnyx runs the same code, so overrides keep it.
+ * FxEmbed language segment appended to every X and Bluesky link. FxEmbed only
+ * translates when the post's own language differs from this one, so an
+ * English post embeds exactly as it would without it and the bot never has
+ * to look the language up itself. cunnyx runs the same code, so overrides
+ * keep it.
  */
-const TWITTER_TRANSLATE_TO = "en";
+export const FXEMBED_TRANSLATE_TO = "en";
+
+/**
+ * The X frontend for a poster: their override from
+ * {@link TWITTER_FRONTEND_OVERRIDES}, or the default.
+ * @param [authorId] - Discord ID of the poster.
+ * @returns The frontend host, e.g. "fixupx.com".
+ */
+export function twitterFrontendFor(authorId?: string): string {
+  return (authorId && TWITTER_FRONTEND_OVERRIDES[authorId]) || FRONTENDS.twitter;
+}
+
+/** Every host an X link can be rewritten to, overrides included. */
+export const TWITTER_HOSTS: readonly string[] = [
+  FRONTENDS.twitter,
+  ...new Set(Object.values(TWITTER_FRONTEND_OVERRIDES)),
+];
 
 /**
  * Builds the transformed URL for a given platform match.
@@ -105,7 +122,7 @@ export function buildTransformedUrl(match: MediaMatch, authorId?: string): strin
     case "tiktok-full":
       return `https://d.${FRONTENDS.tiktok}/${a}`;
     case "twitter":
-      return `https://${(authorId && TWITTER_FRONTEND_OVERRIDES[authorId]) || FRONTENDS.twitter}/${a}/${TWITTER_TRANSLATE_TO}`;
+      return `https://${twitterFrontendFor(authorId)}/${a}/${FXEMBED_TRANSLATE_TO}`;
     case "instagram":
       return `https://${match.frontend ?? INSTAGRAM_FRONTENDS[instagramKind(a)][0]}/${instagramPath(match.captures)}`;
     case "reddit-comments":
@@ -113,7 +130,7 @@ export function buildTransformedUrl(match: MediaMatch, authorId?: string): strin
     case "reddit-short":
       return `https://${FRONTENDS.reddit}/${a}`;
     case "bluesky":
-      return `https://${FRONTENDS.bluesky}/${a}`;
+      return `https://${FRONTENDS.bluesky}/${a}/${FXEMBED_TRANSLATE_TO}`;
     case "threads":
       return `https://${FRONTENDS.threads}/${a}`;
     case "tumblr":

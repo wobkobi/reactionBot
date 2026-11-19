@@ -27,8 +27,10 @@ export const REDDIT_SHARE_REGEX: RegExp =
 
 export const REDDIT_SHORT_REGEX: RegExp = /https?:\/\/redd\.it\/(?<id>[a-z0-9]+)\/?/i;
 
+// Shaped like TWITTER_X_REGEX for the same reason: fxbsky is FxEmbed too, and
+// takes the language segment after an optional /photo/N.
 export const BLUESKY_REGEX: RegExp =
-  /https?:\/\/(?:www\.)?bsky\.app\/(?<id>profile\/[^/\s]+\/post\/[A-Za-z0-9]+)/i;
+  /https?:\/\/(?:www\.)?bsky\.app\/(?<id>profile\/[^/\s]+\/post\/[A-Za-z0-9]+(?:\/photo\/[1-9]\d*)?)(?:\/(?=[\s?#]|$))?/i;
 
 export const THREADS_REGEX: RegExp =
   /https?:\/\/(?:www\.)?threads\.(?:net|com)\/(?<id>@[^/\s]+\/post\/[A-Za-z0-9_-]+)/i;
