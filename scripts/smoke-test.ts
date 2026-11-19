@@ -25,6 +25,7 @@ import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
 import {
   declaredMedia,
+  facebedProblem,
   type FetchLike,
   mirrorProblem,
   pickInstagramFrontend,
@@ -312,7 +313,10 @@ function checkTrackerCommands(): void {
 function checkLinkTransforms(): void {
   // [input, expected transformed URL]
   const transforms: Array<[string, string]> = [
-    ["https://x.com/u/status/1", "https://fixupx.com/u/status/1"],
+    ["https://x.com/u/status/1", "https://fixupx.com/u/status/1/en"],
+    ["https://x.com/u/status/1/", "https://fixupx.com/u/status/1/en"],
+    ["https://x.com/u/status/1/photo/2", "https://fixupx.com/u/status/1/photo/2/en"],
+    ["https://twitter.com/i/web/status/1", "https://fixupx.com/i/web/status/1/en"],
     ["https://www.instagram.com/reel/AbC", "https://ins.so/reel/AbC"],
     ["https://www.instagram.com/reels/AbC", "https://ins.so/reels/AbC"],
     ["https://www.instagram.com/p/AbC/?img_index=3", "https://ins.so/p/AbC/3"],
@@ -332,6 +336,18 @@ function checkLinkTransforms(): void {
     ["https://www.threads.net/@u/post/ID1", "https://viewthreads.com/@u/post/ID1"],
     ["https://www.tumblr.com/blog/123/slug", "https://tpmblr.com/blog/123/slug"],
     ["https://blog.tumblr.com/post/123", "https://blog.tpmblr.com/post/123"],
+    ["https://www.facebook.com/reel/1755586392105520", "https://facebed.com/reel/1755586392105520"],
+    ["https://www.facebook.com/share/1A7GT9DHbm/", "https://facebed.com/share/1A7GT9DHbm"],
+    ["https://m.facebook.com/share/p/AbC12/?mibextid=x", "https://facebed.com/share/p/AbC12"],
+    [
+      "https://www.facebook.com/someone/posts/pfbid0Ab",
+      "https://facebed.com/someone/posts/pfbid0Ab",
+    ],
+    ["https://www.facebook.com/groups/123/posts/456/", "https://facebed.com/groups/123/posts/456"],
+    [
+      "https://www.facebook.com/permalink.php?story_fbid=1&id=2",
+      "https://facebed.com/permalink.php?story_fbid=1&id=2",
+    ],
   ];
   for (const [input, expected] of transforms) {
     const m = matchAny(input);
@@ -346,8 +362,8 @@ function checkLinkTransforms(): void {
     "transforms",
     "overridden poster's x.com link -> cunnyx.com, others unchanged",
     xLink !== null &&
-      buildTransformedUrl(xLink, "229791342547566592") === "https://cunnyx.com/u/status/1" &&
-      buildTransformedUrl(xLink, "1") === "https://fixupx.com/u/status/1",
+      buildTransformedUrl(xLink, "229791342547566592") === "https://cunnyx.com/u/status/1/en" &&
+      buildTransformedUrl(xLink, "1") === "https://fixupx.com/u/status/1/en",
   );
 
   // Links already on a fixer frontend: matched as pre-embedded by path shape
@@ -364,6 +380,7 @@ function checkLinkTransforms(): void {
     "https://viewthreads.com/@u/post/ID1",
     "https://d.tnktok.com/@u/video/123",
     "https://d.tnktok.com/AbC123",
+    "https://facebed.com/reel/1755586392105520",
   ];
   for (const input of preEmbedded) {
     const m = matchAny(input);
@@ -378,6 +395,8 @@ function checkLinkTransforms(): void {
     "https://i.redd.it/xyz.jpg",
     "https://fixupx.com/",
     "https://youtube.com/watch?v=abc&t=42",
+    "https://www.facebook.com/marketplace/item/896046112887216/",
+    "https://www.facebook.com/someone",
   ];
   for (const input of noMatch) {
     check("transforms", `${input} -> no match`, matchAny(input) === null);
@@ -416,7 +435,7 @@ function checkLinkTransforms(): void {
     "platform rewrite drops the ?s=20&t=... tail",
     socialTail !== null &&
       rewriteContent("https://x.com/u/status/1?s=20&t=trackme", socialTail).rewrittenText ===
-        "https://fixupx.com/u/status/1",
+        "https://fixupx.com/u/status/1/en",
   );
 
   // "$&" and friends are substitution patterns to String.replace, and a URL
@@ -467,6 +486,41 @@ function stubFetch(routes: Record<string, () => Response>): {
  */
 function mediaResponse(type: string): Response {
   return new Response("x", { headers: { "content-type": type } });
+}
+
+/**
+ * Verifies the Facebed check: its login-wall stub (a 200 with no og:site_name)
+ * is refused, while a real embed passes even when it declares no media.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkFacebed(): Promise<void> {
+  const url = "https://facebed.com/share/AbC";
+  const stub = (html: string): FetchLike =>
+    stubFetch({ [url]: () => new Response(html) }).fetchImpl;
+  // The stub Facebed served for a marketplace share link it could not read
+  const loginWall =
+    '<meta property="og:title" content="Log in or sign up to view"/>' +
+    '<meta http-equiv="refresh" content="0;url=https://www.facebook.com/share/AbC"/>';
+  check(
+    "facebook",
+    "facebed's login-wall stub is refused",
+    (await facebedProblem(url, stub(loginWall))) === "login wall",
+  );
+  // Real embeds meta-refresh humans to Facebook too, so that is no failure sign
+  const textPost =
+    '<meta property="og:title" content="Someone"/>' +
+    '<meta property="og:site_name" content="facebed by pi.kt"/>' +
+    '<meta http-equiv="refresh" content="0;url=https://www.facebook.com/share/AbC"/>';
+  check(
+    "facebook",
+    "a text-only facebed embed passes without media",
+    (await facebedProblem(url, stub(textPost))) === null,
+  );
+  check(
+    "facebook",
+    "an unreachable facebed is refused",
+    (await facebedProblem(url, stubFetch({}).fetchImpl)) !== null,
+  );
 }
 
 /**
@@ -4432,6 +4486,7 @@ void (async () => {
     await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();
     await checkInstagramFrontends();
+    await checkFacebed();
     await checkInstagramCaptions();
     checkRepostContent();
     await checkRepostOrdering();

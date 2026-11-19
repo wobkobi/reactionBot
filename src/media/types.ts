@@ -17,6 +17,7 @@ export type ServiceKey =
   | "threads"
   | "tumblr"
   | "tumblr-sub"
+  | "facebook"
   | "pre-embedded"
   | "tracking";
 

@@ -7,10 +7,10 @@ hears a word.
 
 ## Features
 
-- **Media links** - TikTok, Twitter/X, Instagram, Reddit, Bluesky, Threads and Tumblr links get a
-  Yes/Copy/No prompt, then move to the media channel rewritten to an embed-friendly frontend, with a
-  pointer left behind. With no media channel set, they're rewritten in the channel they were posted
-  in instead. Authors can edit or delete a moved post by right-clicking it.
+- **Media links** - TikTok, Twitter/X, Instagram, Reddit, Bluesky, Threads, Tumblr and Facebook
+  links get a Yes/Copy/No prompt, then move to the media channel rewritten to an embed-friendly
+  frontend, with a pointer left behind. With no media channel set, they're rewritten in the channel
+  they were posted in instead. Authors can edit or delete a moved post by right-clicking it.
 - **Tracking junk** - `?utm_...` and `fbclid` tails are stripped on the way through. Functional
   parameters are left alone.
 - **Trackers** - per-server counters for swears and slurs, with leaderboards and a targeted-group
