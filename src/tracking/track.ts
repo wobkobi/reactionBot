@@ -6,8 +6,11 @@
 // where a word has an innocent one (definitions.json), and adds the configured
 // emoji reactions - all driven by words.json (see loadWords). Gallery numbers
 // in the message are answered with their links on top (see nhentai.ts).
+// Country names get their flag on top of the configured reactions (see
+// countries.ts).
 
 import { noteMessage } from "@/tracking/calm";
+import { countryFlags } from "@/tracking/countries";
 import { offerDefinition } from "@/tracking/definitions";
 import { countMatches } from "@/tracking/detect";
 import { respondToMention } from "@/tracking/mention";
@@ -176,7 +179,14 @@ export async function trackMessage(message: Message): Promise<void> {
   for (const trigger of words.emojiTriggers) {
     if (content.includes(trigger.emoji)) specs.push(trigger.spec);
   }
-  for (const value of resolveReactions(specs)) {
+  const values = resolveReactions(specs);
+  for (const value of values) {
     await reactWithValue(message, value);
+  }
+
+  // Country names get their flag, after the configured reactions and
+  // skipping any flag a configured word already added
+  for (const flag of countryFlags(content)) {
+    if (!values.includes(flag)) await message.react(flag).catch(() => {});
   }
 }

@@ -6,6 +6,7 @@ import { stripTracking } from "@/media/cleanTracking";
 import { MediaMatch, ServiceKey } from "@/media/types";
 import {
   BLUESKY_REGEX,
+  FACEBOOK_REGEX,
   INSTAGRAM_REGEX,
   PRE_EMBEDDED_REGEX,
   REDDIT_COMMENTS_REGEX,
@@ -39,6 +40,7 @@ export function matchAny(content: string): MediaMatch | null {
     ["threads", THREADS_REGEX],
     ["tumblr-sub", TUMBLR_SUB_REGEX],
     ["tumblr", TUMBLR_REGEX],
+    ["facebook", FACEBOOK_REGEX],
     // Last: links already on a fixer frontend (moved as-is, no rewrite)
     ["pre-embedded", PRE_EMBEDDED_REGEX],
   ];

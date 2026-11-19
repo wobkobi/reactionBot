@@ -25,10 +25,12 @@ import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
 import { stripTracking } from "@/media/cleanTracking";
 import {
   declaredMedia,
+  facebedProblem,
   type FetchLike,
   mirrorProblem,
   pickInstagramFrontend,
 } from "@/media/embedCheck";
+import { buildStyledUrl, findStyledLink } from "@/media/embedStyle";
 import {
   CAPTION_MAX_CHARS,
   decodeEntities,
@@ -61,6 +63,7 @@ import { buildFailureNotice } from "@/media/workflow";
 import { isFreshEdit } from "@/onMessage";
 import { checkReplyLimit } from "@/tracking/calm";
 import { trackerCommand } from "@/tracking/commands";
+import { countryFlags, flagFor, MAX_FLAGS } from "@/tracking/countries";
 import {
   compileEntries,
   DEFINITIONS_FILE,
@@ -312,7 +315,10 @@ function checkTrackerCommands(): void {
 function checkLinkTransforms(): void {
   // [input, expected transformed URL]
   const transforms: Array<[string, string]> = [
-    ["https://x.com/u/status/1", "https://fixupx.com/u/status/1"],
+    ["https://x.com/u/status/1", "https://fixupx.com/u/status/1/en"],
+    ["https://x.com/u/status/1/", "https://fixupx.com/u/status/1/en"],
+    ["https://x.com/u/status/1/photo/2", "https://fixupx.com/u/status/1/photo/2/en"],
+    ["https://twitter.com/i/web/status/1", "https://fixupx.com/i/web/status/1/en"],
     ["https://www.instagram.com/reel/AbC", "https://ins.so/reel/AbC"],
     ["https://www.instagram.com/reels/AbC", "https://ins.so/reels/AbC"],
     ["https://www.instagram.com/p/AbC/?img_index=3", "https://ins.so/p/AbC/3"],
@@ -327,17 +333,100 @@ function checkLinkTransforms(): void {
     ["https://redd.it/abc1", "https://vxreddit.com/abc1"],
     [
       "https://bsky.app/profile/h.bsky.social/post/ID1",
-      "https://fxbsky.app/profile/h.bsky.social/post/ID1",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/en",
+    ],
+    [
+      "https://bsky.app/profile/h.bsky.social/post/ID1/",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/en",
+    ],
+    [
+      "https://bsky.app/profile/h.bsky.social/post/ID1/photo/2",
+      "https://fxbsky.app/profile/h.bsky.social/post/ID1/photo/2/en",
     ],
     ["https://www.threads.net/@u/post/ID1", "https://viewthreads.com/@u/post/ID1"],
     ["https://www.tumblr.com/blog/123/slug", "https://tpmblr.com/blog/123/slug"],
     ["https://blog.tumblr.com/post/123", "https://blog.tpmblr.com/post/123"],
+    ["https://www.facebook.com/reel/1755586392105520", "https://facebed.com/reel/1755586392105520"],
+    ["https://www.facebook.com/share/1A7GT9DHbm/", "https://facebed.com/share/1A7GT9DHbm"],
+    ["https://m.facebook.com/share/p/AbC12/?mibextid=x", "https://facebed.com/share/p/AbC12"],
+    [
+      "https://www.facebook.com/someone/posts/pfbid0Ab",
+      "https://facebed.com/someone/posts/pfbid0Ab",
+    ],
+    ["https://www.facebook.com/groups/123/posts/456/", "https://facebed.com/groups/123/posts/456"],
+    [
+      "https://www.facebook.com/permalink.php?story_fbid=1&id=2",
+      "https://facebed.com/permalink.php?story_fbid=1&id=2",
+    ],
   ];
   for (const [input, expected] of transforms) {
     const m = matchAny(input);
     const got = m ? buildTransformedUrl(m) : "(no match)";
     check("transforms", `${input} -> ${expected}`, got === expected);
   }
+
+  // Embed styles are read back off the posted link and rebuilt from it
+  const fx = findStyledLink("look https://fixupx.com/u/status/1/photo/2/en wow");
+  check(
+    "styles",
+    "reads an X link's style, translation and path",
+    fx?.family === "x" && fx.style === "" && fx.toggle && fx.path === "u/status/1/photo/2",
+  );
+  check(
+    "styles",
+    "media only keeps translation last",
+    fx !== null && buildStyledUrl(fx, "g", true) === "https://g.fixupx.com/u/status/1/photo/2/en",
+  );
+  check(
+    "styles",
+    "translation can be switched off",
+    fx !== null && buildStyledUrl(fx, "", false) === "https://fixupx.com/u/status/1/photo/2",
+  );
+  const cunny = findStyledLink("https://cunnyx.com/u/status/1/en");
+  check(
+    "styles",
+    "cunnyx moves to fixupx for a flag, and back to the poster's frontend for the full embed",
+    cunny !== null &&
+      buildStyledUrl(cunny, "t", true, "229791342547566592") ===
+        "https://t.fixupx.com/u/status/1/en" &&
+      buildStyledUrl(
+        findStyledLink("https://t.fixupx.com/u/status/1/en")!,
+        "",
+        true,
+        "229791342547566592",
+      ) === "https://cunnyx.com/u/status/1/en",
+  );
+  const bsky = findStyledLink("https://m.fxbsky.app/profile/h.bsky.social/post/ID1");
+  check(
+    "styles",
+    "reads a Bluesky link's flag",
+    bsky?.family === "bluesky" && bsky.style === "m" && !bsky.toggle,
+  );
+  const tt = findStyledLink("https://hq.a.tnktok.com/@u/video/123");
+  check(
+    "styles",
+    "reads TikTok's high quality and caption flags",
+    tt?.family === "tiktok" && tt.style === "a" && tt.toggle,
+  );
+  check(
+    "styles",
+    "TikTok flags rebuild in fxTikTok's order",
+    tt !== null &&
+      buildStyledUrl(tt, "d", true) === "https://hq.d.tnktok.com/@u/video/123" &&
+      buildStyledUrl(tt, "", false) === "https://tnktok.com/@u/video/123",
+  );
+  check(
+    "styles",
+    "short TikTok links keep their id",
+    buildStyledUrl(findStyledLink("https://d.tnktok.com/ZSXow1G3u")!, "a", false) ===
+      "https://a.tnktok.com/ZSXow1G3u",
+  );
+  check(
+    "styles",
+    "links with no styles, or flags the menu doesn't offer, are skipped",
+    findStyledLink("https://ins.so/reel/AbC https://vxreddit.com/r/x/comments/a") === null &&
+      findStyledLink("https://zz.fixupx.com/u/status/1") === null,
+  );
 
   // Per-poster frontend override: one user's X links route to the cunnyx
   // mirror, every other poster keeps the default.
@@ -346,8 +435,8 @@ function checkLinkTransforms(): void {
     "transforms",
     "overridden poster's x.com link -> cunnyx.com, others unchanged",
     xLink !== null &&
-      buildTransformedUrl(xLink, "229791342547566592") === "https://cunnyx.com/u/status/1" &&
-      buildTransformedUrl(xLink, "1") === "https://fixupx.com/u/status/1",
+      buildTransformedUrl(xLink, "229791342547566592") === "https://cunnyx.com/u/status/1/en" &&
+      buildTransformedUrl(xLink, "1") === "https://fixupx.com/u/status/1/en",
   );
 
   // Links already on a fixer frontend: matched as pre-embedded by path shape
@@ -364,6 +453,7 @@ function checkLinkTransforms(): void {
     "https://viewthreads.com/@u/post/ID1",
     "https://d.tnktok.com/@u/video/123",
     "https://d.tnktok.com/AbC123",
+    "https://facebed.com/reel/1755586392105520",
   ];
   for (const input of preEmbedded) {
     const m = matchAny(input);
@@ -378,6 +468,8 @@ function checkLinkTransforms(): void {
     "https://i.redd.it/xyz.jpg",
     "https://fixupx.com/",
     "https://youtube.com/watch?v=abc&t=42",
+    "https://www.facebook.com/marketplace/item/896046112887216/",
+    "https://www.facebook.com/someone",
   ];
   for (const input of noMatch) {
     check("transforms", `${input} -> no match`, matchAny(input) === null);
@@ -416,7 +508,7 @@ function checkLinkTransforms(): void {
     "platform rewrite drops the ?s=20&t=... tail",
     socialTail !== null &&
       rewriteContent("https://x.com/u/status/1?s=20&t=trackme", socialTail).rewrittenText ===
-        "https://fixupx.com/u/status/1",
+        "https://fixupx.com/u/status/1/en",
   );
 
   // "$&" and friends are substitution patterns to String.replace, and a URL
@@ -467,6 +559,41 @@ function stubFetch(routes: Record<string, () => Response>): {
  */
 function mediaResponse(type: string): Response {
   return new Response("x", { headers: { "content-type": type } });
+}
+
+/**
+ * Verifies the Facebed check: its login-wall stub (a 200 with no og:site_name)
+ * is refused, while a real embed passes even when it declares no media.
+ * @returns A promise that resolves once every case has run.
+ */
+async function checkFacebed(): Promise<void> {
+  const url = "https://facebed.com/share/AbC";
+  const stub = (html: string): FetchLike =>
+    stubFetch({ [url]: () => new Response(html) }).fetchImpl;
+  // The stub Facebed served for a marketplace share link it could not read
+  const loginWall =
+    '<meta property="og:title" content="Log in or sign up to view"/>' +
+    '<meta http-equiv="refresh" content="0;url=https://www.facebook.com/share/AbC"/>';
+  check(
+    "facebook",
+    "facebed's login-wall stub is refused",
+    (await facebedProblem(url, stub(loginWall))) === "login wall",
+  );
+  // Real embeds meta-refresh humans to Facebook too, so that is no failure sign
+  const textPost =
+    '<meta property="og:title" content="Someone"/>' +
+    '<meta property="og:site_name" content="facebed by pi.kt"/>' +
+    '<meta http-equiv="refresh" content="0;url=https://www.facebook.com/share/AbC"/>';
+  check(
+    "facebook",
+    "a text-only facebed embed passes without media",
+    (await facebedProblem(url, stub(textPost))) === null,
+  );
+  check(
+    "facebook",
+    "an unreachable facebed is refused",
+    (await facebedProblem(url, stubFetch({}).fetchImpl)) !== null,
+  );
 }
 
 /**
@@ -1516,6 +1643,35 @@ function checkReactions(): void {
     (phraseToEmojis("5b to israel") ?? []).join("") === "5️⃣🇧🇹🇴🇮🇸🇷🇦🇪🇱",
   );
   check("reactions", "repeated digits skip the spell-out", phraseToEmojis("1488") === null);
+
+  // Country flags: in order of mention, each once, longer names first
+  const flags = (s: string): string => countryFlags(s).join(" ");
+  check("flags", "an ISO code builds its flag", flagFor("nz") === "🇳🇿");
+  check(
+    "flags",
+    "countries flag in order of mention, each once",
+    flags("New Zealand, then the U.S.A., then nz again") === "🇳🇿 🇺🇸",
+  );
+  check("flags", "a longer name wins over the one inside it", flags("papua new guinea") === "🇵🇬");
+  check(
+    "flags",
+    "continent and food phrases flag nothing",
+    flags("south america and a turkey sandwich, guinea pig") === "",
+  );
+  check(
+    "flags",
+    "names that are usually people or pronouns flag nothing",
+    flags("us chad jordan georgia") === "",
+  );
+  check("flags", "accents and apostrophes are folded", flags("Côte d'Ivoire") === "🇨🇮");
+  check("flags", "UK nations get their own flags", flags("england v wales") === "🏴󠁧󠁢󠁥󠁮󠁧󠁿 🏴󠁧󠁢󠁷󠁬󠁳󠁿");
+  check(
+    "flags",
+    "a long list stops at the cap",
+    countryFlags(
+      "france spain italy germany poland greece norway sweden finland denmark iceland ireland",
+    ).length === MAX_FLAGS,
+  );
   check(
     "reactions",
     "over the reaction cap skips the spell-out",
@@ -4432,6 +4588,7 @@ void (async () => {
     await checkDeleteSurvivesRefusedNotice();
     checkLinkTransforms();
     await checkInstagramFrontends();
+    await checkFacebed();
     await checkInstagramCaptions();
     checkRepostContent();
     await checkRepostOrdering();

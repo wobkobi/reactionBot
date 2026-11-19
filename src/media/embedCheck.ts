@@ -168,3 +168,32 @@ export async function pickInstagramFrontend(
   }
   return null;
 }
+
+/**
+ * Checks that Facebed really embeds a link. Facebed answers every path it
+ * cannot scrape (marketplace listings, private or login-walled posts) with a
+ * 200 "Log in or sign up to view" stub, so the status proves nothing. Both
+ * pages meta-refresh humans on to Facebook; only a real embed carries
+ * Facebed's own og:site_name (its credit line plus the post's time and
+ * counts), so that tag is the success signal. Media is not required: a
+ * text-only post embeds fine with none.
+ * @param pageUrl - The facebed.com URL the bot would post.
+ * @param fetchImpl - Network stand-in; the global fetch by default.
+ * @returns `null` when Facebed embeds the link, otherwise a short reason for the log.
+ */
+export async function facebedProblem(
+  pageUrl: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<string | null> {
+  try {
+    const page = await fetchImpl(pageUrl, {
+      headers: { "user-agent": DISCORD_UA },
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    });
+    if (!page.ok) return `page ${page.status}`;
+    const html = await page.text();
+    return readMetaTags(html).get("og:site_name") ? null : "login wall";
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}

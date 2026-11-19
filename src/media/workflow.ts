@@ -4,14 +4,14 @@
 // responsibilities across match/transform/settings/approval/repost/audit.
 
 import { ChoiceButton, isApproved, requestChoice } from "@/media/approval";
-import { pickInstagramFrontend } from "@/media/embedCheck";
+import { facebedProblem, pickInstagramFrontend } from "@/media/embedCheck";
 import { fetchInstagramCaption, formatCaption } from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
 import { loadPref } from "@/media/prefs";
 import { repostWithOptionalStub } from "@/media/repost";
 import { registerRepostActions } from "@/media/repostActions";
 import { loadSettings, resolvePlanFor, resolveTargetChannelId } from "@/media/settings";
-import { instagramPath, rewriteContent } from "@/media/transform";
+import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { createLogger } from "@/utils/log";
 import { ButtonStyle, GuildTextBasedChannel, Message } from "discord.js";
 
@@ -115,6 +115,17 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     }
     match.frontend = pick.host;
     if (!pick.showsCaption && details) caption = formatCaption(details);
+  }
+
+  // Facebed cannot read every Facebook link (a share link can lead to a
+  // marketplace listing). When it can't, the poster's link keeps Facebook's
+  // own preview rather than being swapped for a login-wall embed.
+  if (match.which === "facebook") {
+    const problem = await facebedProblem(buildTransformedUrl(match));
+    if (problem) {
+      log.info("facebed cannot embed link", { guildId: message.guildId!, problem });
+      return;
+    }
   }
 
   // Prepare rewrite
