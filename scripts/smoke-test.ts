@@ -1652,6 +1652,11 @@ function checkReactions(): void {
     "countries flag in order of mention, each once",
     flags("New Zealand, then the U.S.A., then nz again") === "🇳🇿 🇺🇸",
   );
+  check(
+    "flags",
+    "short forms flag their country",
+    flags("aus vs the U.K., then the uae and rsa") === "🇦🇺 🇬🇧 🇦🇪 🇿🇦",
+  );
   check("flags", "a longer name wins over the one inside it", flags("papua new guinea") === "🇵🇬");
   check(
     "flags",
