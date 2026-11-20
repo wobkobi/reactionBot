@@ -103,7 +103,14 @@ import {
   RESPONSE_COOLDOWN_MS,
   RESPONSE_SPAM_THRESHOLD,
 } from "@/tracking/responses";
-import { getTopUsers, getTopWords, getUserTotal, incrementCounts } from "@/tracking/store";
+import {
+  getTopUsers,
+  getTopWords,
+  getUserTotal,
+  incrementCounts,
+  rankUsers,
+  readStores,
+} from "@/tracking/store";
 import { phraseToEmojis, resolveReactions } from "@/tracking/track";
 import { SLURS, SWEARS } from "@/tracking/trackers";
 import { loadWords, WORDS_FILE } from "@/tracking/words";
@@ -1790,6 +1797,7 @@ function checkTrackers(): void {
   );
 
   const guild = "__smoketest__";
+  const other = "__smoketest_other__";
   try {
     incrementCounts(guild, SWEARS.storeFile, "u1", new Map([["bender", 2]]));
     check(
@@ -1839,8 +1847,26 @@ function checkTrackers(): void {
       getUserTotal(guild, SLURS.storeFile, "u2") === 5 &&
         getUserTotal(guild, SLURS.storeFile, "u3") === 9,
     );
+
+    // u2 is in both servers; the second server's list does not have "duck".
+    incrementCounts(other, SLURS.storeFile, "u2", new Map([["goose", 3]]));
+    incrementCounts(other, SLURS.storeFile, "u4", new Map([["duck", 7]]));
+    const merged = readStores([guild, other], SLURS.storeFile, (id) =>
+      id === guild ? listed : (word) => word === "goose",
+    );
+    const board = rankUsers(merged, 10);
+    check(
+      "trackers",
+      "the global board adds a member's counts across servers, each by its own list",
+      board.length === 1 &&
+        board[0]?.userId === "u2" &&
+        board[0].total === 4 &&
+        merged.totals.goose === 3 &&
+        merged.totals.duck === 1,
+    );
   } finally {
     rmSync(path.join(ROOT, "data", guild), { recursive: true, force: true });
+    rmSync(path.join(ROOT, "data", other), { recursive: true, force: true });
   }
 }
 
