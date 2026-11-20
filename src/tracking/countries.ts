@@ -32,8 +32,11 @@ const WALES = "🏴󠁧󠁢󠁷󠁬󠁳󠁿";
  * nation flags. Left out on purpose, because the plain word usually means
  * something else in chat: Chad, Jordan and Georgia (names, a US state),
  * Jersey (clothing), Guinea (guinea pig; the longer Guinea names are listed),
- * and "us" (the pronoun; "usa" is listed). Demonyms are left out too, since
- * "french fries" and "english" the language are not about the country.
+ * and "us" (the pronoun; "usa" is listed). Short forms are listed only when
+ * they aren't an everyday word or unit: "aus" and "rsa" are, but "oz"
+ * (ounces), "gb" (gigabytes), "png" (images) and "can" are not. Demonyms are
+ * left out too, since "french fries" and "english" the language are not about
+ * the country.
  */
 const COUNTRIES: Array<[string, string[]]> = [
   ["AF", ["afghanistan"]],
@@ -44,7 +47,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["AG", ["antigua and barbuda", "antigua"]],
   ["AR", ["argentina"]],
   ["AM", ["armenia"]],
-  ["AU", ["australia"]],
+  ["AU", ["australia", "aus", "straya"]],
   ["AT", ["austria"]],
   ["AZ", ["azerbaijan"]],
   ["BS", ["bahamas"]],
@@ -57,7 +60,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["BJ", ["benin"]],
   ["BT", ["bhutan"]],
   ["BO", ["bolivia"]],
-  ["BA", ["bosnia and herzegovina", "bosnia"]],
+  ["BA", ["bosnia and herzegovina", "bosnia", "bih"]],
   ["BW", ["botswana"]],
   ["BR", ["brazil", "brasil"]],
   ["BN", ["brunei"]],
@@ -80,7 +83,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["HR", ["croatia"]],
   ["CU", ["cuba"]],
   ["CY", ["cyprus"]],
-  ["CZ", ["czechia", "czech republic"]],
+  ["CZ", ["czechia", "czech republic", "czech"]],
   ["DK", ["denmark"]],
   ["DJ", ["djibouti"]],
   ["DM", ["dominica"]],
@@ -98,7 +101,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["FR", ["france"]],
   ["GA", ["gabon"]],
   ["GM", ["gambia"]],
-  ["DE", ["germany"]],
+  ["DE", ["germany", "deutschland"]],
   ["GH", ["ghana"]],
   ["GR", ["greece"]],
   ["GD", ["grenada"]],
@@ -157,7 +160,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["NR", ["nauru"]],
   ["NP", ["nepal"]],
   ["NL", ["netherlands", "holland"]],
-  ["NZ", ["new zealand", "aotearoa", "nz"]],
+  ["NZ", ["new zealand", "aotearoa", "nz", "n z", "enzed"]],
   ["NI", ["nicaragua"]],
   ["NE", ["niger"]],
   ["NG", ["nigeria"]],
@@ -171,7 +174,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["PG", ["papua new guinea"]],
   ["PY", ["paraguay"]],
   ["PE", ["peru"]],
-  ["PH", ["philippines"]],
+  ["PH", ["philippines", "phillipines", "pinas"]],
   ["PL", ["poland"]],
   ["PT", ["portugal"]],
   ["QA", ["qatar"]],
@@ -183,8 +186,8 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["VC", ["saint vincent and the grenadines", "st vincent"]],
   ["WS", ["samoa"]],
   ["SM", ["san marino"]],
-  ["ST", ["sao tome and principe"]],
-  ["SA", ["saudi arabia", "saudi"]],
+  ["ST", ["sao tome and principe", "sao tome"]],
+  ["SA", ["saudi arabia", "saudi", "ksa"]],
   ["SN", ["senegal"]],
   ["RS", ["serbia"]],
   ["SC", ["seychelles"]],
@@ -194,7 +197,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["SI", ["slovenia"]],
   ["SB", ["solomon islands"]],
   ["SO", ["somalia"]],
-  ["ZA", ["south africa"]],
+  ["ZA", ["south africa", "rsa"]],
   ["SS", ["south sudan"]],
   ["ES", ["spain"]],
   ["LK", ["sri lanka"]],
@@ -207,7 +210,7 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["TJ", ["tajikistan"]],
   ["TZ", ["tanzania"]],
   ["TH", ["thailand"]],
-  ["TL", ["timor leste", "east timor"]],
+  ["TL", ["timor leste", "east timor", "timor"]],
   ["TG", ["togo"]],
   ["TO", ["tonga"]],
   ["TT", ["trinidad and tobago", "trinidad"]],
@@ -217,9 +220,12 @@ const COUNTRIES: Array<[string, string[]]> = [
   ["TV", ["tuvalu"]],
   ["UG", ["uganda"]],
   ["UA", ["ukraine"]],
-  ["AE", ["united arab emirates", "uae", "dubai"]],
-  ["GB", ["united kingdom", "uk", "great britain", "britain", "northern ireland"]],
-  ["US", ["united states of america", "united states", "usa", "u s a", "america"]],
+  ["AE", ["united arab emirates", "uae", "u a e", "emirates", "dubai"]],
+  ["GB", ["united kingdom", "uk", "u k", "great britain", "britain", "northern ireland"]],
+  [
+    "US",
+    ["united states of america", "united states", "usa", "u s a", "america", "murica", "merica"],
+  ],
   ["UY", ["uruguay"]],
   ["UZ", ["uzbekistan"]],
   ["VU", ["vanuatu"]],

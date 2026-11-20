@@ -6,6 +6,10 @@
 // The queue sheds load rather than growing. If people talk faster than the model
 // transcribes, the oldest utterance is dropped first, because a sound bite
 // fired late is worse than one not fired at all.
+//
+// The model holds a few hundred MiB, so it is loaded only around voice
+// sessions: a join waits for it, and it unloads once no session has needed it
+// for STT_IDLE_MS.
 
 import { createLogger } from "@/utils/log";
 import {
@@ -32,6 +36,13 @@ export const STT_JOB_TTL_MS = 8_000;
 /** Delay before retrying a worker that died, and the attempt cap. */
 const RESTART_DELAY_MS = 10 * 60_000;
 const MAX_RESTARTS = 3;
+
+/**
+ * How long the model stays loaded after the last session ends. Long enough
+ * that a leave-and-rejoin, or autojoin following people between channels,
+ * does not pay for a reload each time.
+ */
+export const STT_IDLE_MS = 5 * 60_000;
 
 /** Lifecycle of the transcriber. */
 export type SttStatus = "off" | "starting" | "ready" | "unavailable";
@@ -86,6 +97,9 @@ let restarts = 0;
 let nextId = 1;
 let inFlight: PendingJob | null = null;
 let queue: PendingJob[] = [];
+let idleTimer: NodeJS.Timeout | null = null;
+/** Callers of {@link whenSttReady} still waiting on the model. */
+const readyWaiters = new Set<(ready: boolean) => void>();
 
 /**
  * Locates the worker module next to this one, matching the extension of
@@ -186,6 +200,22 @@ function drainQueue(): void {
 }
 
 /**
+ * Answers everyone waiting on the model.
+ * @param ready - Whether it loaded.
+ */
+function settleReadyWaiters(ready: boolean): void {
+  for (const settle of [...readyWaiters]) settle(ready);
+}
+
+/**
+ * Cancels a pending idle unload.
+ */
+function cancelIdleStop(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+/**
  * Hands the next queued job to the worker, skipping any that went stale while
  * they waited.
  */
@@ -221,6 +251,7 @@ function pump(): void {
 function handleWorkerGone(reason: string): void {
   worker = null;
   drainQueue();
+  settleReadyWaiters(false);
   if (restarts >= MAX_RESTARTS) {
     status = "unavailable";
     log.error("transcriber gave up after repeated failures", { reason, restarts });
@@ -244,6 +275,7 @@ function onMessage(message: SttOut): void {
       status = "ready";
       restarts = 0;
       log.info("transcriber ready", { model: message.model });
+      settleReadyWaiters(true);
       pump();
       return;
     case "result":
@@ -276,6 +308,7 @@ function onMessage(message: SttOut): void {
  * recognition is unavailable.
  */
 export function startStt(): void {
+  cancelIdleStop();
   if (worker || status === "starting") return;
 
   const workerPath = resolveWorkerPath(import.meta.url);
@@ -312,11 +345,60 @@ export function startStt(): void {
 }
 
 /**
- * Stops the transcriber and settles anything waiting on it.
+ * Starts the transcriber and waits for its model to load. Never rejects:
+ * voice has to keep working without speech recognition, so a load that fails
+ * or runs past the timeout resolves false and the caller carries on.
+ * @param timeoutMs - Longest to wait. The first load downloads the weights,
+ * which can take far longer than a load from the cache.
+ * @param signal - Ends the wait early, for a join cancelled while it loads.
+ * @returns `true` once the model is ready, `false` when it is unavailable, the
+ * wait timed out, or the signal fired.
+ */
+export function whenSttReady(timeoutMs: number, signal: AbortSignal): Promise<boolean> {
+  startStt();
+  if (status === "ready") return Promise.resolve(true);
+  if (status !== "starting" || signal.aborted) return Promise.resolve(false);
+
+  return new Promise<boolean>((resolve) => {
+    const finish = (ready: boolean): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      readyWaiters.delete(finish);
+      resolve(ready);
+    };
+    const onAbort = (): void => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    readyWaiters.add(finish);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Unloads the model after {@link STT_IDLE_MS}, unless a join starts it again
+ * first. Called whenever the bot is left with no session and no join in
+ * flight.
+ */
+export function scheduleSttIdleStop(): void {
+  if (idleTimer || (!worker && status === "off")) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    log.info("transcriber unloaded while idle", { idleMs: STT_IDLE_MS });
+    stopStt();
+  }, STT_IDLE_MS);
+  // Shutdown stops the transcriber itself, so this never needs to hold the
+  // process open.
+  idleTimer.unref();
+}
+
+/**
+ * Stops the transcriber and settles anything waiting on it. Leaves status
+ * "off", which also cancels a pending restart after a crash.
  */
 export function stopStt(): void {
+  cancelIdleStop();
   status = "off";
   drainQueue();
+  settleReadyWaiters(false);
   void worker?.terminate();
   worker = null;
 }
@@ -326,11 +408,12 @@ export function stopStt(): void {
  * @param samples - Mono 16kHz float samples. The underlying buffer is
  * transferred to the worker, so the caller must not reuse it.
  * @returns The transcript, or null when it was dropped, failed, came back
- * empty, or the transcriber is unavailable.
+ * empty, or the transcriber is off or unavailable.
  */
 export function transcribe(samples: Float32Array): Promise<Transcript | null> {
-  if (status === "off") startStt();
-  if (status === "unavailable") return Promise.resolve(null);
+  // Never starts the model itself: an utterance flushed after its session
+  // closed would otherwise load it with nothing left to unload it.
+  if (status === "off" || status === "unavailable") return Promise.resolve(null);
 
   return new Promise<Transcript | null>((resolve) => {
     const job: PendingJob = { id: nextId++, samples, enqueuedAt: Date.now(), settle: resolve };
