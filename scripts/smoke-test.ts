@@ -32,6 +32,11 @@ import {
 } from "@/media/embedCheck";
 import { buildStyledUrl, findStyledLink } from "@/media/embedStyle";
 import {
+  buildFacebookEmbed,
+  fetchFacebookPreview,
+  parseFacebookPreview,
+} from "@/media/facebookPreview";
+import {
   CAPTION_MAX_CHARS,
   decodeEntities,
   fetchInstagramCaption,
@@ -362,6 +367,10 @@ function checkLinkTransforms(): void {
     ],
     ["https://www.facebook.com/groups/123/posts/456/", "https://facebed.com/groups/123/posts/456"],
     [
+      "https://www.facebook.com/marketplace/item/896046112887216/",
+      "https://facebed.com/marketplace/item/896046112887216",
+    ],
+    [
       "https://www.facebook.com/permalink.php?story_fbid=1&id=2",
       "https://facebed.com/permalink.php?story_fbid=1&id=2",
     ],
@@ -475,7 +484,6 @@ function checkLinkTransforms(): void {
     "https://i.redd.it/xyz.jpg",
     "https://fixupx.com/",
     "https://youtube.com/watch?v=abc&t=42",
-    "https://www.facebook.com/marketplace/item/896046112887216/",
     "https://www.facebook.com/someone",
   ];
   for (const input of noMatch) {
@@ -600,6 +608,39 @@ async function checkFacebed(): Promise<void> {
     "facebook",
     "an unreachable facebed is refused",
     (await facebedProblem(url, stubFetch({}).fetchImpl)) !== null,
+  );
+
+  // The bot's own fallback preview, read from Facebook's tags
+  check(
+    "facebook",
+    "facebook's login wall gives no fallback preview",
+    parseFacebookPreview(loginWall) === null,
+  );
+  const listing = parseFacebookPreview(
+    '<meta property="og:title" content="Miku &amp; friends bag" />' +
+      '<meta property="og:url" content="https://www.facebook.com/marketplace/item/1/" />' +
+      '<meta property="og:description" content="Pick up only" />' +
+      '<meta property="og:image" content="https://scontent.example/a.jpg?x=1&amp;y=2" />',
+  );
+  check(
+    "facebook",
+    "a listing's tags give a decoded fallback preview",
+    listing?.title === "Miku & friends bag" &&
+      listing.url === "https://www.facebook.com/marketplace/item/1/" &&
+      listing.description === "Pick up only" &&
+      listing.image === "https://scontent.example/a.jpg?x=1&y=2",
+  );
+  const fbUrl = "https://www.facebook.com/share/AbC";
+  const fallback = await fetchFacebookPreview(
+    "share/AbC",
+    stubFetch({ [fbUrl]: () => new Response(loginWall) }).fetchImpl,
+  );
+  check("facebook", "a login-walled facebook fetch gives no preview", fallback === null);
+  const embed = listing ? buildFacebookEmbed(listing).toJSON() : null;
+  check(
+    "facebook",
+    "the fallback embed links the listing and shows its photo",
+    embed?.url === listing?.url && embed?.image?.url === listing?.image,
   );
 }
 

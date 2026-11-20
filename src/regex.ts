@@ -41,13 +41,14 @@ export const TUMBLR_REGEX: RegExp =
 export const TUMBLR_SUB_REGEX: RegExp =
   /https?:\/\/(?!www\.)(?<sub>[a-z0-9-]+)\.tumblr\.com\/post\/(?<id>\d+(?:\/[^\s?]*)?)/i;
 
-// Facebook content links Facebed can embed: reels, share links (bare and
-// /p|r|v/), group and profile posts, profile videos, and the permalink/story
-// .php pages, whose post id lives in the query so that query is kept. A bare
-// share link can lead to a marketplace listing Facebed cannot read, so every
-// match is checked against Facebed before it is offered (see embedCheck.ts).
+// Facebook content links: reels, share links (bare and /p|r|v/), group and
+// profile posts, profile videos, marketplace listings, and the
+// permalink/story .php pages, whose post id lives in the query so that query
+// is kept. Every match is checked against Facebed first (see embedCheck.ts);
+// what Facebed cannot read (marketplace listings, including share links that
+// lead to one) gets the bot's own preview from facebookPreview.ts instead.
 export const FACEBOOK_REGEX: RegExp =
-  /https?:\/\/(?:(?:www|m|web|mbasic)\.)?facebook\.com\/(?<id>reel\/\d+|share\/(?:[prv]\/)?[A-Za-z0-9]+|groups\/[^/\s?#]+\/posts\/[^/\s?#]+|[^/\s?#]+\/(?:posts|videos)\/[^/\s?#]+|(?:permalink|story)\.php\?[^\s#]*story_fbid=[^\s#]+)\/?/i;
+  /https?:\/\/(?:(?:www|m|web|mbasic)\.)?facebook\.com\/(?<id>reel\/\d+|share\/(?:[prv]\/)?[A-Za-z0-9]+|marketplace\/item\/\d+|groups\/[^/\s?#]+\/posts\/[^/\s?#]+|[^/\s?#]+\/(?:posts|videos)\/[^/\s?#]+|(?:permalink|story)\.php\?[^\s#]*story_fbid=[^\s#]+)\/?/i;
 
 // Links already on an embed-fixer frontend (fxtwitter, cunnyx, ddinstagram,
 // whichever mirror the poster used). These need no rewriting - they only get

@@ -5,6 +5,7 @@
 
 import { ChoiceButton, isApproved, requestChoice } from "@/media/approval";
 import { facebedProblem, pickInstagramFrontend } from "@/media/embedCheck";
+import { buildFacebookEmbed, fetchFacebookPreview } from "@/media/facebookPreview";
 import { fetchInstagramCaption, formatCaption } from "@/media/instagramCaption";
 import { matchAny } from "@/media/match";
 import { loadPref } from "@/media/prefs";
@@ -58,6 +59,42 @@ export function buildFailureNotice(target: string | null, blocked: boolean): str
   const what = target ? `move that to ${target}` : "rewrite that here";
   const why = blocked ? ` - I'm missing permission to post ${target ? "there" : "here"}` : "";
   return `⚠️ I couldn't ${what}${why}. Your message has been left where it is.`;
+}
+
+/**
+ * Replies under a Facebook link with an embed built from Facebook's own
+ * preview tags, then hides the poster's login-wall embed. Does nothing when
+ * Facebook gives the bot a login wall as well. Hiding the poster's embed needs
+ * Manage Messages; without it both embeds show, which is still better than the
+ * login wall alone.
+ * @param message - The poster's message.
+ * @param path - The Facebook path matched by FACEBOOK_REGEX.
+ */
+async function postFacebookFallback(message: Message<true>, path: string): Promise<void> {
+  const preview = await fetchFacebookPreview(path);
+  if (!preview) {
+    log.info("facebook gave no preview either", { guildId: message.guildId, path });
+    return;
+  }
+  try {
+    await message.reply({
+      embeds: [buildFacebookEmbed(preview)],
+      allowedMentions: { parse: [], repliedUser: false },
+    });
+  } catch (err) {
+    log.warn("facebook fallback send failed", {
+      guildId: message.guildId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  await message.suppressEmbeds(true).catch((err: unknown) => {
+    log.debug("could not hide poster's facebook embed", {
+      guildId: message.guildId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+  log.info("posted facebook fallback preview", { guildId: message.guildId, path });
 }
 
 /**
@@ -118,12 +155,14 @@ export async function handleMediaMessage(message: Message): Promise<void> {
   }
 
   // Facebed cannot read every Facebook link (a share link can lead to a
-  // marketplace listing). When it can't, the poster's link keeps Facebook's
-  // own preview rather than being swapped for a login-wall embed.
+  // marketplace listing). Discord's own preview of those is Facebook's login
+  // wall too, so the bot builds the embed itself from Facebook's tags instead
+  // of moving the link.
   if (match.which === "facebook") {
     const problem = await facebedProblem(buildTransformedUrl(match));
     if (problem) {
       log.info("facebed cannot embed link", { guildId: message.guildId!, problem });
+      await postFacebookFallback(message, match.captures[0]);
       return;
     }
   }
