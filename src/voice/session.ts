@@ -52,7 +52,7 @@ import {
   type CompiledTrigger,
 } from "@/voice/sounds";
 import { scoreSpoken, startRun, type ChunkPlace } from "@/voice/spokenWords";
-import { matchConfidence, startStt, transcribe } from "@/voice/stt";
+import { matchConfidence, scheduleSttIdleStop, transcribe, whenSttReady } from "@/voice/stt";
 import type { HeardWord } from "@/voice/sttTypes";
 import { recordTrigger, type TriggerOutcome } from "@/voice/triggerLog";
 import {
@@ -82,6 +82,13 @@ export const SILENCE_END_MS = 350;
 /** How long to wait for a connection to become usable. */
 const READY_TIMEOUT_MS = 20_000;
 
+/**
+ * How long a join waits for the speech model before entering the channel
+ * anyway. A load from the cache takes seconds; the first ever load downloads
+ * the weights, and the bot should not hold a join for that.
+ */
+const STT_READY_WAIT_MS = 30_000;
+
 /** Speakers captured at once in one channel, so a busy call cannot swamp the queue. */
 export const MAX_CAPTURED_SPEAKERS = 8;
 
@@ -103,10 +110,11 @@ const sessions = new Map<string, Session>();
  */
 let closedForShutdown = false;
 
-/** A join still waiting for its connection to become ready. */
+/** A join still waiting for the model or for its connection to become ready. */
 interface PendingJoin {
   channelId: string;
-  connection: VoiceConnection;
+  /** Null while the model loads, before the bot has entered the channel. */
+  connection: VoiceConnection | null;
   abort: AbortController;
 }
 
@@ -521,40 +529,62 @@ export async function openSession(channel: VoiceBasedChannel): Promise<boolean> 
     return false;
   }
 
-  startStt();
-
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId,
-    adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: false,
-    selfMute: false,
-  });
-
-  // The ready wait can be cut short: a kick or disable while connecting takes
-  // effect at once instead of after a timeout that has the bot appear first.
+  // Both waits can be cut short: a kick or disable while the model loads or the
+  // connection comes up takes effect at once, through closeSession aborting this.
   const abort = new AbortController();
-  const timeout = setTimeout(() => abort.abort(), READY_TIMEOUT_MS);
-  pending.set(guildId, { channelId: channel.id, connection, abort });
+  const join: PendingJoin = { channelId: channel.id, connection: null, abort };
+  pending.set(guildId, join);
+  let connection: VoiceConnection;
+  let joined = false;
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, abort.signal);
-  } catch {
-    // Still pending means nothing else tore it down, so this was the timeout;
-    // otherwise closeSession has already destroyed the connection.
-    if (pending.has(guildId)) {
-      log.warn("voice connection never became ready", { guildId, channelId: channel.id });
-      connection.destroy();
-    } else {
+    // Model first, channel last: the bot appears only once it can hear, so
+    // nobody's first words in the call go untranscribed while it loads.
+    const ready = await whenSttReady(STT_READY_WAIT_MS, abort.signal);
+    if (abort.signal.aborted || closedForShutdown) {
       log.info(
-        "join cancelled before ready",
+        "join cancelled while the model loaded",
         { guildId, channel: channel.name },
         { channelId: channel.id },
       );
+      return false;
     }
-    return false;
+    if (!ready) log.warn("joining without the transcriber ready", { guildId });
+
+    connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId,
+      adapterCreator: channel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
+    });
+    join.connection = connection;
+
+    const timeout = setTimeout(() => abort.abort(), READY_TIMEOUT_MS);
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, abort.signal);
+    } catch {
+      // Still pending means nothing else tore it down, so this was the timeout;
+      // otherwise closeSession has already destroyed the connection.
+      if (pending.get(guildId) === join) {
+        log.warn("voice connection never became ready", { guildId, channelId: channel.id });
+        connection.destroy();
+      } else {
+        log.info(
+          "join cancelled before ready",
+          { guildId, channel: channel.name },
+          { channelId: channel.id },
+        );
+      }
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+    joined = true;
   } finally {
-    clearTimeout(timeout);
-    pending.delete(guildId);
+    if (pending.get(guildId) === join) pending.delete(guildId);
+    // A join that failed may have been the only thing keeping the model loaded.
+    // A successful one registers its session just below, with no await between.
+    if (!joined) releaseSttIfIdle();
   }
 
   const session: Session = {
@@ -619,7 +649,7 @@ export function closeSession(guildId: string, reason: string): void {
     pending.delete(guildId);
     joining.abort.abort();
     try {
-      joining.connection.destroy();
+      joining.connection?.destroy();
     } catch {
       // Already destroyed; nothing to undo.
     }
@@ -636,6 +666,15 @@ export function closeSession(guildId: string, reason: string): void {
     // Already destroyed; nothing to undo.
   }
   log.info("stopped listening", { guildId, reason });
+  releaseSttIfIdle();
+}
+
+/**
+ * Starts the speech model's idle countdown once no guild has a session or a
+ * join in flight.
+ */
+function releaseSttIfIdle(): void {
+  if (sessions.size === 0 && pending.size === 0) scheduleSttIdleStop();
 }
 
 /**
