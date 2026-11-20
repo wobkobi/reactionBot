@@ -3,6 +3,10 @@
 // Generic per-guild count store, keyed by a store filename. Powers the swear
 // and slur trackers, which share the same shape: { "users": { "<userId>": {
 // "<word>": count, ... }, ... }, "totals": { "<word>": count, ... } }
+//
+// Counts are written per guild; the leaderboards read every guild's store
+// merged into one (see readStores), while member counts and resets stay per
+// guild.
 
 import { loadData, saveData } from "@/utils/file";
 import { createLogger } from "@/utils/log";
@@ -67,6 +71,42 @@ function readStore(guildId: string, storeFile: string, listed?: WordFilter): Cou
     if (Object.keys(kept).length > 0) users[userId] = kept;
   }
   return { users, totals: keep(store.totals) };
+}
+
+/**
+ * Adds several stores together. A user counted in more than one store gets
+ * the sum of their counts, word by word.
+ * @param stores - The stores to merge; none are modified.
+ * @returns A new store holding the combined counts.
+ */
+export function mergeStores(stores: CountStore[]): CountStore {
+  const merged = createEmptyStore();
+  for (const store of stores) {
+    for (const [userId, counts] of Object.entries(store.users)) {
+      const into = (merged.users[userId] ??= {});
+      for (const [word, n] of Object.entries(counts)) into[word] = (into[word] ?? 0) + n;
+    }
+    for (const [word, n] of Object.entries(store.totals)) {
+      merged.totals[word] = (merged.totals[word] ?? 0) + n;
+    }
+  }
+  return merged;
+}
+
+/**
+ * Loads one tracker's store from each guild given and merges them, each cut
+ * down by that guild's own word filter first, since word lists are per guild.
+ * @param guildIds - The guilds to read.
+ * @param storeFile - JSON filename for this tracker.
+ * @param [listedFor] - The word filter for a guild; every word when omitted.
+ * @returns The merged store.
+ */
+export function readStores(
+  guildIds: Iterable<string>,
+  storeFile: string,
+  listedFor?: (guildId: string) => WordFilter,
+): CountStore {
+  return mergeStores([...guildIds].map((id) => readStore(id, storeFile, listedFor?.(id))));
 }
 
 /**
@@ -182,7 +222,20 @@ export function getTopUsers(
   limit = 10,
   listed?: WordFilter,
 ): Array<{ userId: string; total: number; favourite: string | null }> {
-  const store = readStore(guildId, storeFile, listed);
+  return rankUsers(readStore(guildId, storeFile, listed), limit);
+}
+
+/**
+ * Ranks a store's users by total count, as {@link getTopUsers} does for one
+ * guild.
+ * @param store - The store to rank, already filtered.
+ * @param limit - Max number of users to return.
+ * @returns Array of `{ userId, total, favourite }` sorted desc by total.
+ */
+export function rankUsers(
+  store: CountStore,
+  limit: number,
+): Array<{ userId: string; total: number; favourite: string | null }> {
   const rows = Object.entries(store.users).map(([userId, counts]) => {
     let total = 0;
     let favourite: string | null = null;
@@ -214,7 +267,20 @@ export function getTopWords(
   limit = 10,
   listed?: WordFilter,
 ): Array<{ word: string; count: number }> {
-  const store = readStore(guildId, storeFile, listed);
+  return rankWords(readStore(guildId, storeFile, listed), limit);
+}
+
+/**
+ * Ranks a store's words by total count, as {@link getTopWords} does for one
+ * guild.
+ * @param store - The store to rank, already filtered.
+ * @param limit - Max words to return.
+ * @returns Array of `{ word, count }` sorted desc by count.
+ */
+export function rankWords(
+  store: CountStore,
+  limit: number,
+): Array<{ word: string; count: number }> {
   const rows = Object.entries(store.totals).map(([word, count]) => ({ word, count }));
   rows.sort((a, b) => b.count - a.count);
   return rows.slice(0, Math.max(0, limit));
@@ -237,8 +303,23 @@ export function getTopUsersForWord(
   limit = 10,
   listed?: WordFilter,
 ): Array<{ userId: string; count: number }> {
+  return rankUsersForWord(readStore(guildId, storeFile, listed), word, limit);
+}
+
+/**
+ * Ranks a store's users by their count of one word, as
+ * {@link getTopUsersForWord} does for one guild.
+ * @param store - The store to rank, already filtered.
+ * @param word - The word to rank users by.
+ * @param limit - Max number of users to return.
+ * @returns Array of `{ userId, count }` sorted desc by that word's count.
+ */
+export function rankUsersForWord(
+  store: CountStore,
+  word: string,
+  limit: number,
+): Array<{ userId: string; count: number }> {
   const w = word.toLowerCase();
-  const store = readStore(guildId, storeFile, listed);
   const rows = Object.entries(store.users)
     .map(([userId, counts]) => ({ userId, count: counts[w] ?? 0 }))
     .filter((r) => r.count > 0);

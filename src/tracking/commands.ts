@@ -5,17 +5,22 @@
 // helpers render them; both take their wording from the Tracker, so a command
 // file only wires the two together and adds whatever is unique to it (e.g.
 // `/slurs groups`).
+//
+// The `top` and `words` leaderboards are global: they add up every server the
+// bot is in. `count`, `nuke` and the category breakdown stay per server.
 
 import { aggregateByCategory, listedIn } from "@/tracking/detect";
 import {
-  getTopUsers,
-  getTopUsersForWord,
-  getTopWords,
   getTotals,
   getUserCounts,
   getUserTotal,
+  rankUsers,
+  rankUsersForWord,
+  rankWords,
+  readStores,
   resetGuild,
   resetUser,
+  type CountStore,
   type WordFilter,
 } from "@/tracking/store";
 import { Tracker } from "@/tracking/trackers";
@@ -25,7 +30,9 @@ import { respond } from "@/utils/respond";
 import {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
+  Client,
   EmbedBuilder,
+  escapeMarkdown,
   InteractionContextType,
   MessageFlags,
   SlashCommandBuilder,
@@ -71,7 +78,9 @@ export function trackerCommand(tracker: Tracker): SlashCommandBuilder {
   });
 
   cmd.addSubcommand((sub) => {
-    sub.setName("top").setDescription(`Show top members by ${name} ${tracker.verbPast}`);
+    sub
+      .setName("top")
+      .setDescription(`Show who has ${tracker.verbPast} the most ${name} across every server`);
     sub.addStringOption((opt) =>
       opt
         .setName("word")
@@ -83,7 +92,7 @@ export function trackerCommand(tracker: Tracker): SlashCommandBuilder {
   });
 
   cmd.addSubcommand((sub) => {
-    sub.setName("words").setDescription(`Show the most-used ${name} in this server`);
+    sub.setName("words").setDescription(`Show the most-used ${name} across every server`);
     addLimitOption(sub);
     return sub;
   });
@@ -145,24 +154,67 @@ function listedWords(guildId: string, tracker: Tracker): WordFilter {
 }
 
 /**
- * Every word recorded for a tracker in this guild and still on its list,
- * most-used first. Backs both {@link autocompleteWord} and the free-text check
- * in {@link replyTopUsers}, so the two always agree on what counts as a known
- * word.
- * @param guildId - Discord guild (server) ID.
- * @param tracker - The tracker whose store to read.
- * @returns The recorded words, most-used first.
+ * A tracker's counts from every server the bot is in, merged. Each server's
+ * counts are filtered by its own word list before they are added together.
+ * Servers the bot has left are not read, though their files stay on disk.
+ * @param client - The logged-in client, for the list of servers.
+ * @param tracker - The tracker whose stores to read.
+ * @returns The merged store.
  */
-function recordedWords(guildId: string, tracker: Tracker): string[] {
-  return getTopWords(guildId, tracker.storeFile, Infinity, listedWords(guildId, tracker)).map(
-    (r) => r.word,
+function globalStore(client: Client, tracker: Tracker): CountStore {
+  return readStores(client.guilds.cache.keys(), tracker.storeFile, (guildId) =>
+    listedWords(guildId, tracker),
   );
 }
 
 /**
+ * Every word recorded for a tracker in any server and still on that server's
+ * list, most-used first. Backs both {@link autocompleteWord} and the free-text
+ * check in {@link replyTopUsers}, so the two always agree on what counts as a
+ * known word.
+ * @param store - The merged store from {@link globalStore}.
+ * @returns The recorded words, most-used first.
+ */
+function recordedWords(store: CountStore): string[] {
+  return rankWords(store, Infinity).map((r) => r.word);
+}
+
+/**
+ * How each ranked user is shown. A member this server has seen is a mention,
+ * which Discord renders with their current name. Anyone else would render as
+ * an unknown mention, so they are looked up and shown by name instead.
+ * @param interaction - The command interaction, for the server and client.
+ * @param userIds - The users on the board.
+ * @returns Each user's label, keyed by user ID.
+ */
+async function boardNames(
+  interaction: ChatInputCommandInteraction<"cached" | "raw">,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const labels = await Promise.all(
+    userIds.map(async (id): Promise<[string, string]> => {
+      if (interaction.guild?.members.cache.has(id)) return [id, `<@${id}>`];
+      const user = await interaction.client.users.fetch(id).catch(() => null);
+      return [id, user ? `**${escapeMarkdown(user.displayName)}**` : `<@${id}>`];
+    }),
+  );
+  return new Map(labels);
+}
+
+/**
+ * Footer for a global board, so nobody reads it as this server alone.
+ * @param client - The logged-in client.
+ * @returns The footer text.
+ */
+function globalFooter(client: Client): { text: string } {
+  const servers = client.guilds.cache.size;
+  return { text: `Across ${servers} server${servers === 1 ? "" : "s"}` };
+}
+
+/**
  * Autocompletes the `word` option of a tracker's `top` subcommand from the
- * words actually recorded in this server, so typos and never-said words are
- * avoided up front.
+ * words recorded in any server, so typos and never-said words are avoided up
+ * front.
  * @param interaction - The autocomplete interaction context.
  * @param tracker - The tracker whose store to suggest from.
  * @returns A promise that resolves when the suggestions are sent.
@@ -171,20 +223,16 @@ export async function autocompleteWord(
   interaction: AutocompleteInteraction,
   tracker: Tracker,
 ): Promise<void> {
-  if (!interaction.inGuild()) {
-    await interaction.respond([]);
-    return;
-  }
   const typed = interaction.options.getFocused().trim().toLowerCase();
-  const words = recordedWords(interaction.guildId, tracker)
+  const words = recordedWords(globalStore(interaction.client, tracker))
     .filter((w) => w.includes(typed))
     .slice(0, 25);
   await interaction.respond(words.map((w) => ({ name: w, value: w })));
 }
 
 /**
- * Replies with a leaderboard of users by total count, or by one word's count
- * when the `word` option is given (e.g. who says "wanker" the most).
+ * Replies with a global leaderboard of users by total count, or by one word's
+ * count when the `word` option is given (e.g. who says "wanker" the most).
  * @param interaction - The command interaction (reads the `word` and `limit` options).
  * @param tracker - The tracker whose store to read.
  * @returns A promise that resolves once the leaderboard is sent.
@@ -197,47 +245,50 @@ export async function replyTopUsers(
     await guildOnly(interaction);
     return;
   }
-  const guildId = interaction.guildId;
   try {
     const word = interaction.options.getString("word")?.trim().toLowerCase() || null;
+    const store = globalStore(interaction.client, tracker);
 
     // Free-text safety net for anyone who bypasses the autocomplete: an unknown
     // word would only render an empty leaderboard, so say why instead.
-    if (word && !recordedWords(guildId, tracker).includes(word)) {
+    if (word && !recordedWords(store).includes(word)) {
       await respond(interaction, {
-        content: `No one has ${tracker.verbPast} "${word}" here yet.`,
+        content: `No one has ${tracker.verbPast} "${word}" anywhere yet.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const limit = interaction.options.getInteger("limit") ?? DEFAULT_LIMIT;
-    const listed = listedWords(guildId, tracker);
     // Word-specific rankings already name the word in the title; overall
     // rankings carry each user's favourite (most-used) word instead.
     const ranked = word
-      ? getTopUsersForWord(guildId, tracker.storeFile, word, limit, listed).map((r) => ({
+      ? rankUsersForWord(store, word, limit).map((r) => ({
           userId: r.userId,
           n: r.count,
           favourite: null as string | null,
         }))
-      : getTopUsers(guildId, tracker.storeFile, limit, listed).map((r) => ({
+      : rankUsers(store, limit).map((r) => ({
           userId: r.userId,
           n: r.total,
           favourite: r.favourite,
         }));
 
-    // Mentions rather than tags: Discord resolves <@id> client-side, so the
-    // name always renders current with no per-user fetch. Members who left
-    // still show as an unresolved mention rather than a bare ID.
+    // Looking up people from other servers can outlast Discord's 3s window.
+    await interaction.deferReply();
+    const names = await boardNames(
+      interaction,
+      ranked.map((r) => r.userId),
+    );
     const lines = ranked.map((r, i) => {
       const favourite = r.favourite ? ` (favourite: ${r.favourite})` : "";
-      return `**${i + 1}.** <@${r.userId}> - **${r.n}**${favourite}`;
+      return `**${i + 1}.** ${names.get(r.userId)} - **${r.n}**${favourite}`;
     });
 
     const embed = new EmbedBuilder()
       .setTitle(word ? `${tracker.topTitle} (${word})` : tracker.topTitle)
-      .setDescription(lines.join("\n") || "No data yet.");
+      .setDescription(lines.join("\n") || "No data yet.")
+      .setFooter(globalFooter(interaction.client));
     // Public on purpose: leaderboards are for the whole channel to see.
     // Empty allowedMentions so the ranked members render without being pinged.
     await respond(interaction, { embeds: [embed], allowedMentions: { parse: [] } });
@@ -251,7 +302,7 @@ export async function replyTopUsers(
 }
 
 /**
- * Replies with a leaderboard of the most-counted words for a tracker.
+ * Replies with a global leaderboard of the most-counted words for a tracker.
  * @param interaction - The command interaction (reads the `limit` integer option).
  * @param tracker - The tracker whose store to read.
  * @returns A promise that resolves once the leaderboard is sent.
@@ -266,16 +317,12 @@ export async function replyTopWords(
   }
   try {
     const limit = interaction.options.getInteger("limit") ?? DEFAULT_LIMIT;
-    const rows = getTopWords(
-      interaction.guildId,
-      tracker.storeFile,
-      limit,
-      listedWords(interaction.guildId, tracker),
-    );
+    const rows = rankWords(globalStore(interaction.client, tracker), limit);
     const lines = rows.map((r, i) => `**${i + 1}.** ${r.word} - **${r.count}**`);
     const embed = new EmbedBuilder()
       .setTitle(tracker.wordsTitle)
-      .setDescription(lines.join("\n") || "No data yet.");
+      .setDescription(lines.join("\n") || "No data yet.")
+      .setFooter(globalFooter(interaction.client));
     // Public on purpose: leaderboards are for the whole channel to see.
     await respond(interaction, { embeds: [embed] });
   } catch (err) {

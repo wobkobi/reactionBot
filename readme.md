@@ -13,8 +13,9 @@ hears a word.
   they were posted in instead. Authors can edit or delete a moved post by right-clicking it.
 - **Tracking junk** - `?utm_...` and `fbclid` tails are stripped on the way through. Functional
   parameters are left alone.
-- **Trackers** - per-server counters for swears and slurs, with leaderboards and a targeted-group
-  breakdown. Words said in a voice channel the bot is listening in count the same as typed ones.
+- **Trackers** - per-server counters for swears and slurs, with global leaderboards across every
+  server and a targeted-group breakdown. Words said in a voice channel the bot is listening in count
+  the same as typed ones.
 - **Reactions and replies** - phrase reactions, spell-out reactions in letter emojis, a flag for
   each country named (up to 10 per message), and GIF or text replies to slurs.
 - **Mention comebacks** - ping the bot, get a playground insult back.
