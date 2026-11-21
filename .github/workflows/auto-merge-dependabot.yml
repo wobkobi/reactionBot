@@ -34,20 +34,43 @@ jobs:
             };
 
             /**
-             * Whether a Dependabot title describes a bump that can break the build.
-             * Pre-1.0 packages have no major to bump, so a minor is the breaking
-             * step there and 0.4.x > 0.5.x counts.
-             * @param {string} title - Pull request title.
-             * @returns {boolean | null} True when breaking, null when no single from/to pair is stated.
+             * Whether one version bump can break the build. Pre-1.0 packages have no
+             * major to bump, so a minor is the breaking step there and 0.4.x > 0.5.x
+             * counts. An unparseable version is treated as breaking rather than guessed at.
+             * @param {string} fromVersion - Version before the bump.
+             * @param {string} toVersion - Version after the bump.
+             * @returns {boolean} True when the bump should be left for a person.
              */
-            const isBreaking = (title) => {
-              const m = /\bfrom (\S+) to (\S+)/.exec(title);
-              if (!m) return null;
-              const from = parse(m[1]);
-              const to = parse(m[2]);
-              if (!from || !to) return null;
+            const isBreaking = (fromVersion, toVersion) => {
+              const from = parse(fromVersion);
+              const to = parse(toVersion);
+              if (!from || !to) return true;
               if (from.major !== to.major) return true;
               return from.major === 0 && from.minor !== to.minor;
+            };
+
+            /**
+             * Every version pair a Dependabot PR states. A single update says it in the
+             * title ("from 1.2.3 to 1.2.4"); a grouped update lists one "Updates `pkg`
+             * from 1.2.3 to 1.2.4" line per package in the body, versions sometimes
+             * wrapped in backticks. A version is dot-separated segments, so a sentence-
+             * ending full stop is not swallowed into it.
+             * @param {string} title - Pull request title.
+             * @param {string | null} body - Pull request body; null when empty.
+             * @returns {Array<[string, string]>} Unique [from, to] pairs, in order of appearance.
+             */
+            const versionPairs = (title, body) => {
+              const ver = String.raw`\`?v?(\d[\w+-]*(?:\.[\w+-]+)*)\`?`;
+              const re = new RegExp(String.raw`\bfrom ${ver} to ${ver}`, 'g');
+              const seen = new Set();
+              const pairs = [];
+              for (const m of `${title}\n${body ?? ''}`.matchAll(re)) {
+                const key = `${m[1]}>${m[2]}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                pairs.push([m[1], m[2]]);
+              }
+              return pairs;
             };
 
             const prs = await github.paginate(github.rest.pulls.list, {
@@ -63,29 +86,32 @@ jobs:
               if (pr.head.sha !== headSha) continue;
               if (pr.base.ref !== defaultBranch) continue;
 
-              // Majors are held back for a person to judge: a green CI run does
-              // not mean a major is safe to take, since CI cannot see a dropped
-              // feature or a peer conflict that only bites at runtime. Grouped
-              // updates state no single version pair, so they are held back too
-              // rather than guessed at.
-              const breaking = isBreaking(pr.title);
-              if (breaking === null) {
-                core.info(`#${pr.number} left for review: no single version bump in "${pr.title}"`);
+              // Majors are held back for a person to judge: a major can change runtime
+              // behaviour the build never exercises, or clash with a peer range, so a
+              // green CI run does not mean it is safe to take. Majors that are known to
+              // be blocked are also listed under `ignore` in dependabot.yml so they do
+              // not sit open and count towards the open-PR limit. A grouped PR is only
+              // merged when every bump it lists is safe; one breaking bump holds the lot.
+              const pairs = versionPairs(pr.title, pr.body);
+              if (!pairs.length) {
+                core.info(`#${pr.number} left for review: no version bump found in "${pr.title}"`);
                 continue;
               }
-              if (breaking) {
-                core.info(`#${pr.number} left for review: breaking bump - "${pr.title}"`);
+              const breaking = pairs.filter(([from, to]) => isBreaking(from, to));
+              if (breaking.length) {
+                const list = breaking.map(([from, to]) => `${from} > ${to}`).join(', ');
+                core.info(`#${pr.number} left for review: breaking bump (${list})`);
                 continue;
               }
 
-              // Queue the squash merge instead of merging immediately. GitHub runs
-              // it once every required check passes, so this does not race a check
-              // still running - an immediate merge then returns 405 "Required
-              // status check is pending" and fails the job.
+              // Queue the squash merge instead of merging immediately. GitHub runs it
+              // once every required check passes, so this does not race a check that
+              // is still pending (a deployment preview, CodeQL) - an immediate merge
+              // then returns 405 "Required status check ... is pending" and fails the job.
               //
-              // No review is submitted: main requires zero approving reviews, and
-              // GITHUB_TOKEN may only approve when the repo enables "Allow GitHub
-              // Actions to create and approve pull requests", so an unguarded
+              // No review is submitted: the default branch requires zero approving
+              // reviews, and GITHUB_TOKEN may only approve when the repo enables "Allow
+              // GitHub Actions to create and approve pull requests", so an unguarded
               // approve call fails the whole job with a 422.
               try {
                 await github.graphql(

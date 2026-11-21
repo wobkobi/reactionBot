@@ -1,14 +1,22 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# Dependabot opens at most 5 version-update PRs per ecosystem, and once 5 are open it
+# skips the scheduled run entirely - including the step that closes PRs a manual update
+# has already superseded. A couple of stuck PRs (lockfile conflicts, held majors) is
+# enough to stop npm updates silently, so minor and patch bumps share one grouped PR
+# and majors known to be blocked are ignored rather than left open.
 
 version: 2
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Stay on TypeScript 6 until typescript-eslint's peer range covers 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # Keeps the `uses:` tags in .github/workflows current. Without this, pinned
   # actions silently fall behind and the runner warns about their declared
@@ -17,3 +25,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
