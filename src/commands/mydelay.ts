@@ -3,7 +3,7 @@
 import { INDEFINITE_PROMPT_LABEL } from "@/media/approval";
 import { clampPref, clearPref, loadPref, resolveLimits, savePref } from "@/media/prefs";
 import { loadSettings, quickerThanRewrite, REWRITE_PROMPT_MS } from "@/media/settings";
-import { GraceSetting, MemberMode, MemberPref, PersonalLimits } from "@/media/types";
+import { MediaSettings, MemberMode, MemberPref, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { respond } from "@/utils/respond";
 import {
@@ -16,7 +16,8 @@ import {
 const log = createLogger("cmd/mydelay");
 
 /**
- * Slash command definition for `/mydelay`. Governs cross-channel moves of the
+ * Slash command definition for `/mydelay`. Its modes share their names with
+ * `/setdelay`, plus never, show and reset. Governs cross-channel moves of the
  * invoker's own links outright; on a same-channel rewrite it applies only when
  * quicker than the fixed rewrite prompt. Tracking cleans keep asking
  * regardless of what is set here.
@@ -43,7 +44,7 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub
       .setName("ask")
-      .setDescription("Ask me first, and leave it put if I say nothing")
+      .setDescription("Ask me first, and leave the link if I don't answer")
       .addIntegerOption((opt) =>
         opt
           .setName("seconds")
@@ -56,10 +57,8 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub.setName("never").setDescription("Never move mine, and never prompt me"),
   )
-  .addSubcommand((sub) => sub.setName("show").setDescription("Show what is set for you right now"))
-  .addSubcommand((sub) =>
-    sub.setName("clear").setDescription("Drop yours and follow the server default"),
-  )
+  .addSubcommand((sub) => sub.setName("show").setDescription("Show what applies to you right now"))
+  .addSubcommand((sub) => sub.setName("reset").setDescription("Go back to the server default"))
   .setContexts(InteractionContextType.Guild);
 
 /**
@@ -77,16 +76,19 @@ export function resolvePref(mode: MemberMode, seconds?: number | null): MemberPr
 /**
  * Describes the guild `/setdelay` behaviour in the second person, for replies
  * that have to name what applies instead of a member's own choice.
- * @param grace - The configured guild grace.
+ * @param settings - The guild's stored settings.
  * @returns A sentence fragment describing it.
  */
-function describeGuildDefault(grace: GraceSetting | undefined): string {
-  const g = grace ?? 10_000;
+function describeGuildDefault(settings: MediaSettings): string {
+  const g = settings.grace ?? 10_000;
   if (g === "instant") return "your links get moved straight away";
   if (g === "disabled") {
-    return `you get asked, and the prompt waits up to ${INDEFINITE_PROMPT_LABEL} for an answer`;
+    return `you get asked first, and the prompt waits up to ${INDEFINITE_PROMPT_LABEL} for an answer`;
   }
-  return `you get ${Math.round((g as number) / 1000)}s to hit Yes before the prompt gives up`;
+  const seconds = Math.round(g / 1000);
+  return settings.countdown
+    ? `your links get moved after ${seconds}s unless you hit Cancel`
+    : `you get asked first, and have ${seconds}s to hit Move before your link is left where it is`;
 }
 
 /**
@@ -101,7 +103,7 @@ function describePref(pref: MemberPref): string {
     case "countdown":
       return `your links get moved after ${pref.seconds}s unless you hit Cancel`;
     case "ask":
-      return `you get ${pref.seconds}s to hit Yes before the prompt gives up`;
+      return `you get asked first, and have ${pref.seconds}s to hit Move before your link is left where it is`;
     case "never":
       return "your links are never moved, and you are never prompted";
   }
@@ -138,8 +140,8 @@ async function replyWithCurrent(
   let content: string;
   if (!effective) {
     content = stored
-      ? `⚙️ Your setting is not allowed here, so the server default applies: ${describeGuildDefault(settings.grace)}.`
-      : `⚙️ You are on the server default: ${describeGuildDefault(settings.grace)}.`;
+      ? `⚙️ Your setting is not allowed here, so the server default applies: ${describeGuildDefault(settings)}.`
+      : `⚙️ You are on the server default: ${describeGuildDefault(settings)}.`;
   } else {
     const clamped = stored?.seconds !== undefined && stored.seconds !== effective.seconds;
     content = `⚙️ In force for you: ${describePref(effective)}.${
@@ -188,7 +190,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
-  const sub = interaction.options.getSubcommand() as MemberMode | "show" | "clear";
+  const sub = interaction.options.getSubcommand() as MemberMode | "show" | "reset";
 
   try {
     const settings = loadSettings(guildId);
@@ -199,7 +201,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       return;
     }
 
-    if (sub === "clear") {
+    if (sub === "reset") {
       clearPref(guildId, userId);
       log.info(
         "member preference cleared",
@@ -207,7 +209,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         { userId },
       );
       await respond(interaction, {
-        content: `✅ Dropped. You're on the server default now: ${describeGuildDefault(settings.grace)}.`,
+        content: `✅ Reset. You're on the server default now: ${describeGuildDefault(settings)}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -215,7 +217,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     if (!limits.enabled) {
       await respond(interaction, {
-        content: `❌ This server doesn't let members set their own delay. The server default applies: ${describeGuildDefault(settings.grace)}.`,
+        content: `❌ This server doesn't let members set their own delay. The server default applies: ${describeGuildDefault(settings)}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -223,7 +225,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     if (sub === "never" && !limits.allowNever) {
       await respond(interaction, {
-        content: `❌ This server doesn't allow opting out of moves. The server default applies: ${describeGuildDefault(settings.grace)}.`,
+        content: `❌ This server doesn't allow opting out of moves. The server default applies: ${describeGuildDefault(settings)}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;

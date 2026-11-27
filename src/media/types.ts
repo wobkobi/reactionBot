@@ -55,7 +55,13 @@ export interface PersonalLimits {
 export interface MediaSettings {
   /** Destination channel for reposts; if absent, use source channel. */
   channelId?: string;
+  /** How long the poster gets on a cross-channel move (see {@link GraceSetting}). */
   grace?: GraceSetting;
+  /**
+   * When set with a numeric `grace`, the prompt counts down to a move (Cancel
+   * stops it) instead of asking and leaving the link put on silence.
+   */
+  countdown?: boolean;
   /** Bounds on member preferences; absent means the defaults in prefs.ts. */
   personal?: PersonalLimits;
 }
@@ -92,7 +98,7 @@ export interface ApprovalPlan {
   /** If set, the prompt auto-closes after this many ms. */
   timeoutMs?: number;
   /**
-   * Wait as long as a no-timeout prompt can (`/setdelay disabled`, capped at
+   * Wait as long as a no-timeout prompt can (`/setdelay ask` with no seconds, capped at
    * `INDEFINITE_PROMPT_MS`) instead of `timeoutMs`. The prompt is still deleted
    * once it ends.
    */

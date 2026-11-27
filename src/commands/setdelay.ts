@@ -3,7 +3,7 @@
 import { INDEFINITE_PROMPT_LABEL } from "@/media/approval";
 import { resolveLimits } from "@/media/prefs";
 import { loadSettings, saveSettings } from "@/media/settings";
-import { GraceSetting, PersonalLimits } from "@/media/types";
+import { MediaSettings, PersonalLimits } from "@/media/types";
 import { createLogger } from "@/utils/log";
 import { requireAdmin } from "@/utils/permissions";
 import { respond } from "@/utils/respond";
@@ -16,30 +16,34 @@ import {
 
 const log = createLogger("cmd/setdelay");
 
+/** The `/setdelay` subcommands that set the server default. */
+export type DelayMode = "instant" | "countdown" | "ask";
+
 /**
- * Slash command definition for `/setdelay`. Subcommands make the input
- * self-explanatory - no mode/value combination to get wrong:
+ * Slash command definition for `/setdelay`. The modes share their names with
+ * `/mydelay`, so a mode means the same thing whoever sets it:
  * - `/setdelay instant` - move links immediately, no prompt
- * - `/setdelay seconds seconds:<1-300>` - prompt that times out
- * - `/setdelay disabled` - prompt that waits up to {@link INDEFINITE_PROMPT_LABEL} for an answer
+ * - `/setdelay countdown seconds:<1-300>` - move unless the poster hits Cancel in time
+ * - `/setdelay ask [seconds:<1-300>]` - ask, and leave the link if nobody
+ *   answers; no seconds waits up to {@link INDEFINITE_PROMPT_LABEL}
  *
- * `/setdelay personal` sits alongside them, governing what members may pick
+ * `/setdelay members` sits alongside them, governing what members may pick
  * for themselves with `/mydelay` rather than the default itself.
  */
 export const data = new SlashCommandBuilder()
   .setName("setdelay")
-  .setDescription("⏱️ How long posters get before their link is moved")
+  .setDescription("⏱️ How media links get moved by default")
   .addSubcommand((sub) =>
-    sub.setName("instant").setDescription("No prompt - links get moved straight away"),
+    sub.setName("instant").setDescription("Move links straight away, no prompt"),
   )
   .addSubcommand((sub) =>
     sub
-      .setName("seconds")
-      .setDescription("Give the poster a few seconds to hit Yes or No")
+      .setName("countdown")
+      .setDescription("Move links unless the poster hits Cancel in time")
       .addIntegerOption((opt) =>
         opt
           .setName("seconds")
-          .setDescription("How long they get (1-300)")
+          .setDescription("How long they get to cancel (1-300)")
           .setMinValue(1)
           .setMaxValue(300)
           .setRequired(true),
@@ -47,12 +51,21 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
-      .setName("disabled")
-      .setDescription(`Always ask, and wait up to ${INDEFINITE_PROMPT_LABEL} for an answer`),
+      .setName("ask")
+      .setDescription("Ask the poster first, and leave the link if they don't answer")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("seconds")
+          .setDescription(
+            `How long the prompt waits (1-300); blank waits up to ${INDEFINITE_PROMPT_LABEL}`,
+          )
+          .setMinValue(1)
+          .setMaxValue(300),
+      ),
   )
   .addSubcommand((sub) =>
     sub
-      .setName("personal")
+      .setName("members")
       .setDescription("What members may set for themselves with /mydelay")
       .addBooleanOption((opt) =>
         opt.setName("enabled").setDescription("Let members set their own delay"),
@@ -71,7 +84,7 @@ export const data = new SlashCommandBuilder()
   .setContexts(InteractionContextType.Guild);
 
 /**
- * Applies the supplied `/setdelay personal` options to the bounds already in
+ * Applies the supplied `/setdelay members` options to the bounds already in
  * force. Every option is optional, so `null` (nothing supplied) leaves the
  * current value alone.
  * @param current - The bounds in force.
@@ -97,19 +110,37 @@ export function mergePersonal(
 }
 
 /**
- * Converts the chosen subcommand/value into the persisted grace
- * representation.
- * @param mode - "instant", "disabled", or "seconds".
- * @param seconds - Optional seconds value when mode is "seconds".
- * @returns The {@link GraceSetting} to persist (milliseconds when mode is "seconds").
+ * Converts the chosen subcommand and seconds into the stored settings.
+ * Seconds are stored as milliseconds, the unit the approval pipeline expects.
+ * An ask with no seconds is stored as "disabled", the wait-as-long-as-allowed
+ * grace.
+ * @param mode - The subcommand run.
+ * @param [seconds] - Seconds supplied with countdown or ask.
+ * @returns The `grace` and `countdown` fields to persist.
  */
-export function resolveGrace(
-  mode: "instant" | "disabled" | "seconds",
+export function resolveDelay(
+  mode: DelayMode,
   seconds?: number | null,
-): GraceSetting {
-  if (mode === "instant" || mode === "disabled") return mode;
-  // Stored as milliseconds: the approval pipeline treats a numeric grace as ms.
-  return Number(seconds ?? 10) * 1000;
+): Pick<MediaSettings, "grace" | "countdown"> {
+  if (mode === "instant") return { grace: "instant", countdown: false };
+  if (mode === "countdown") return { grace: Number(seconds ?? 10) * 1000, countdown: true };
+  return { grace: seconds == null ? "disabled" : seconds * 1000, countdown: false };
+}
+
+/**
+ * Confirms a new server default in plain words.
+ * @param mode - The subcommand run.
+ * @param seconds - Seconds supplied, if any.
+ * @returns The confirmation text.
+ */
+function confirmDelay(mode: DelayMode, seconds: number | null): string {
+  if (mode === "instant") return "✅ Links get moved straight away now, no prompt.";
+  if (mode === "countdown") {
+    return `✅ Links get moved after ${seconds}s unless the poster hits Cancel.`;
+  }
+  return seconds == null
+    ? `✅ Posters get asked first, and the prompt waits up to ${INDEFINITE_PROMPT_LABEL} for an answer.`
+    : `✅ Posters get asked first, and have ${seconds}s to hit Move before their link is left where it is.`;
 }
 
 /**
@@ -133,19 +164,22 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const mode = interaction.options.getSubcommand() as
-    "instant" | "disabled" | "seconds" | "personal";
+  const mode = interaction.options.getSubcommand() as DelayMode | "members";
 
-  if (mode === "personal") {
+  if (mode === "members") {
     await setPersonal(interaction, guildId);
     return;
   }
 
-  const seconds = mode === "seconds" ? interaction.options.getInteger("seconds", true) : null;
+  const seconds = mode === "instant" ? null : interaction.options.getInteger("seconds");
 
   try {
     const settings = loadSettings(guildId);
-    settings.grace = resolveGrace(mode, seconds);
+    const next = resolveDelay(mode, seconds);
+    settings.grace = next.grace;
+    // Only written when on, so a server that never counts down keeps no key
+    if (next.countdown) settings.countdown = true;
+    else delete settings.countdown;
     saveSettings(guildId, settings);
 
     log.info(
@@ -154,12 +188,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       { byId: userId },
     );
 
-    const confirmations: Record<"instant" | "seconds" | "disabled", string> = {
-      instant: "✅ Links get moved straight away now, no prompt.",
-      seconds: `✅ Posters get ${seconds}s to hit Yes or No before the prompt gives up.`,
-      disabled: `✅ Posters always get asked, and the prompt waits up to ${INDEFINITE_PROMPT_LABEL} for an answer.`,
-    };
-    await respond(interaction, { content: confirmations[mode], flags: MessageFlags.Ephemeral });
+    await respond(interaction, {
+      content: confirmDelay(mode, seconds),
+      flags: MessageFlags.Ephemeral,
+    });
   } catch (err) {
     log.error("failed to update grace", {
       guildId,
@@ -174,7 +206,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 }
 
 /**
- * Handles `/setdelay personal`: stores the bounds on what members may set for
+ * Handles `/setdelay members`: stores the bounds on what members may set for
  * themselves. Tightening them applies to preferences members already saved,
  * since the bounds are re-applied every time a preference is read.
  * @param interaction - The command interaction context.

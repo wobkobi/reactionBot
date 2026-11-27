@@ -16,6 +16,14 @@ export const SETTINGS_FILE = "media_settings.json";
 /** How long the same-channel rewrite prompt waits, whatever `/setdelay` says. */
 export const REWRITE_PROMPT_MS = 15_000;
 
+/** Prompt wording, shared by the server default and member preferences. */
+const MOVE_ASK = "Move your link to the media channel?";
+const MOVE_COUNTDOWN =
+  "Moving your link to the media channel - hit Cancel to keep it here, or Move now to skip the wait.";
+const REWRITE_ASK = "Rewrite your link here with an embeddable version?";
+const REWRITE_COUNTDOWN =
+  "Rewriting your link here with an embeddable version - hit Cancel to keep it as is, or Rewrite now to skip the wait.";
+
 /**
  * Loads settings for a guild. Returns empty defaults if file is missing.
  * @param guildId - Discord guild ID.
@@ -42,6 +50,7 @@ export function saveSettings(guildId: string, next: MediaSettings): void {
     guildId,
     channelId: next.channelId ?? null,
     grace: next.grace ?? null,
+    countdown: next.countdown ?? false,
   });
 }
 
@@ -67,11 +76,14 @@ export function resolveTargetChannelId(settings: MediaSettings, fallbackChannelI
  * - timeout is hard-coded to 15 seconds (overrides "disabled"/numbers)
  * @param grace - The configured {@link GraceSetting}.
  * @param sameChannel - Whether repost target is the same as the source.
+ * @param [countdown] - Whether a numeric grace counts down to a move rather
+ * than asking.
  * @returns An {@link ApprovalPlan}.
  */
 export function resolveApprovalPlan(
   grace: GraceSetting | undefined,
   sameChannel: boolean,
+  countdown = false,
 ): ApprovalPlan {
   if (sameChannel) {
     // Special-case per product spec
@@ -80,7 +92,7 @@ export function resolveApprovalPlan(
       timeoutMs: REWRITE_PROMPT_MS,
       persistIndefinitely: false,
       approveOnTimeout: false,
-      promptText: "Rewrite your link here with an embeddable version?",
+      promptText: REWRITE_ASK,
     };
     log.debug("approval plan (same channel)", { plan });
     return plan;
@@ -94,7 +106,7 @@ export function resolveApprovalPlan(
       timeoutMs: undefined,
       persistIndefinitely: false,
       approveOnTimeout: false,
-      promptText: "Move your media link to the media channel?",
+      promptText: MOVE_ASK,
     };
   } else if (g === "disabled") {
     plan = {
@@ -102,7 +114,7 @@ export function resolveApprovalPlan(
       timeoutMs: undefined,
       persistIndefinitely: true,
       approveOnTimeout: false,
-      promptText: "Move your media link to the media channel?",
+      promptText: MOVE_ASK,
     };
   } else {
     const ms = Number.isFinite(g) && (g as number) >= 0 ? (g as number) : 10_000;
@@ -110,8 +122,8 @@ export function resolveApprovalPlan(
       autoApprove: false,
       timeoutMs: ms,
       persistIndefinitely: false,
-      approveOnTimeout: false,
-      promptText: "Move your media link to the media channel?",
+      approveOnTimeout: countdown,
+      promptText: countdown ? MOVE_COUNTDOWN : MOVE_ASK,
     };
   }
   log.debug("approval plan", { sameChannel, grace: g, plan });
@@ -155,9 +167,7 @@ function planForPref(
         approveOnTimeout: true,
         timeoutMs: (pref.seconds ?? 10) * 1000,
         persistIndefinitely: false,
-        promptText: sameChannel
-          ? "Rewriting your link here with an embeddable version - hit Cancel to keep it as is."
-          : "Moving your media link to the media channel - hit Cancel to keep it here.",
+        promptText: sameChannel ? REWRITE_COUNTDOWN : MOVE_COUNTDOWN,
       };
     case "ask":
       return {
@@ -165,7 +175,8 @@ function planForPref(
         approveOnTimeout: false,
         timeoutMs: (pref.seconds ?? 10) * 1000,
         persistIndefinitely: false,
-        promptText: guildPlan.promptText,
+        // Not guildPlan's text: a server countdown words its prompt as one
+        promptText: sameChannel ? REWRITE_ASK : MOVE_ASK,
       };
   }
 }
@@ -187,7 +198,7 @@ export function resolvePlanFor(
   pref: MemberPref | undefined,
   sameChannel: boolean,
 ): ApprovalPlan | null {
-  const guildPlan = resolveApprovalPlan(settings.grace, sameChannel);
+  const guildPlan = resolveApprovalPlan(settings.grace, sameChannel, settings.countdown);
   const effective = clampPref(pref, resolveLimits(settings));
   if (!effective) return guildPlan;
   if (sameChannel && !quickerThanRewrite(effective)) return guildPlan;

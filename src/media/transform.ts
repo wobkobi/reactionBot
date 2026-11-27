@@ -2,7 +2,12 @@
 
 // Rewrites matched platform URLs to embed-friendly frontends.
 
-import { stripTracking } from "@/media/cleanTracking";
+import {
+  cleanAllTracking,
+  normaliseSocialLink,
+  stripTracking,
+  trimUrlEnd,
+} from "@/media/cleanTracking";
 import { MediaMatch, RewriteResult } from "@/media/types";
 import { createLogger } from "@/utils/log";
 
@@ -105,13 +110,81 @@ export const TWITTER_HOSTS: readonly string[] = [
 ];
 
 /**
- * Builds the transformed URL for a given platform match.
+ * Builds the transformed URL for a given platform match. Several platform
+ * regexes capture up to the next whitespace, so a "." or ">" sitting against
+ * the link would ride along; it is trimmed here, which keeps the Copy reply
+ * and the repost to the bare link. Social links are then normalised so every
+ * platform comes out in the same shape (see {@link normaliseSocialLink}).
  * @param match - The {@link MediaMatch} describing the platform and captures.
  * @param [authorId] - Discord ID of the poster, used to apply
  * {@link TWITTER_FRONTEND_OVERRIDES}. Omit for the default frontends.
  * @returns A transformed URL suitable for reposting.
  */
 export function buildTransformedUrl(match: MediaMatch, authorId?: string): string {
+  // A tracking match's capture is already cleaned from a trimmed URL; trimming
+  // again would eat path punctuation the query was protecting (/Washington,_D.C.?utm=)
+  if (match.which === "tracking") return untrimmedTransformedUrl(match, authorId);
+  const link = trimUrlEnd(untrimmedTransformedUrl(match, authorId));
+  // Pre-embedded links match by path shape on any domain, so a shop's /p/item
+  // can land here; only a known fixer host gets the social share-param rules.
+  if (match.which === "pre-embedded" && !isKnownFixerHost(link)) {
+    return stripTracking(link) ?? link;
+  }
+  return normaliseSocialLink(link);
+}
+
+/**
+ * Embed-fixer hosts whose URLs copy a social platform's, so its share params
+ * mean the same there. Holds the bot's own frontends and the common mirrors
+ * posters paste themselves.
+ */
+const KNOWN_FIXER_HOSTS = new Set<string>([
+  ...Object.values(FRONTENDS),
+  ...INSTAGRAM_FRONTENDS.video,
+  ...INSTAGRAM_FRONTENDS.post,
+  ...TWITTER_HOSTS,
+  "fxtwitter.com",
+  "vxtwitter.com",
+  "fixvx.com",
+  "twittpr.com",
+  "ddinstagram.com",
+  "kkinstagram.com",
+  "instagramez.com",
+  "vxtiktok.com",
+  "tiktxk.com",
+  "rxddit.com",
+  "fxtumblr.com",
+  "bskx.app",
+  "vxthreads.net",
+]);
+
+/**
+ * Whether a link is on a known embed fixer (or a subdomain of one, as in d.tnktok.com).
+ * @param url - The link to check.
+ * @returns `true` for a host in {@link KNOWN_FIXER_HOSTS}.
+ */
+function isKnownFixerHost(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  for (;;) {
+    if (KNOWN_FIXER_HOSTS.has(host)) return true;
+    const dot = host.indexOf(".");
+    if (dot === -1) return false;
+    host = host.slice(dot + 1);
+  }
+}
+
+/**
+ * The per-platform rewrite behind {@link buildTransformedUrl}, before trimming.
+ * @param match - The {@link MediaMatch} describing the platform and captures.
+ * @param [authorId] - Discord ID of the poster, for per-poster frontends.
+ * @returns The transformed URL, possibly with trailing junk.
+ */
+function untrimmedTransformedUrl(match: MediaMatch, authorId?: string): string {
   const [a, b] = match.captures;
   switch (match.which) {
     case "tiktok-short":
@@ -141,9 +214,9 @@ export function buildTransformedUrl(match: MediaMatch, authorId?: string): strin
     case "facebook":
       return `https://${FRONTENDS.facebook}/${a}`;
     case "pre-embedded":
-      // Already on a fixer frontend - keep the poster's link, minus any
-      // tracking params it carries
-      return stripTracking(a) ?? a;
+      // Already on a fixer frontend - keep the poster's link; its share
+      // junk goes in the normalising pass
+      return a;
     case "tracking":
       // a = the URL with its tracking params already stripped (see matchAny)
       return a;
@@ -168,11 +241,14 @@ export function rewriteContent(
   // Inserted through a function, never as a replacement string: "$&", "$'" and
   // "$1" are substitution patterns there, and the link carries whatever the
   // poster's URL path held, so a "$" in it would rewrite to something else.
-  const insert = (): string => newLink;
+  // The junk trimmed off the link's end ("." closing a sentence, ">" of
+  // <link>) was consumed by the match, so it is put back after the new link.
+  const insert = (matched: string): string => newLink + matched.slice(trimUrlEnd(matched).length);
   let rewrittenText: string;
   if (match.literal) {
-    // Tracking matches carry the exact URL - replace it as a plain string.
-    rewrittenText = content.replace(match.literal, insert);
+    // Tracking matches: the cleaning pass below replaces every tracked link
+    // at its own position, so a copy nested in another link is never hit
+    rewrittenText = content;
   } else {
     // Also consume any query/fragment trailing the matched URL - on social
     // links that tail is share-tracking junk (?s=20&t=...) which would
@@ -180,6 +256,9 @@ export function rewriteContent(
     const consuming = new RegExp(`${match.regex.source}(?:[?#]\\S*)?`, match.regex.flags);
     rewrittenText = content.replace(consuming, insert);
   }
+  // Any other links in the message lose their tracking params too, so a
+  // repost never carries the junk forward
+  rewrittenText = cleanAllTracking(rewrittenText);
   log.debug("rewrote content", { which: match.which, newLink });
   return { newLink, rewrittenText };
 }

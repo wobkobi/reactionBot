@@ -13,7 +13,7 @@ const log = createLogger("media/prefs");
 export const PREFS_FILE = "media_prefs.json";
 
 /**
- * Bounds applied when a guild has never run `/setdelay personal`. Members may
+ * Bounds applied when a guild has never run `/setdelay members`. Members may
  * set a preference with no admin setup, on the reasoning that nothing changes
  * for a guild until one of its members actually does.
  */

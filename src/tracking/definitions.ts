@@ -28,7 +28,7 @@ export const MAX_OPTIONS = 5;
 /** Shortest window a question gets, however brisk `/setdelay` is. */
 export const MIN_PROMPT_MS = 5 * 60_000;
 
-/** Longest window short of `/setdelay disabled`, which waits `INDEFINITE_PROMPT_MS`. */
+/** Longest window short of a `/setdelay ask` with no seconds, which waits `INDEFINITE_PROMPT_MS`. */
 export const MAX_PROMPT_MS = 60 * 60_000;
 
 /** How much longer a question runs than the link prompt `/setdelay` sizes. */

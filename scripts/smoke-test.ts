@@ -15,14 +15,14 @@ import { buildHelpFields } from "@/commands/help";
 import { data as joinCommand, mayJoin } from "@/commands/join";
 import { data as kickCommand, mayKick } from "@/commands/kick";
 import { data as myDelay, resolvePref } from "@/commands/mydelay";
-import { mergePersonal, resolveGrace, data as setDelay } from "@/commands/setdelay";
+import { mergePersonal, resolveDelay, data as setDelay } from "@/commands/setdelay";
 import { missingMediaPermissions, data as setMediaChannel } from "@/commands/setmediachannel";
 import { data as slursCommand } from "@/commands/slurs";
 import { data as swearsCommand } from "@/commands/swears";
 import { data as voiceCommand } from "@/commands/voice";
 import { isApproved, requestChoice } from "@/media/approval";
 import { type DeletionLogEntry, pruneDeletionLog } from "@/media/audit";
-import { stripTracking } from "@/media/cleanTracking";
+import { findUrls, stripTracking } from "@/media/cleanTracking";
 import {
   declaredMedia,
   facebedProblem,
@@ -64,7 +64,7 @@ import { findRepostForMessage, getRepost, removeRepost, saveRepost } from "@/med
 import { resolvePlanFor } from "@/media/settings";
 import { buildTransformedUrl, instagramPath, rewriteContent } from "@/media/transform";
 import { MediaSettings } from "@/media/types";
-import { buildFailureNotice } from "@/media/workflow";
+import { buildFailureNotice, cleanPromptText, promptButtons } from "@/media/workflow";
 import { isFreshEdit } from "@/onMessage";
 import { checkReplyLimit } from "@/tracking/calm";
 import { trackerCommand } from "@/tracking/commands";
@@ -509,6 +509,149 @@ function checkLinkTransforms(): void {
     "tracking",
     "generic keys are not treated as trackers",
     stripTracking("https://example.com/p?si=1&ref_url=2&share_id=3&spm=4") === null,
+  );
+  // Kept params must come out byte-for-byte: re-encoding them (a "," to %2C,
+  // %20 to +) can change what the site receives.
+  check(
+    "tracking",
+    "kept params and fragment are not re-encoded",
+    stripTracking("https://example.com/p?q=a,b%20c&utm_source=x&tags=x+y#sec-2") ===
+      "https://example.com/p?q=a,b%20c&tags=x+y#sec-2",
+  );
+  check(
+    "tracking",
+    "si is share tracking on YouTube and Spotify only",
+    stripTracking("https://youtu.be/abc?si=XYZ&t=42") === "https://youtu.be/abc?t=42" &&
+      stripTracking("https://open.spotify.com/track/1?si=abc") ===
+        "https://open.spotify.com/track/1" &&
+      stripTracking("https://www.youtube.com/watch?v=abc&t=42") === null,
+  );
+  check(
+    "tracking",
+    "Amazon ref junk goes, the variant pick stays",
+    stripTracking("https://www.amazon.com/dp/B0ABC/ref=sr_1_1?crid=X&qid=1&sr=8-1&psc=1&th=1") ===
+      "https://www.amazon.com/dp/B0ABC?psc=1&th=1",
+  );
+  check(
+    "tracking",
+    "_gl, gad_source, srsltid and HubSpot keys are stripped",
+    stripTracking(
+      "https://shop.example/p?id=1&_gl=1*abc&gad_source=1&srsltid=x&__hstc=1&hsa_acc=2",
+    ) === "https://shop.example/p?id=1",
+  );
+  check(
+    "tracking",
+    "URLs come out of <>, ||spoilers||, markdown and parentheses whole",
+    findUrls(
+      "<https://a.example/?x=1> ||https://b.example/p|| (see https://c.example/q) " +
+        "[t](https://d.example/r) https://en.wikipedia.org/wiki/Foo_(bar).",
+    ).join(" ") ===
+      "https://a.example/?x=1 https://b.example/p https://c.example/q " +
+        "https://d.example/r https://en.wikipedia.org/wiki/Foo_(bar)",
+  );
+  check(
+    "tracking",
+    "a tracking clean cleans every tracked link in the message",
+    (() => {
+      const text = "a https://a.example/?utm_source=1 b <https://b.example/?fbclid=2&k=v>";
+      const m = matchAny(text);
+      return (
+        m?.which === "tracking" &&
+        rewriteContent(text, m).rewrittenText === "a https://a.example/ b <https://b.example/?k=v>"
+      );
+    })(),
+  );
+  // The Copy button replies with newLink alone, so it must be the bare link
+  // even when the poster's text has punctuation or <> right against it.
+  const copyCases: Array<[string, string, string]> = [
+    [
+      "<https://fixupx.com/u/status/1>",
+      "https://fixupx.com/u/status/1",
+      "<https://fixupx.com/u/status/1>",
+    ],
+    [
+      "see https://blog.tumblr.com/post/123/slug.",
+      "https://blog.tpmblr.com/post/123/slug",
+      "see https://blog.tpmblr.com/post/123/slug.",
+    ],
+    [
+      "(https://www.reddit.com/r/a/comments/b/c/?utm_source=x)",
+      "https://vxreddit.com/r/a/comments/b/c",
+      "(https://vxreddit.com/r/a/comments/b/c)",
+    ],
+    [
+      "https://x.com/u/status/1?s=20!",
+      "https://fixupx.com/u/status/1/en",
+      "https://fixupx.com/u/status/1/en!",
+    ],
+  ];
+  for (const [input, link, text] of copyCases) {
+    const m = matchAny(input);
+    const r = m ? rewriteContent(input, m) : null;
+    check(
+      "tracking",
+      `copy link is bare for ${input}`,
+      r?.newLink === link && r.rewrittenText === text,
+    );
+  }
+  // Findings from review: each of these used to come out wrong
+  const dc = "https://en.wikipedia.org/wiki/Washington,_D.C.?utm_source=x";
+  const dcMatch = matchAny(dc);
+  check(
+    "tracking",
+    "path punctuation before a tracking query survives",
+    dcMatch !== null &&
+      rewriteContent(dc, dcMatch).newLink === "https://en.wikipedia.org/wiki/Washington,_D.C.",
+  );
+  const shop = "https://shop.example.com/p/widget?s=large&t=red&id=3";
+  const shopMatch = matchAny(shop);
+  check(
+    "tracking",
+    "a post-shaped path on an unknown host keeps its s/t params",
+    shopMatch !== null && buildTransformedUrl(shopMatch) === shop,
+  );
+  const nested =
+    "https://r.example.com/go?u=https://a.com/?fbclid=1&sig=abc and https://a.com/?fbclid=1";
+  const nestedMatch = matchAny(nested);
+  check(
+    "tracking",
+    "a link nested in another link's query is left alone",
+    nestedMatch !== null &&
+      rewriteContent(nested, nestedMatch).rewrittenText ===
+        "https://r.example.com/go?u=https://a.com/?fbclid=1&sig=abc and https://a.com/",
+  );
+  // Every platform's link comes out in one shape: no share params, no
+  // fragment, no trailing slash. Functional params are kept.
+  const shapeCases: Array<[string, string]> = [
+    [
+      "https://old.reddit.com/r/a/comments/b/c/?share_id=x#thing",
+      "https://vxreddit.com/r/a/comments/b/c",
+    ],
+    ["https://www.tumblr.com/blog/123/slug?source=share#notes", "https://tpmblr.com/blog/123/slug"],
+    ["https://blog.tumblr.com/post/123/", "https://blog.tpmblr.com/post/123"],
+    ["https://fixupx.com/u/status/1/?s=20&t=abc", "https://fixupx.com/u/status/1"],
+    ["https://tnktok.com/@a/video/123?is_from_webapp=1", "https://tnktok.com/@a/video/123"],
+    [
+      "https://www.facebook.com/permalink.php?story_fbid=1&id=2&mibextid=x",
+      "https://facebed.com/permalink.php?story_fbid=1&id=2",
+    ],
+  ];
+  for (const [input, link] of shapeCases) {
+    const m = matchAny(input);
+    check("transforms", `${input} normalises`, m !== null && buildTransformedUrl(m) === link);
+  }
+  check(
+    "tracking",
+    "a media move also cleans the other links it carries",
+    (() => {
+      const text = "https://x.com/u/status/1 and https://shop.example/p?utm_source=x";
+      const m = matchAny(text);
+      return (
+        m !== null &&
+        rewriteContent(text, m).rewrittenText ===
+          "https://fixupx.com/u/status/1/en and https://shop.example/p"
+      );
+    })(),
   );
   const tracked = matchAny("look https://example.com/article?utm_source=news&fbclid=abc123&id=7");
   check(
@@ -1108,6 +1251,42 @@ async function checkRepostFailureReporting(): Promise<void> {
     "repost",
     "a same-channel failure names no channel",
     !buildFailureNotice(null, true).includes("<#"),
+  );
+
+  // Every link prompt shares one button shape, so the same answer sits in the
+  // same place with the same id whichever prompt it is.
+  const shapes = (["Move", "Rewrite", "Clean"] as const).flatMap((action) =>
+    [false, true].map((countdown) => promptButtons(action, countdown)),
+  );
+  check(
+    "repost",
+    "every prompt's buttons share ids, order and colours",
+    shapes.every(
+      (row) =>
+        row.map((b) => `${b.id}:${b.style}`).join() ===
+        shapes[0].map((b) => `${b.id}:${b.style}`).join(),
+    ),
+  );
+  check(
+    "repost",
+    "prompt buttons name their action, and a countdown skips the wait",
+    promptButtons("Move", false)
+      .map((b) => b.label)
+      .join() === "Move,Copy,No" &&
+      promptButtons("Rewrite", true)
+        .map((b) => b.label)
+        .join() === "Rewrite now,Copy,Cancel" &&
+      promptButtons("Clean", false)[0].label === "Clean",
+  );
+  check(
+    "repost",
+    "the clean prompt counts the links it will clean",
+    cleanPromptText("https://a.example/?utm_source=1 https://b.example/?id=2").endsWith(
+      "your link?",
+    ) &&
+      cleanPromptText("https://a.example/?utm_source=1 https://b.example/?fbclid=2").endsWith(
+        "your links?",
+      ),
   );
 }
 
@@ -1733,13 +1912,51 @@ function checkReactions(): void {
 }
 
 /**
- * Verifies the /setdelay conversion: a seconds value is stored as milliseconds
- * (the unit the approval pipeline expects), and the special modes pass through.
+ * Verifies the /setdelay conversion: seconds are stored as milliseconds (the
+ * unit the approval pipeline expects), countdown is flagged, and an ask with
+ * no seconds is the wait-as-long-as-allowed grace.
  */
 function checkGrace(): void {
-  check("grace", "30 seconds -> 30000 ms", resolveGrace("seconds", 30) === 30_000);
-  check("grace", "instant passes through", resolveGrace("instant") === "instant");
-  check("grace", "disabled passes through", resolveGrace("disabled") === "disabled");
+  const same = (a: object, b: object): boolean => JSON.stringify(a) === JSON.stringify(b);
+  check(
+    "grace",
+    "ask 30 -> 30000 ms, no countdown",
+    same(resolveDelay("ask", 30), { grace: 30_000, countdown: false }),
+  );
+  check(
+    "grace",
+    "ask with no seconds waits as long as allowed",
+    same(resolveDelay("ask", null), { grace: "disabled", countdown: false }),
+  );
+  check(
+    "grace",
+    "countdown 20 -> 20000 ms, counting down",
+    same(resolveDelay("countdown", 20), { grace: 20_000, countdown: true }),
+  );
+  check(
+    "grace",
+    "instant passes through",
+    same(resolveDelay("instant"), { grace: "instant", countdown: false }),
+  );
+  const serverCountdown = resolvePlanFor({ grace: 20_000, countdown: true }, undefined, false);
+  check(
+    "grace",
+    "a server countdown moves on silence, with Move now wording",
+    serverCountdown?.approveOnTimeout === true &&
+      serverCountdown.timeoutMs === 20_000 &&
+      serverCountdown.promptText.includes("Move now"),
+  );
+  check(
+    "grace",
+    "a member's ask under a server countdown is worded as a question",
+    resolvePlanFor({ grace: 20_000, countdown: true }, { mode: "ask", seconds: 10 }, false)
+      ?.promptText === "Move your link to the media channel?",
+  );
+  check(
+    "grace",
+    "a server countdown leaves same-channel rewrites on their fixed prompt",
+    resolvePlanFor({ grace: 20_000, countdown: true }, undefined, true)?.approveOnTimeout === false,
+  );
 }
 
 /**
@@ -2631,7 +2848,7 @@ function checkMemberPrefs(): void {
     resolvePref("countdown", 45).seconds === 45 && resolvePref("instant").seconds === undefined,
   );
 
-  // Every /setdelay personal option is optional, so an admin can tighten one
+  // Every /setdelay members option is optional, so an admin can tighten one
   // bound without restating the others.
   check(
     "prefs",
@@ -2652,14 +2869,17 @@ function checkMemberPrefs(): void {
     "prefs",
     "/mydelay registers its subcommands",
     mine.name === "mydelay" &&
-      ["instant", "countdown", "ask", "never", "show", "clear"].every((n) => subs.includes(n)),
+      ["instant", "countdown", "ask", "never", "show", "reset"].every((n) => subs.includes(n)),
   );
+  // The two commands share their mode names, so a mode means one thing
+  const serverSubs = (setDelay.toJSON().options ?? [])
+    .filter((o) => o.type === ApplicationCommandOptionType.Subcommand)
+    .map((o) => o.name);
   check(
     "prefs",
-    "/setdelay gains a personal subcommand",
-    (setDelay.toJSON().options ?? []).some(
-      (o) => o.type === ApplicationCommandOptionType.Subcommand && o.name === "personal",
-    ),
+    "/setdelay uses the /mydelay mode names, plus members",
+    ["instant", "countdown", "ask", "members"].every((n) => serverSubs.includes(n)) &&
+      serverSubs.length === 4,
   );
 }
 
