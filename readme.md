@@ -107,9 +107,9 @@ actually run, marking admin entries 🔒.
 | Command                                                | What it does                                                  |
 | ------------------------------------------------------ | ------------------------------------------------------------- |
 | `/setmediachannel [channel]`                           | Where media links get reposted; empty clears it (admin)       |
-| `/setdelay instant\|seconds\|disabled`                 | How long the author gets to answer the prompt (admin)         |
-| `/setdelay personal`                                   | What members may set for themselves (admin)                   |
-| `/mydelay instant\|countdown\|ask\|never\|show\|clear` | Your own links only                                           |
+| `/setdelay instant\|countdown\|ask`                    | How links get moved by default (admin)                        |
+| `/setdelay members`                                    | What members may set for themselves (admin)                   |
+| `/mydelay instant\|countdown\|ask\|never\|show\|reset` | The same, for your own links only                             |
 | `/calmdown start\|stop\|auto\|limit`                   | Pause or cap replies; reactions and counting continue (admin) |
 | `/help`                                                | List the commands you can run                                 |
 

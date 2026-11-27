@@ -4,6 +4,7 @@
 // responsibilities across match/transform/settings/approval/repost/audit.
 
 import { ChoiceButton, isApproved, requestChoice } from "@/media/approval";
+import { findUrls, stripTracking } from "@/media/cleanTracking";
 import { facebedProblem, pickInstagramFrontend } from "@/media/embedCheck";
 import { buildFacebookEmbed, fetchFacebookPreview } from "@/media/facebookPreview";
 import { fetchInstagramCaption, formatCaption } from "@/media/instagramCaption";
@@ -18,32 +19,36 @@ import { ButtonStyle, GuildTextBasedChannel, Message } from "discord.js";
 
 const log = createLogger("media/workflow");
 
-/**
- * Buttons on the tracking-clean prompt. "Repost" is the move-and-rewrite path
- * shared with media links.
- */
-const CLEAN_BUTTONS: ChoiceButton[] = [
-  { id: "yes", label: "Repost", emoji: "♻️", style: ButtonStyle.Primary },
-  { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
-  { id: "no", label: "No", style: ButtonStyle.Danger },
-];
-
-/** Buttons on the media prompt, both when moving channels and rewriting in place. */
-const MEDIA_BUTTONS: ChoiceButton[] = [
-  { id: "yes", label: "Yes", style: ButtonStyle.Success },
-  { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
-  { id: "no", label: "No", style: ButtonStyle.Danger },
-];
+/** What a prompt's go-ahead does, which names its first button. */
+type PromptAction = "Move" | "Rewrite" | "Clean";
 
 /**
- * Buttons on a countdown prompt, where silence means yes and the only answer
- * that changes anything is a refusal. Cancel carries the id "no", so the
- * negative answer is one id across both button sets and only the label differs.
+ * Buttons for every link prompt, in one shape: the go-ahead named for what it
+ * does, Copy, then the refusal. On a countdown, where silence already means
+ * yes, the go-ahead skips the wait ("Move now") and the refusal reads Cancel.
+ * The ids stay "yes"/"copy"/"no" on every prompt, so only the labels differ.
+ * @param action - What approving does.
+ * @param countdown - Whether the prompt goes ahead on its own when the time runs out.
+ * @returns The prompt's buttons, in display order.
  */
-const COUNTDOWN_BUTTONS: ChoiceButton[] = [
-  { id: "no", label: "Cancel", style: ButtonStyle.Danger },
-  { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
-];
+export function promptButtons(action: PromptAction, countdown: boolean): ChoiceButton[] {
+  return [
+    { id: "yes", label: countdown ? `${action} now` : action, style: ButtonStyle.Success },
+    { id: "copy", label: "Copy", emoji: "📋", style: ButtonStyle.Secondary },
+    { id: "no", label: countdown ? "Cancel" : "No", style: ButtonStyle.Danger },
+  ];
+}
+
+/**
+ * Wording for the tracking-clean prompt. Every tracked link in the message
+ * gets cleaned, so the prompt says "links" when there is more than one.
+ * @param content - The poster's message.
+ * @returns The prompt text.
+ */
+export function cleanPromptText(content: string): string {
+  const tracked = new Set(findUrls(content).filter((url) => stripTracking(url) !== null));
+  return `Clean the tracking junk out of your ${tracked.size > 1 ? "links" : "link"}?`;
+}
 
 /**
  * Wording for a move that could not be made. The poster approved something
@@ -184,7 +189,7 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     });
     return;
   }
-  if (isTrackingClean) plan.promptText = "Clean the tracking junk out of your link?";
+  if (isTrackingClean) plan.promptText = cleanPromptText(message.content);
 
   // Auto-approve or ask. Every prompt offers a third option: hand the poster
   // the rewritten link privately and leave their message untouched. Tracking
@@ -195,7 +200,10 @@ export async function handleMediaMessage(message: Message): Promise<void> {
     const outcome = await requestChoice(
       source,
       message.author,
-      isTrackingClean ? CLEAN_BUTTONS : plan.approveOnTimeout ? COUNTDOWN_BUTTONS : MEDIA_BUTTONS,
+      promptButtons(
+        isTrackingClean ? "Clean" : sameChannel ? "Rewrite" : "Move",
+        plan.approveOnTimeout,
+      ),
       {
         prompt: plan.promptText,
         grace: plan.persistIndefinitely ? "disabled" : (plan.timeoutMs ?? 10_000),

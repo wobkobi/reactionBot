@@ -2,7 +2,7 @@
 
 // Detects supported media URLs inside message content.
 
-import { stripTracking } from "@/media/cleanTracking";
+import { findUrls, stripTracking } from "@/media/cleanTracking";
 import { MediaMatch, ServiceKey } from "@/media/types";
 import {
   BLUESKY_REGEX,
@@ -56,8 +56,7 @@ export function matchAny(content: string): MediaMatch | null {
   // No platform/fixer hit: offer a tracking-junk clean for any other link.
   // The exact URL is carried as `literal` so rewriteContent can replace it
   // as a plain string (never a content-derived regex).
-  for (const m of content.matchAll(/https?:\/\/\S+/g)) {
-    const url = m[0].replace(/[),.!?;:]+$/, "");
+  for (const url of findUrls(content)) {
     const cleaned = stripTracking(url);
     if (cleaned && cleaned !== url) {
       log.debug("matched", { which: "tracking" });
